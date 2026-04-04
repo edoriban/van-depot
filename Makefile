@@ -6,7 +6,7 @@ CARGO := cargo
 PNPM := pnpm
 DOCKER_COMPOSE := docker compose
 
-BACKEND_PORT := 3000
+BACKEND_PORT := 3100
 FRONTEND_PORT := 3001
 
 # Colors for output (printf-safe, BSD-compatible)

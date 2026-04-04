@@ -1,25 +1,14 @@
 use std::env;
 
-use axum::{Json, Router, routing::get};
-use serde::Serialize;
+use axum::{Router, routing::get};
 use tokio::net::TcpListener;
 use tower_http::cors::CorsLayer;
 use tracing_subscriber::EnvFilter;
 
-#[derive(Serialize)]
-struct HealthResponse {
-    status: &'static str,
-    service: &'static str,
-    version: &'static str,
-}
-
-async fn health_check() -> Json<HealthResponse> {
-    Json(HealthResponse {
-        status: "ok",
-        service: "vandepot-api",
-        version: "0.1.0",
-    })
-}
+mod error;
+mod extractors;
+mod routes;
+mod state;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -29,9 +18,28 @@ async fn main() -> anyhow::Result<()> {
         .with_env_filter(EnvFilter::from_default_env())
         .init();
 
+    let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
+    let redis_url =
+        env::var("REDIS_URL").unwrap_or_else(|_| "redis://localhost:6381".to_string());
+
+    let pool = vandepot_infra::db::create_pool(&database_url).await?;
+    let redis = vandepot_infra::redis::create_redis_pool(&redis_url).await?;
+    let jwt_config = vandepot_infra::auth::jwt::JwtConfig::from_env()?;
+
+    // Seed superadmin
+    vandepot_infra::seed::seed_superadmin(&pool).await?;
+
+    let state = state::AppState {
+        pool,
+        redis,
+        jwt_config,
+    };
+
     let app = Router::new()
-        .route("/health", get(health_check))
-        .layer(CorsLayer::permissive());
+        .route("/health", get(routes::health::health))
+        .merge(routes::auth::auth_routes())
+        .layer(CorsLayer::permissive())
+        .with_state(state);
 
     let host = env::var("API_HOST").unwrap_or_else(|_| "0.0.0.0".into());
     let port = env::var("BACKEND_PORT").unwrap_or_else(|_| "3000".into());
