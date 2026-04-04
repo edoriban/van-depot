@@ -7,6 +7,7 @@ use tracing_subscriber::EnvFilter;
 
 mod error;
 mod extractors;
+mod pagination;
 mod routes;
 mod state;
 
@@ -38,6 +39,11 @@ async fn main() -> anyhow::Result<()> {
     let app = Router::new()
         .route("/health", get(routes::health::health))
         .merge(routes::auth::auth_routes())
+        .merge(routes::warehouses::warehouse_routes())
+        .merge(routes::locations::location_routes())
+        .merge(routes::categories::category_routes())
+        .merge(routes::products::product_routes())
+        .merge(routes::suppliers::supplier_routes())
         .layer(CorsLayer::permissive())
         .with_state(state);
 

@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
+#[serde(rename_all = "snake_case")]
 #[sqlx(type_name = "user_role", rename_all = "snake_case")]
 pub enum UserRole {
     Superadmin,
@@ -10,6 +11,7 @@ pub enum UserRole {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
+#[serde(rename_all = "snake_case")]
 #[sqlx(type_name = "unit_type", rename_all = "snake_case")]
 pub enum UnitType {
     Piece,
@@ -24,6 +26,7 @@ pub enum UnitType {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
+#[serde(rename_all = "snake_case")]
 #[sqlx(type_name = "movement_type", rename_all = "snake_case")]
 pub enum MovementType {
     Entry,
@@ -33,6 +36,7 @@ pub enum MovementType {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
+#[serde(rename_all = "snake_case")]
 #[sqlx(type_name = "location_type", rename_all = "snake_case")]
 pub enum LocationType {
     Zone,

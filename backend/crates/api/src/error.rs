@@ -14,6 +14,7 @@ impl IntoResponse for ApiError {
             DomainError::Validation(msg) => (StatusCode::UNPROCESSABLE_ENTITY, msg.clone()),
             DomainError::AuthError(msg) => (StatusCode::UNAUTHORIZED, msg.clone()),
             DomainError::Forbidden(msg) => (StatusCode::FORBIDDEN, msg.clone()),
+            DomainError::Conflict(msg) => (StatusCode::CONFLICT, msg.clone()),
             DomainError::Internal(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg.clone()),
         };
         (status, Json(json!({ "error": message }))).into_response()

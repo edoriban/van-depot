@@ -8,6 +8,8 @@ use vandepot_domain::models::enums::UserRole;
 use vandepot_domain::models::user::User;
 use vandepot_domain::ports::user_repository::UserRepository;
 
+use super::shared::map_sqlx_error;
+
 /// Internal row representation for sqlx `FromRow` derivation.
 /// Avoids the `query_as!` macro which requires a live `DATABASE_URL` at compile time.
 #[derive(sqlx::FromRow)]
@@ -114,18 +116,3 @@ pub async fn get_user_warehouse_ids(
     Ok(ids)
 }
 
-/// Maps sqlx database errors to domain errors.
-fn map_sqlx_error(err: sqlx::Error) -> DomainError {
-    match &err {
-        sqlx::Error::Database(db_err) => {
-            // PostgreSQL unique-violation error code
-            if db_err.code().as_deref() == Some("23505") {
-                DomainError::Duplicate(db_err.message().to_string())
-            } else {
-                DomainError::Internal(err.to_string())
-            }
-        }
-        sqlx::Error::RowNotFound => DomainError::NotFound("entity not found".to_string()),
-        _ => DomainError::Internal(err.to_string()),
-    }
-}
