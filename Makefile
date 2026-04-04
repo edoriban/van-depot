@@ -24,15 +24,14 @@ all: help
 
 workspace:
 	@printf "$(BLUE)Starting dev workspace...$(NC)\n"
-	@if zellij list-sessions 2>/dev/null | grep -q "vandepot"; then \
-		zellij attach vandepot; \
-	else \
-		zellij --session vandepot --new-session-with-layout dev.kdl; \
-	fi
+	@zellij kill-session vandepot 2>/dev/null || true
+	@zellij delete-session vandepot 2>/dev/null || true
+	@zellij --session vandepot --new-session-with-layout dev.kdl
 
 kill:
 	@printf "$(YELLOW)Killing workspace...$(NC)\n"
 	@zellij kill-session vandepot 2>/dev/null || printf "No active session 'vandepot' to kill.\n"
+	@zellij delete-session vandepot 2>/dev/null || true
 
 # --- Development ---
 
