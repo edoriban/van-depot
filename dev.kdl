@@ -1,0 +1,27 @@
+layout {
+    cwd "/root/projects/vandev/van-depot"
+
+    tab name="code" focus=true {
+        pane split_direction="vertical" {
+            pane name="editor" size="60%" command="bash" {
+                args "-c" "${EDITOR:-nvim} ."
+            }
+            pane name="git" size="40%" command="lazygit"
+        }
+    }
+
+    tab name="claude" {
+        pane name="claude"
+    }
+
+    tab name="servers" {
+        pane split_direction="horizontal" {
+            pane name="backend" command="bash" {
+                args "-c" "make docker-up && make backend"
+            }
+            pane name="frontend" command="make" {
+                args "frontend"
+            }
+        }
+    }
+}
