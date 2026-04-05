@@ -1,9 +1,12 @@
 pub mod auth;
 pub mod categories;
+pub mod cycle_counts;
+pub mod dashboard;
 pub mod health;
 pub mod inventory;
 pub mod locations;
 pub mod movements;
 pub mod products;
 pub mod suppliers;
+pub mod users;
 pub mod warehouses;

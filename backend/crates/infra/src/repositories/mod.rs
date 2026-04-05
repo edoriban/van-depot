@@ -1,4 +1,6 @@
 pub mod category_repo;
+pub mod cycle_count_repo;
+pub mod dashboard_repo;
 pub mod inventory_repo;
 pub mod location_repo;
 pub mod product_repo;
@@ -8,6 +10,7 @@ pub mod user_repo;
 pub mod warehouse_repo;
 
 pub use category_repo::PgCategoryRepository;
+pub use cycle_count_repo::PgCycleCountRepository;
 pub use inventory_repo::PgInventoryService;
 pub use location_repo::PgLocationRepository;
 pub use product_repo::PgProductRepository;

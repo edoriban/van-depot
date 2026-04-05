@@ -8,3 +8,4 @@ pub mod supplier;
 pub mod inventory;
 pub mod inventory_params;
 pub mod movement;
+pub mod cycle_count;

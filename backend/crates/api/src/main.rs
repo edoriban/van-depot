@@ -40,12 +40,15 @@ async fn main() -> anyhow::Result<()> {
         .route("/health", get(routes::health::health))
         .merge(routes::auth::auth_routes())
         .merge(routes::warehouses::warehouse_routes())
+        .merge(routes::users::user_routes())
         .merge(routes::locations::location_routes())
         .merge(routes::categories::category_routes())
         .merge(routes::products::product_routes())
         .merge(routes::suppliers::supplier_routes())
         .merge(routes::movements::movement_routes())
         .merge(routes::inventory::inventory_routes())
+        .merge(routes::cycle_counts::cycle_count_routes())
+        .merge(routes::dashboard::dashboard_routes())
         .layer(CorsLayer::permissive())
         .with_state(state);
 
