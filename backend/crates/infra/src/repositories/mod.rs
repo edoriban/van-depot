@@ -1,4 +1,5 @@
 pub mod category_repo;
+pub mod inventory_repo;
 pub mod location_repo;
 pub mod product_repo;
 pub mod shared;
@@ -7,6 +8,7 @@ pub mod user_repo;
 pub mod warehouse_repo;
 
 pub use category_repo::PgCategoryRepository;
+pub use inventory_repo::PgInventoryService;
 pub use location_repo::PgLocationRepository;
 pub use product_repo::PgProductRepository;
 pub use supplier_repo::PgSupplierRepository;

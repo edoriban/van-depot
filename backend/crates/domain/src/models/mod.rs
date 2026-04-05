@@ -6,4 +6,5 @@ pub mod category;
 pub mod product;
 pub mod supplier;
 pub mod inventory;
+pub mod inventory_params;
 pub mod movement;
