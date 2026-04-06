@@ -4,11 +4,13 @@ import { useState, useEffect, useCallback } from 'react';
 import { api } from '@/lib/api-mutations';
 import type { Product, Category, PaginatedResponse, UnitType } from '@/types';
 import { DataTable, type ColumnDef } from '@/components/shared/data-table';
+import { EmptyState } from '@/components/shared/empty-state';
 import { ConfirmDialog } from '@/components/shared/confirm-dialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Package01Icon } from '@hugeicons/core-free-icons';
 import {
   Select,
   SelectContent,
@@ -303,6 +305,15 @@ export default function ProductosPage() {
         onPageChange={setPage}
         isLoading={isLoading}
         emptyMessage="No hay productos registrados"
+        emptyState={
+          <EmptyState
+            icon={Package01Icon}
+            title="Aun no tienes productos registrados"
+            description="Agrega tu primer producto para empezar a controlar tu stock."
+            actionLabel="Nuevo producto"
+            onAction={openCreateDialog}
+          />
+        }
       />
 
       {/* Create / Edit Dialog */}

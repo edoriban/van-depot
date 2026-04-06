@@ -4,11 +4,13 @@ import { useState, useEffect } from 'react';
 import { api } from '@/lib/api-mutations';
 import type { Warehouse, PaginatedResponse } from '@/types';
 import { DataTable, type ColumnDef } from '@/components/shared/data-table';
+import { EmptyState } from '@/components/shared/empty-state';
 import { ConfirmDialog } from '@/components/shared/confirm-dialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Store01Icon } from '@hugeicons/core-free-icons';
 import {
   Dialog,
   DialogContent,
@@ -186,6 +188,15 @@ export default function AlmacenesPage() {
         onPageChange={setPage}
         isLoading={isLoading}
         emptyMessage="No hay almacenes registrados"
+        emptyState={
+          <EmptyState
+            icon={Store01Icon}
+            title="Aun no tienes almacenes"
+            description="Crea tu primer almacen para organizar tu inventario."
+            actionLabel="Nuevo almacen"
+            onAction={openCreateDialog}
+          />
+        }
       />
 
       {/* Create / Edit Dialog */}

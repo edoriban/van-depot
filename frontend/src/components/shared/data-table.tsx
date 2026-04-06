@@ -26,6 +26,7 @@ interface DataTableProps<T> {
   onPageChange: (page: number) => void;
   isLoading?: boolean;
   emptyMessage?: string;
+  emptyState?: React.ReactNode;
 }
 
 export function DataTable<T>({
@@ -37,6 +38,7 @@ export function DataTable<T>({
   onPageChange,
   isLoading = false,
   emptyMessage = 'No hay datos registrados',
+  emptyState,
 }: DataTableProps<T>) {
   const totalPages = Math.ceil(total / perPage);
 
@@ -70,6 +72,9 @@ export function DataTable<T>({
   }
 
   if (data.length === 0) {
+    if (emptyState) {
+      return <>{emptyState}</>;
+    }
     return (
       <div className="flex flex-col items-center justify-center rounded-4xl border py-16">
         <p className="text-muted-foreground">{emptyMessage}</p>

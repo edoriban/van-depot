@@ -4,7 +4,9 @@ import { useState, useEffect, useCallback } from 'react';
 import { api } from '@/lib/api-mutations';
 import type { InventoryItem, Warehouse, Location, PaginatedResponse } from '@/types';
 import { DataTable, type ColumnDef } from '@/components/shared/data-table';
+import { EmptyState } from '@/components/shared/empty-state';
 import { Badge } from '@/components/ui/badge';
+import { ClipboardIcon } from '@hugeicons/core-free-icons';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -297,6 +299,15 @@ export default function InventoryPage() {
         onPageChange={setPage}
         isLoading={isLoading}
         emptyMessage="No hay registros de inventario"
+        emptyState={
+          <EmptyState
+            icon={ClipboardIcon}
+            title="No hay inventario registrado"
+            description="Registra una entrada de material para ver el stock aqui."
+            actionLabel="Ir a movimientos"
+            actionHref="/movements"
+          />
+        }
       />
     </div>
   );

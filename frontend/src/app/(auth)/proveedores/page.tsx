@@ -4,10 +4,12 @@ import { useState, useEffect, useCallback } from 'react';
 import { api } from '@/lib/api-mutations';
 import type { Supplier, PaginatedResponse } from '@/types';
 import { DataTable, type ColumnDef } from '@/components/shared/data-table';
+import { EmptyState } from '@/components/shared/empty-state';
 import { ConfirmDialog } from '@/components/shared/confirm-dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { DeliveryTruck01Icon } from '@hugeicons/core-free-icons';
 import {
   Dialog,
   DialogContent,
@@ -195,6 +197,15 @@ export default function ProveedoresPage() {
         onPageChange={setPage}
         isLoading={isLoading}
         emptyMessage="No hay proveedores registrados"
+        emptyState={
+          <EmptyState
+            icon={DeliveryTruck01Icon}
+            title="Aun no tienes proveedores"
+            description="Registra a tus proveedores para un mejor control."
+            actionLabel="Nuevo proveedor"
+            onAction={openCreateDialog}
+          />
+        }
       />
 
       {/* Create / Edit Dialog */}

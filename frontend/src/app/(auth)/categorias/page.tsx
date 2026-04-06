@@ -4,10 +4,12 @@ import { useState, useEffect, useCallback } from 'react';
 import { api } from '@/lib/api-mutations';
 import type { Category, PaginatedResponse } from '@/types';
 import { DataTable, type ColumnDef } from '@/components/shared/data-table';
+import { EmptyState } from '@/components/shared/empty-state';
 import { ConfirmDialog } from '@/components/shared/confirm-dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Tag01Icon } from '@hugeicons/core-free-icons';
 import {
   Select,
   SelectContent,
@@ -210,6 +212,15 @@ export default function CategoriasPage() {
         onPageChange={setPage}
         isLoading={isLoading}
         emptyMessage="No hay categorias registradas"
+        emptyState={
+          <EmptyState
+            icon={Tag01Icon}
+            title="Aun no tienes categorias"
+            description="Crea categorias para organizar tus productos."
+            actionLabel="Nueva categoria"
+            onAction={openCreateDialog}
+          />
+        }
       />
 
       {/* Create / Edit Dialog */}

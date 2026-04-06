@@ -12,7 +12,9 @@ import type {
   PaginatedResponse,
 } from '@/types';
 import { DataTable, type ColumnDef } from '@/components/shared/data-table';
+import { EmptyState } from '@/components/shared/empty-state';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { ArrowDataTransferHorizontalIcon } from '@hugeicons/core-free-icons';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -824,6 +826,13 @@ export default function MovementsPage() {
           onPageChange={setPage}
           isLoading={isLoading}
           emptyMessage="No hay movimientos registrados"
+          emptyState={
+            <EmptyState
+              icon={ArrowDataTransferHorizontalIcon}
+              title="Aun no hay movimientos registrados"
+              description="Registra tu primera entrada de material usando el formulario de arriba."
+            />
+          }
         />
       </div>
     </div>

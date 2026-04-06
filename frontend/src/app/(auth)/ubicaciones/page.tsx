@@ -4,11 +4,13 @@ import { useState, useEffect } from 'react';
 import { api } from '@/lib/api-mutations';
 import type { Location, Warehouse, PaginatedResponse, LocationType } from '@/types';
 import { DataTable, type ColumnDef } from '@/components/shared/data-table';
+import { EmptyState } from '@/components/shared/empty-state';
 import { ConfirmDialog } from '@/components/shared/confirm-dialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Location01Icon } from '@hugeicons/core-free-icons';
 import {
   Select,
   SelectContent,
@@ -319,6 +321,15 @@ export default function UbicacionesPage() {
         onPageChange={setPage}
         isLoading={isLoading}
         emptyMessage="No hay ubicaciones registradas"
+        emptyState={
+          <EmptyState
+            icon={Location01Icon}
+            title="Aun no tienes ubicaciones"
+            description="Crea zonas y estantes para saber donde esta cada cosa."
+            actionLabel={selectedWarehouseId ? 'Nueva ubicacion' : undefined}
+            onAction={selectedWarehouseId ? openCreateDialog : undefined}
+          />
+        }
       />
 
       {/* Create / Edit Dialog */}

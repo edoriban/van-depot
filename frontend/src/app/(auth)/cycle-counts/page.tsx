@@ -5,7 +5,9 @@ import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api-mutations';
 import type { Warehouse, PaginatedResponse, CycleCountStatus } from '@/types';
 import { DataTable, type ColumnDef } from '@/components/shared/data-table';
+import { EmptyState } from '@/components/shared/empty-state';
 import { ConfirmDialog } from '@/components/shared/confirm-dialog';
+import { CheckListIcon } from '@hugeicons/core-free-icons';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -323,6 +325,15 @@ export default function CycleCountsPage() {
         onPageChange={setPage}
         isLoading={isLoading}
         emptyMessage="No hay conteos registrados"
+        emptyState={
+          <EmptyState
+            icon={CheckListIcon}
+            title="Aun no hay conteos"
+            description="Crea tu primer conteo ciclico para verificar tu inventario."
+            actionLabel="Nuevo conteo"
+            onAction={() => setCreateOpen(true)}
+          />
+        }
       />
 
       {/* Create Dialog */}

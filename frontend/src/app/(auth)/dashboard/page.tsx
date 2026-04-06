@@ -6,6 +6,7 @@ import { api } from '@/lib/api-mutations';
 import type { DashboardStats, MovementType, AlertSummary } from '@/types';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   Table,
@@ -23,6 +24,9 @@ import {
   Alert02Icon,
   ArrowDataTransferHorizontalIcon,
   Calendar01Icon,
+  ArrowDown01Icon,
+  ArrowUp01Icon,
+  Search01Icon,
 } from '@hugeicons/core-free-icons';
 import { cn } from '@/lib/utils';
 import Link from 'next/link';
@@ -82,15 +86,57 @@ interface KpiConfig {
   description: string;
   icon: typeof Package01Icon;
   isWarning?: boolean;
+  href: string;
 }
 
 const kpiCards: KpiConfig[] = [
-  { key: 'total_products', label: 'Total Productos', description: 'Productos registrados', icon: Package01Icon },
-  { key: 'total_warehouses', label: 'Total Almacenes', description: 'Almacenes activos', icon: Store01Icon },
-  { key: 'total_stock_items', label: 'Items en Stock', description: 'Items con existencia', icon: ClipboardIcon },
-  { key: 'low_stock_count', label: 'Stock Bajo', description: 'Debajo del minimo', icon: Alert02Icon, isWarning: true },
-  { key: 'movements_today', label: 'Movimientos Hoy', description: 'En las ultimas 24h', icon: ArrowDataTransferHorizontalIcon },
-  { key: 'movements_this_week', label: 'Movimientos Semana', description: 'Ultimos 7 dias', icon: Calendar01Icon },
+  { key: 'total_products', label: 'Total Productos', description: 'Productos registrados', icon: Package01Icon, href: '/productos' },
+  { key: 'total_warehouses', label: 'Total Almacenes', description: 'Almacenes activos', icon: Store01Icon, href: '/almacenes' },
+  { key: 'total_stock_items', label: 'Items en Stock', description: 'Items con existencia', icon: ClipboardIcon, href: '/inventory' },
+  { key: 'low_stock_count', label: 'Stock Bajo', description: 'Debajo del minimo', icon: Alert02Icon, isWarning: true, href: '/alertas' },
+  { key: 'movements_today', label: 'Movimientos Hoy', description: 'En las ultimas 24h', icon: ArrowDataTransferHorizontalIcon, href: '/movements' },
+  { key: 'movements_this_week', label: 'Movimientos Semana', description: 'Ultimos 7 dias', icon: Calendar01Icon, href: '/movements' },
+];
+
+// --- Quick Action config ---
+
+interface QuickAction {
+  href: string;
+  icon: typeof Package01Icon;
+  label: string;
+  description: string;
+  color: string;
+}
+
+const quickActions: QuickAction[] = [
+  {
+    href: '/movements',
+    icon: ArrowDown01Icon,
+    label: 'Registrar entrada',
+    description: 'Material que llega',
+    color: 'text-green-500',
+  },
+  {
+    href: '/movements',
+    icon: ArrowUp01Icon,
+    label: 'Registrar salida',
+    description: 'Material que sale',
+    color: 'text-red-500',
+  },
+  {
+    href: '/productos',
+    icon: Package01Icon,
+    label: 'Nuevo producto',
+    description: 'Agregar al catalogo',
+    color: 'text-blue-500',
+  },
+  {
+    href: '/inventory',
+    icon: Search01Icon,
+    label: 'Buscar material',
+    description: '¿Donde esta?',
+    color: 'text-amber-500',
+  },
 ];
 
 // --- Component ---
@@ -131,6 +177,11 @@ export default function DashboardPage() {
     fetchDashboard();
   }, []);
 
+  const isBrandNewAccount =
+    !isLoading &&
+    stats !== null &&
+    stats.total_warehouses === 0;
+
   if (error) {
     return (
       <div className="space-y-4">
@@ -149,20 +200,44 @@ export default function DashboardPage() {
     <div className="space-y-6">
       <DashboardHeader userName={user?.name} />
 
-      {/* KPI Cards */}
-      <div data-testid="kpi-cards" className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-        {isLoading
-          ? Array.from({ length: 6 }).map((_, i) => <KpiSkeleton key={i} />)
-          : kpiCards.map((kpi) => (
-              <KpiCard
-                key={kpi.key}
-                label={kpi.label}
-                value={stats?.[kpi.key] ?? 0}
-                description={kpi.description}
-                icon={kpi.icon}
-                isWarning={kpi.isWarning}
-              />
-            ))}
+      {/* Welcome Banner for brand new accounts */}
+      {isBrandNewAccount ? (
+        <Card className="border-primary/30 bg-primary/5" data-testid="welcome-banner">
+          <CardContent className="p-6 text-center">
+            <HugeiconsIcon icon={Store01Icon} className="h-12 w-12 text-primary mx-auto mb-4" />
+            <h2 className="text-xl font-semibold mb-2">¡Bienvenido a VanDepot!</h2>
+            <p className="text-muted-foreground mb-4">
+              Configura tu almacen en unos minutos para empezar a controlar tu inventario.
+            </p>
+            <Button asChild>
+              <Link href="/onboarding">Comenzar configuracion</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      ) : (
+        /* KPI Cards */
+        <div data-testid="kpi-cards" className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+          {isLoading
+            ? Array.from({ length: 6 }).map((_, i) => <KpiSkeleton key={i} />)
+            : kpiCards.map((kpi) => (
+                <KpiCard
+                  key={kpi.key}
+                  label={kpi.label}
+                  value={stats?.[kpi.key] ?? 0}
+                  description={kpi.description}
+                  icon={kpi.icon}
+                  isWarning={kpi.isWarning}
+                  href={kpi.href}
+                />
+              ))}
+        </div>
+      )}
+
+      {/* Quick Actions */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3" data-testid="quick-actions">
+        {quickActions.map((action) => (
+          <QuickActionCard key={action.label} {...action} />
+        ))}
       </div>
 
       {/* Main content: Movements + Low Stock */}
@@ -315,44 +390,70 @@ function DashboardHeader({ userName }: { userName?: string }) {
   );
 }
 
+function QuickActionCard({
+  href,
+  icon,
+  label,
+  description,
+  color,
+}: QuickAction) {
+  return (
+    <Link href={href}>
+      <Card className="hover:border-primary/50 transition-colors cursor-pointer">
+        <CardContent className="flex items-center gap-3 p-4">
+          <HugeiconsIcon icon={icon} className={cn('h-8 w-8', color)} />
+          <div>
+            <p className="font-medium text-sm">{label}</p>
+            <p className="text-xs text-muted-foreground">{description}</p>
+          </div>
+        </CardContent>
+      </Card>
+    </Link>
+  );
+}
+
 function KpiCard({
   label,
   value,
   description,
   icon,
   isWarning,
+  href,
 }: {
   label: string;
   value: number;
   description: string;
   icon: typeof Package01Icon;
   isWarning?: boolean;
+  href: string;
 }) {
   return (
-    <Card size="sm">
-      <CardHeader>
-        <div className="flex items-center justify-between">
-          <CardDescription className="text-xs">{label}</CardDescription>
-          <HugeiconsIcon
-            icon={icon}
-            size={18}
-            className={cn(
-              'text-muted-foreground',
-              isWarning && value > 0 && 'text-amber-500'
-            )}
-          />
-        </div>
-      </CardHeader>
-      <CardContent>
-        <p className={cn(
-          'text-2xl font-bold',
-          isWarning && value > 0 && 'text-amber-600 dark:text-amber-400'
-        )}>
-          {value.toLocaleString('es-MX')}
-        </p>
-        <p className="text-muted-foreground text-xs mt-1">{description}</p>
-      </CardContent>
-    </Card>
+    <Link href={href}>
+      <Card size="sm" className="hover:border-primary/50 transition-colors cursor-pointer h-full">
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardDescription className="text-xs">{label}</CardDescription>
+            <HugeiconsIcon
+              icon={icon}
+              size={18}
+              className={cn(
+                'text-muted-foreground',
+                isWarning && value > 0 && 'text-amber-500'
+              )}
+            />
+          </div>
+        </CardHeader>
+        <CardContent>
+          <p className={cn(
+            'text-2xl font-bold',
+            isWarning && value > 0 && 'text-amber-600 dark:text-amber-400'
+          )}>
+            {value.toLocaleString('es-MX')}
+          </p>
+          <p className="text-muted-foreground text-xs mt-1">{description}</p>
+        </CardContent>
+      </Card>
+    </Link>
   );
 }
 
