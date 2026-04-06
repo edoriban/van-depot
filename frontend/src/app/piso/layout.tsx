@@ -33,10 +33,15 @@ export default function FloorLayout({ children }: { children: React.ReactNode })
         <div className="flex items-center gap-3">
           <Link
             href="/dashboard"
+            onClick={() => {
+              if (typeof window !== 'undefined') {
+                sessionStorage.setItem('vandepot_prefer_desktop', 'true');
+              }
+            }}
             className="text-sm text-zinc-400 hover:text-zinc-200 transition-colors"
             data-testid="floor-back-link"
           >
-            ← Escritorio
+            Ir al escritorio
           </Link>
         </div>
         <span className="text-lg font-bold tracking-tight">VanDepot</span>

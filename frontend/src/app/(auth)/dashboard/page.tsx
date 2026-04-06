@@ -150,6 +150,20 @@ export default function DashboardPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Detect mobile and redirect to floor mode
+  useEffect(() => {
+    const isMobile =
+      window.innerWidth < 768 ||
+      /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+
+    if (isMobile) {
+      const cameFromPiso = sessionStorage.getItem('vandepot_prefer_desktop');
+      if (!cameFromPiso) {
+        window.location.href = '/piso';
+      }
+    }
+  }, []);
+
   useEffect(() => {
     async function fetchDashboard() {
       try {

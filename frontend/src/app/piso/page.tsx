@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import dynamic from 'next/dynamic';
 import { useAuthStore } from '@/stores/auth-store';
 import { api } from '@/lib/api-mutations';
 import type {
@@ -32,7 +33,16 @@ import {
   ArrowDataTransferHorizontalIcon,
   Search01Icon,
   Cancel01Icon,
+  BarCode01Icon,
 } from '@hugeicons/core-free-icons';
+
+const BarcodeScanner = dynamic(
+  () =>
+    import('@/components/shared/barcode-scanner').then((m) => ({
+      default: m.BarcodeScanner,
+    })),
+  { ssr: false }
+);
 
 // ---------------------------------------------------------------------------
 // Types
@@ -126,12 +136,29 @@ const MOVEMENT_LABELS: Record<MovementType, string> = {
   adjustment: 'Ajuste',
 };
 
-const MOVEMENT_EMOJI: Record<MovementType, string> = {
-  entry: '\u{1F4E5}',
-  exit: '\u{1F4E4}',
-  transfer: '\u{1F504}',
-  adjustment: '\u{1F527}',
+const MOVEMENT_ICONS: Record<MovementType, Parameters<typeof HugeiconsIcon>[0]['icon']> = {
+  entry: ArrowDown01Icon,
+  exit: ArrowUp01Icon,
+  transfer: ArrowDataTransferHorizontalIcon,
+  adjustment: ArrowDataTransferHorizontalIcon,
 };
+
+const MOVEMENT_COLORS: Record<MovementType, string> = {
+  entry: 'text-emerald-400',
+  exit: 'text-red-400',
+  transfer: 'text-blue-400',
+  adjustment: 'text-amber-400',
+};
+
+// ---------------------------------------------------------------------------
+// Haptic feedback
+// ---------------------------------------------------------------------------
+
+function hapticFeedback(type: 'success' | 'error' = 'success') {
+  if ('vibrate' in navigator) {
+    navigator.vibrate(type === 'success' ? 50 : [50, 30, 50]);
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Page component
@@ -139,6 +166,9 @@ const MOVEMENT_EMOJI: Record<MovementType, string> = {
 
 export default function FloorModePage() {
   const user = useAuthStore((s) => s.user);
+
+  // Scanner state
+  const [scannerOpen, setScannerOpen] = useState(false);
 
   // Search state
   const [query, setQuery] = useState('');
@@ -250,18 +280,41 @@ export default function FloorModePage() {
     setActiveAction(action);
   };
 
+  const handleScan = useCallback((code: string) => {
+    setScannerOpen(false);
+    hapticFeedback('success');
+    setQuery(code);
+  }, []);
+
   return (
     <div className="max-w-lg mx-auto pb-8" data-testid="floor-mode-page">
+      {/* Scanner overlay */}
+      {scannerOpen && (
+        <BarcodeScanner
+          onScan={handleScan}
+          onClose={() => setScannerOpen(false)}
+        />
+      )}
+
       {/* Hero search */}
       <div className="p-4">
-        <Input
-          className="h-14 text-lg rounded-2xl bg-zinc-900 border-zinc-700 text-zinc-100 placeholder:text-zinc-500 focus-visible:border-zinc-500 focus-visible:ring-zinc-500/30"
-          placeholder="Buscar material..."
-          autoFocus
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          data-testid="floor-search-input"
-        />
+        <div className="flex gap-2">
+          <Input
+            className="flex-1 h-14 text-lg rounded-2xl bg-zinc-900 border-zinc-700 text-zinc-100 placeholder:text-zinc-500 focus-visible:border-zinc-500 focus-visible:ring-zinc-500/30"
+            placeholder="Buscar material..."
+            autoFocus
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            data-testid="floor-search-input"
+          />
+          <button
+            onClick={() => setScannerOpen(true)}
+            className="h-14 w-14 shrink-0 rounded-2xl bg-zinc-800 border border-zinc-700 flex items-center justify-center text-zinc-300 hover:text-zinc-100 active:scale-95 transition-transform"
+            data-testid="floor-scan-btn"
+          >
+            <HugeiconsIcon icon={BarCode01Icon} className="h-6 w-6" />
+          </button>
+        </div>
         {intent && query.trim() && (
           <p className="text-xs text-zinc-500 mt-1 px-1" data-testid="search-intent-label">
             {intent.type === 'stock_check' && 'Buscando stock de...'}
@@ -352,7 +405,7 @@ export default function FloorModePage() {
                   className="flex items-center justify-between bg-zinc-900 rounded-xl p-3 border border-zinc-800"
                 >
                   <div className="flex items-center gap-2">
-                    <span className="text-lg">{MOVEMENT_EMOJI[mov.movement_type]}</span>
+                    <HugeiconsIcon icon={MOVEMENT_ICONS[mov.movement_type]} className={`h-5 w-5 ${MOVEMENT_COLORS[mov.movement_type]}`} />
                     <div>
                       <p className="text-sm font-medium text-zinc-100">{mov.product_name}</p>
                       <p className="text-xs text-zinc-500">
@@ -429,7 +482,7 @@ export default function FloorModePage() {
                   key={mov.id}
                   className="flex items-center gap-3 bg-zinc-900 rounded-xl p-3 border border-zinc-800"
                 >
-                  <span className="text-lg">{MOVEMENT_EMOJI[mov.movement_type]}</span>
+                  <HugeiconsIcon icon={MOVEMENT_ICONS[mov.movement_type]} className={`h-5 w-5 ${MOVEMENT_COLORS[mov.movement_type]}`} />
                   <div className="flex-1 min-w-0">
                     <p className="text-sm text-zinc-200 truncate">
                       {mov.product_name}{' '}
@@ -502,7 +555,7 @@ function ProductCard({
                         : 'bg-zinc-800'
                     }`}
                   >
-                    <span className="text-zinc-400">{'\u{1F4CD}'} {inv.location_name}:</span>{' '}
+                    <span className="text-zinc-400">{inv.location_name}:</span>{' '}
                     <span className="font-medium text-zinc-200">{inv.quantity}</span>
                   </div>
                 ))}
@@ -661,9 +714,11 @@ function ActionForm({
 
       const actionLabel =
         action === 'entry' ? 'Entrada' : action === 'exit' ? 'Salida' : 'Transferencia';
+      hapticFeedback('success');
       toast.success(`${actionLabel} registrada correctamente`);
       onSuccess();
     } catch (err) {
+      hapticFeedback('error');
       toast.error(err instanceof Error ? err.message : 'Error al registrar movimiento');
     } finally {
       setIsSubmitting(false);
