@@ -12,6 +12,7 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  useSidebar,
 } from '@/components/ui/sidebar';
 import { HugeiconsIcon } from '@hugeicons/react';
 import {
@@ -97,6 +98,7 @@ export function AppSidebar() {
   const logout = useAuthStore((s) => s.logout);
   const pathname = usePathname();
   const isMobile = useIsMobile();
+  const { setOpenMobile } = useSidebar();
 
   const isAdmin = user?.role === 'superadmin' || user?.role === 'owner';
 
@@ -118,7 +120,7 @@ export function AppSidebar() {
           {group.items.map((item) => (
             <SidebarMenuItem key={item.href}>
               <SidebarMenuButton asChild isActive={isActive(pathname, item.href)}>
-                <Link href={item.href}>
+                <Link href={item.href} onClick={() => isMobile && setOpenMobile(false)}>
                   <HugeiconsIcon icon={item.icon} size={18} />
                   <span>{item.title}</span>
                 </Link>
