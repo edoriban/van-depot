@@ -121,6 +121,7 @@ function WarehouseLocationSelector({
   locationId,
   onLocationChange,
   locations,
+  excludeLocationId,
   label,
   locationTestId,
   warehouseTestId,
@@ -131,10 +132,14 @@ function WarehouseLocationSelector({
   locationId: string;
   onLocationChange: (id: string) => void;
   locations: Location[];
+  excludeLocationId?: string;
   label: string;
   locationTestId: string;
   warehouseTestId: string;
 }) {
+  const filteredLocations = excludeLocationId
+    ? locations.filter(l => l.id !== excludeLocationId)
+    : locations;
   return (
     <>
       <div className="space-y-2">
@@ -167,7 +172,7 @@ function WarehouseLocationSelector({
             <SelectValue placeholder={warehouseId ? "Seleccionar ubicacion" : "Selecciona un almacen primero"} />
           </SelectTrigger>
           <SelectContent>
-            {locations.map((l) => (
+            {filteredLocations.map((l) => (
               <SelectItem key={l.id} value={l.id}>{l.name}{l.label ? ` (${l.label})` : ''}</SelectItem>
             ))}
           </SelectContent>
@@ -462,14 +467,17 @@ function TransferForm({ products, warehouses, onSuccess }: {
         </Select>
       </div>
 
-      <fieldset className="space-y-4 rounded-2xl border border-l-4 border-l-red-400 p-4">
+      <fieldset className="space-y-4 rounded-2xl border border-red-500/20 bg-red-500/5 p-4">
         <legend className="px-2 text-sm font-medium text-red-600 dark:text-red-400">Origen</legend>
         <WarehouseLocationSelector
           warehouses={warehouses}
           warehouseId={fromWarehouseId}
           onWarehouseChange={setFromWarehouseId}
           locationId={fromLocationId}
-          onLocationChange={setFromLocationId}
+          onLocationChange={(id) => {
+            setFromLocationId(id);
+            if (id === toLocationId) setToLocationId('');
+          }}
           locations={fromLocations}
           label="Ubicacion origen"
           locationTestId="transfer-from-location"
@@ -481,7 +489,7 @@ function TransferForm({ products, warehouses, onSuccess }: {
         <span aria-hidden="true">&darr;</span>
       </div>
 
-      <fieldset className="space-y-4 rounded-2xl border border-l-4 border-l-green-400 p-4">
+      <fieldset className="space-y-4 rounded-2xl border border-green-500/20 bg-green-500/5 p-4">
         <legend className="px-2 text-sm font-medium text-green-600 dark:text-green-400">Destino</legend>
         <WarehouseLocationSelector
           warehouses={warehouses}
@@ -490,6 +498,7 @@ function TransferForm({ products, warehouses, onSuccess }: {
           locationId={toLocationId}
           onLocationChange={setToLocationId}
           locations={toLocations}
+          excludeLocationId={fromLocationId}
           label="Ubicacion destino"
           locationTestId="transfer-to-location"
           warehouseTestId="transfer-to-warehouse"
