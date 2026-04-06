@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { api } from '@/features/auth/api';
+import { api } from '@/lib/api-mutations';
 import type { Warehouse, PaginatedResponse } from '@/types';
 import { DataTable, type ColumnDef } from '@/components/shared/data-table';
 import { ConfirmDialog } from '@/components/shared/confirm-dialog';

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { api } from '@/features/auth/api';
+import { api } from '@/lib/api-mutations';
 import type { InventoryItem, Warehouse, Location, PaginatedResponse } from '@/types';
 import { DataTable, type ColumnDef } from '@/components/shared/data-table';
 import { Badge } from '@/components/ui/badge';

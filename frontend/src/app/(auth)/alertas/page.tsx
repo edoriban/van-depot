@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import { api } from '@/features/auth/api';
+import { api } from '@/lib/api-mutations';
 import type { StockAlert, AlertSummary, Warehouse } from '@/types';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';

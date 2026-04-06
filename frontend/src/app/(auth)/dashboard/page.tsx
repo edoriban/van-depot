@@ -1,8 +1,8 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useAuth } from '@/features/auth/auth-context';
-import { api } from '@/features/auth/api';
+import { useAuthStore } from '@/stores/auth-store';
+import { api } from '@/lib/api-mutations';
 import type { DashboardStats, MovementType, AlertSummary } from '@/types';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -96,7 +96,7 @@ const kpiCards: KpiConfig[] = [
 // --- Component ---
 
 export default function DashboardPage() {
-  const { user } = useAuth();
+  const user = useAuthStore((s) => s.user);
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [movements, setMovements] = useState<RecentMovement[]>([]);
   const [lowStock, setLowStock] = useState<LowStockItem[]>([]);

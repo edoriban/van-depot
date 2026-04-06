@@ -1,8 +1,8 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { api } from '@/features/auth/api';
-import { useAuth } from '@/features/auth/auth-context';
+import { api } from '@/lib/api-mutations';
+import { useAuthStore } from '@/stores/auth-store';
 import type { User, UserRole, Warehouse, PaginatedResponse } from '@/types';
 import { DataTable, type ColumnDef } from '@/components/shared/data-table';
 import { ConfirmDialog } from '@/components/shared/confirm-dialog';
@@ -42,7 +42,7 @@ interface UserWithWarehouses extends User {
 const PER_PAGE = 20;
 
 export default function UsersPage() {
-  const { user: currentUser } = useAuth();
+  const currentUser = useAuthStore((s) => s.user);
 
   const [users, setUsers] = useState<UserWithWarehouses[]>([]);
   const [total, setTotal] = useState(0);

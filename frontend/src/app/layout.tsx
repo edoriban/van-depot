@@ -1,7 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
-import { AuthProvider } from "@/features/auth/auth-context";
+import { SWRProvider } from "@/lib/swr-config";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/sonner";
 import { OfflineIndicator } from "@/components/shared/offline-indicator";
@@ -52,12 +52,12 @@ export default function RootLayout({
       <body className="min-h-full flex flex-col">
         <ServiceWorkerRegister />
         <OfflineIndicator />
-        <AuthProvider>
+        <SWRProvider>
           <TooltipProvider>
             {children}
+            <Toaster />
           </TooltipProvider>
-        </AuthProvider>
-        <Toaster />
+        </SWRProvider>
       </body>
     </html>
   );

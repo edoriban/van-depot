@@ -1,6 +1,6 @@
 'use client';
 
-import { useAuth } from '@/features/auth/auth-context';
+import { useAuthStore } from '@/stores/auth-store';
 import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
 import { SidebarProvider, SidebarInset, SidebarTrigger } from '@/components/ui/sidebar';
@@ -8,16 +8,16 @@ import { AppSidebar } from '@/components/app-sidebar';
 import { Separator } from '@/components/ui/separator';
 
 export default function AuthLayout({ children }: { children: React.ReactNode }) {
-  const { user, isLoading } = useAuth();
+  const { user, isHydrated } = useAuthStore();
   const router = useRouter();
 
   useEffect(() => {
-    if (!isLoading && !user) {
+    if (isHydrated && !user) {
       router.replace('/login');
     }
-  }, [isLoading, user, router]);
+  }, [isHydrated, user, router]);
 
-  if (isLoading) {
+  if (!isHydrated) {
     return (
       <div className="flex h-screen items-center justify-center">
         <div className="text-muted-foreground">Cargando...</div>

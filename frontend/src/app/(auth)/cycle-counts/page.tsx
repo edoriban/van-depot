@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { api } from '@/features/auth/api';
+import { api } from '@/lib/api-mutations';
 import type { Warehouse, PaginatedResponse, CycleCountStatus } from '@/types';
 import { DataTable, type ColumnDef } from '@/components/shared/data-table';
 import { ConfirmDialog } from '@/components/shared/confirm-dialog';

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useAuth } from '@/features/auth/auth-context';
+import { useAuthStore } from '@/stores/auth-store';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,7 +11,7 @@ import { HugeiconsIcon } from '@hugeicons/react';
 import { Store01Icon } from '@hugeicons/core-free-icons';
 
 export default function LoginPage() {
-  const { login, isLoading: authLoading, user } = useAuth();
+  const { login, isHydrated, user } = useAuthStore();
   const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -38,7 +38,7 @@ export default function LoginPage() {
     }
   }
 
-  if (authLoading) {
+  if (!isHydrated) {
     return (
       <div className="flex h-screen items-center justify-center">
         <div className="text-muted-foreground">Cargando...</div>

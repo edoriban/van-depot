@@ -1,6 +1,6 @@
 'use client';
 
-import { useAuth } from '@/features/auth/auth-context';
+import { useAuthStore } from '@/stores/auth-store';
 import {
   Sidebar,
   SidebarContent,
@@ -51,7 +51,8 @@ const adminItems = [
 ];
 
 export function AppSidebar() {
-  const { user, logout } = useAuth();
+  const user = useAuthStore((s) => s.user);
+  const logout = useAuthStore((s) => s.logout);
   const pathname = usePathname();
 
   const isAdmin = user?.role === 'superadmin' || user?.role === 'owner';
