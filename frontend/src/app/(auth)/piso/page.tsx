@@ -300,7 +300,7 @@ export default function FloorModePage() {
       <div className="p-4">
         <div className="flex gap-2">
           <Input
-            className="flex-1 h-14 text-lg rounded-2xl bg-zinc-900 border-zinc-700 text-zinc-100 placeholder:text-zinc-500 focus-visible:border-zinc-500 focus-visible:ring-zinc-500/30"
+            className="flex-1 h-14 text-lg rounded-2xl bg-card border-border text-foreground placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-ring/30"
             placeholder="Buscar material..."
             autoFocus
             value={query}
@@ -309,14 +309,14 @@ export default function FloorModePage() {
           />
           <button
             onClick={() => setScannerOpen(true)}
-            className="h-14 w-14 shrink-0 rounded-2xl bg-zinc-800 border border-zinc-700 flex items-center justify-center text-zinc-300 hover:text-zinc-100 active:scale-95 transition-transform"
+            className="h-14 w-14 shrink-0 rounded-2xl bg-muted border border-border flex items-center justify-center text-muted-foreground hover:text-foreground active:scale-95 transition-transform"
             data-testid="floor-scan-btn"
           >
             <HugeiconsIcon icon={BarCode01Icon} className="h-6 w-6" />
           </button>
         </div>
         {intent && query.trim() && (
-          <p className="text-xs text-zinc-500 mt-1 px-1" data-testid="search-intent-label">
+          <p className="text-xs text-muted-foreground mt-1 px-1" data-testid="search-intent-label">
             {intent.type === 'stock_check' && 'Buscando stock de...'}
             {intent.type === 'location_check' && 'Buscando ubicacion de...'}
             {intent.type === 'low_stock' && 'Mostrando productos con stock bajo'}
@@ -342,8 +342,8 @@ export default function FloorModePage() {
       {/* Search results */}
       {isSearching && (
         <div className="px-4 space-y-3" data-testid="search-loading">
-          <Skeleton className="h-20 w-full bg-zinc-800 rounded-xl" />
-          <Skeleton className="h-20 w-full bg-zinc-800 rounded-xl" />
+          <Skeleton className="h-20 w-full bg-muted rounded-xl" />
+          <Skeleton className="h-20 w-full bg-muted rounded-xl" />
         </div>
       )}
 
@@ -368,17 +368,17 @@ export default function FloorModePage() {
           {/* Low stock results */}
           {lowStockResults.length > 0 && (
             <div className="px-4 space-y-2" data-testid="low-stock-results">
-              <h3 className="text-sm font-medium text-zinc-400 mb-2">Productos con stock bajo</h3>
+              <h3 className="text-sm font-medium text-muted-foreground mb-2">Productos con stock bajo</h3>
               {lowStockResults.map((alert) => (
                 <Card
                   key={`${alert.product_id}-${alert.location_id}`}
-                  className="bg-zinc-900 border-zinc-800"
+                  className="bg-card border-border"
                 >
                   <CardContent className="p-3">
                     <div className="flex items-center justify-between">
                       <div>
-                        <p className="font-medium text-zinc-100 text-sm">{alert.product_name}</p>
-                        <p className="text-xs text-zinc-500">
+                        <p className="font-medium text-foreground text-sm">{alert.product_name}</p>
+                        <p className="text-xs text-muted-foreground">
                           {alert.product_sku} &middot; {alert.location_name}
                         </p>
                       </div>
@@ -386,7 +386,7 @@ export default function FloorModePage() {
                         <p className="text-sm font-bold text-red-400">
                           {alert.current_quantity} / {alert.min_stock}
                         </p>
-                        <p className="text-xs text-zinc-500">{alert.warehouse_name}</p>
+                        <p className="text-xs text-muted-foreground">{alert.warehouse_name}</p>
                       </div>
                     </div>
                   </CardContent>
@@ -398,24 +398,24 @@ export default function FloorModePage() {
           {/* Recent movements results */}
           {recentResults.length > 0 && (
             <div className="px-4 space-y-2" data-testid="recent-movements-results">
-              <h3 className="text-sm font-medium text-zinc-400 mb-2">Movimientos recientes</h3>
+              <h3 className="text-sm font-medium text-muted-foreground mb-2">Movimientos recientes</h3>
               {recentResults.slice(0, 10).map((mov) => (
                 <div
                   key={mov.id}
-                  className="flex items-center justify-between bg-zinc-900 rounded-xl p-3 border border-zinc-800"
+                  className="flex items-center justify-between bg-card rounded-xl p-3 border border-border"
                 >
                   <div className="flex items-center gap-2">
                     <HugeiconsIcon icon={MOVEMENT_ICONS[mov.movement_type]} className={`h-5 w-5 ${MOVEMENT_COLORS[mov.movement_type]}`} />
                     <div>
-                      <p className="text-sm font-medium text-zinc-100">{mov.product_name}</p>
-                      <p className="text-xs text-zinc-500">
+                      <p className="text-sm font-medium text-foreground">{mov.product_name}</p>
+                      <p className="text-xs text-muted-foreground">
                         {mov.from_location_name ?? '—'} → {mov.to_location_name ?? '—'}
                       </p>
                     </div>
                   </div>
                   <div className="text-right">
-                    <p className="text-sm font-bold text-zinc-200">{mov.quantity}</p>
-                    <p className="text-xs text-zinc-500">{timeAgo(mov.created_at)}</p>
+                    <p className="text-sm font-bold text-foreground">{mov.quantity}</p>
+                    <p className="text-xs text-muted-foreground">{timeAgo(mov.created_at)}</p>
                   </div>
                 </div>
               ))}
@@ -429,7 +429,7 @@ export default function FloorModePage() {
             lowStockResults.length === 0 &&
             recentResults.length === 0 && (
               <div className="px-4 text-center py-8" data-testid="search-empty">
-                <p className="text-zinc-500 text-sm">No se encontraron resultados</p>
+                <p className="text-muted-foreground text-sm">No se encontraron resultados</p>
               </div>
             )}
         </>
@@ -467,24 +467,24 @@ export default function FloorModePage() {
 
           {/* Recent user actions */}
           <div className="px-4 space-y-2" data-testid="floor-recent-actions">
-            <h3 className="text-sm font-medium text-zinc-400">Tus ultimas acciones</h3>
+            <h3 className="text-sm font-medium text-muted-foreground">Tus ultimas acciones</h3>
             {loadingRecent ? (
               <div className="space-y-2">
-                <Skeleton className="h-10 w-full bg-zinc-800 rounded-lg" />
-                <Skeleton className="h-10 w-full bg-zinc-800 rounded-lg" />
-                <Skeleton className="h-10 w-full bg-zinc-800 rounded-lg" />
+                <Skeleton className="h-10 w-full bg-muted rounded-lg" />
+                <Skeleton className="h-10 w-full bg-muted rounded-lg" />
+                <Skeleton className="h-10 w-full bg-muted rounded-lg" />
               </div>
             ) : recentActions.length === 0 ? (
-              <p className="text-zinc-600 text-sm py-4 text-center">Sin movimientos recientes</p>
+              <p className="text-muted-foreground text-sm py-4 text-center">Sin movimientos recientes</p>
             ) : (
               recentActions.map((mov) => (
                 <div
                   key={mov.id}
-                  className="flex items-center gap-3 bg-zinc-900 rounded-xl p-3 border border-zinc-800"
+                  className="flex items-center gap-3 bg-card rounded-xl p-3 border border-border"
                 >
                   <HugeiconsIcon icon={MOVEMENT_ICONS[mov.movement_type]} className={`h-5 w-5 ${MOVEMENT_COLORS[mov.movement_type]}`} />
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm text-zinc-200 truncate">
+                    <p className="text-sm text-foreground truncate">
                       {mov.product_name}{' '}
                       {mov.movement_type === 'entry' && `→ ${mov.to_location_name ?? '—'}`}
                       {mov.movement_type === 'exit' && `← ${mov.from_location_name ?? '—'}`}
@@ -492,7 +492,7 @@ export default function FloorModePage() {
                         `${mov.from_location_name ?? '—'} → ${mov.to_location_name ?? '—'}`}
                     </p>
                   </div>
-                  <span className="text-xs text-zinc-500 shrink-0">{timeAgo(mov.created_at)}</span>
+                  <span className="text-xs text-muted-foreground shrink-0">{timeAgo(mov.created_at)}</span>
                 </div>
               ))
             )}
@@ -524,24 +524,24 @@ function ProductCard({
 
   return (
     <Card
-      className="bg-zinc-900 border-zinc-800 active:border-zinc-600 transition-colors cursor-pointer"
+      className="bg-card border-border active:border-primary transition-colors cursor-pointer"
       onClick={() => onTap(product)}
       data-testid={`product-card-${product.id}`}
     >
       <CardContent className="p-4">
         <div className="flex items-start justify-between">
           <div>
-            <h3 className="font-semibold text-zinc-100">{product.name}</h3>
-            <p className="text-sm text-zinc-500">{product.sku}</p>
+            <h3 className="font-semibold text-foreground">{product.name}</h3>
+            <p className="text-sm text-muted-foreground">{product.sku}</p>
           </div>
           <div className="text-right">
-            <p className="text-lg font-bold text-zinc-100">{totalStock}</p>
-            <p className="text-xs text-zinc-500">{product.unit_of_measure}</p>
+            <p className="text-lg font-bold text-foreground">{totalStock}</p>
+            <p className="text-xs text-muted-foreground">{product.unit_of_measure}</p>
           </div>
         </div>
 
         {isExpanded && (
-          <div className="mt-3 pt-3 border-t border-zinc-800" data-testid="product-detail-expanded">
+          <div className="mt-3 pt-3 border-t border-border" data-testid="product-detail-expanded">
             {product.inventory.length > 0 ? (
               <div
                 className={`grid ${product.inventory.length === 1 ? 'grid-cols-1' : 'grid-cols-2'} gap-2 mb-3`}
@@ -552,22 +552,22 @@ function ProductCard({
                     className={`text-sm rounded-lg p-2 ${
                       highlightLocations
                         ? 'bg-blue-900/30 border border-blue-800/50'
-                        : 'bg-zinc-800'
+                        : 'bg-muted'
                     }`}
                   >
-                    <span className="text-zinc-400">{inv.location_name}:</span>{' '}
-                    <span className="font-medium text-zinc-200">{inv.quantity}</span>
+                    <span className="text-muted-foreground">{inv.location_name}:</span>{' '}
+                    <span className="font-medium text-foreground">{inv.quantity}</span>
                   </div>
                 ))}
               </div>
             ) : (
-              <p className="text-sm text-zinc-500 mb-3">Sin inventario registrado</p>
+              <p className="text-sm text-muted-foreground mb-3">Sin inventario registrado</p>
             )}
             <div className="flex gap-2">
               <Button
                 size="sm"
                 variant="outline"
-                className="flex-1 border-zinc-700 text-zinc-200 hover:bg-zinc-800 min-h-[44px]"
+                className="flex-1 border-border text-foreground hover:bg-muted min-h-[44px]"
                 onClick={(e) => {
                   e.stopPropagation();
                   onAction('entry', product);
@@ -579,7 +579,7 @@ function ProductCard({
               <Button
                 size="sm"
                 variant="outline"
-                className="flex-1 border-zinc-700 text-zinc-200 hover:bg-zinc-800 min-h-[44px]"
+                className="flex-1 border-border text-foreground hover:bg-muted min-h-[44px]"
                 onClick={(e) => {
                   e.stopPropagation();
                   onAction('exit', product);
@@ -753,17 +753,17 @@ function ActionForm({
 
   return (
     <div className="px-4 pb-4" data-testid="floor-action-form">
-      <Card className={`border ${config.color} bg-zinc-900`}>
+      <Card className={`border ${config.color} bg-card`}>
         <CardContent className="p-4 space-y-4">
           {/* Header */}
           <div className="flex items-center justify-between">
-            <h3 className="text-lg font-semibold text-zinc-100 flex items-center gap-2">
+            <h3 className="text-lg font-semibold text-foreground flex items-center gap-2">
               <HugeiconsIcon icon={config.icon} className={`h-5 w-5 ${config.iconColor}`} />
               {config.title}
             </h3>
             <button
               onClick={onClose}
-              className="text-zinc-500 hover:text-zinc-300 p-1 min-w-[44px] min-h-[44px] flex items-center justify-center"
+              className="text-muted-foreground hover:text-muted-foreground p-1 min-w-[44px] min-h-[44px] flex items-center justify-center"
               data-testid="floor-action-close"
             >
               <HugeiconsIcon icon={Cancel01Icon} className="h-5 w-5" />
@@ -772,11 +772,11 @@ function ActionForm({
 
           {/* Product selector */}
           <div className="space-y-2">
-            <Label className="text-zinc-300">Producto</Label>
+            <Label className="text-muted-foreground">Producto</Label>
             {preselectedProduct ? (
-              <div className="bg-zinc-800 rounded-xl p-3">
-                <p className="font-medium text-zinc-100">{preselectedProduct.name}</p>
-                <p className="text-xs text-zinc-500">{preselectedProduct.sku}</p>
+              <div className="bg-muted rounded-xl p-3">
+                <p className="font-medium text-foreground">{preselectedProduct.name}</p>
+                <p className="text-xs text-muted-foreground">{preselectedProduct.sku}</p>
               </div>
             ) : (
               <>
@@ -784,12 +784,12 @@ function ActionForm({
                   placeholder="Buscar producto..."
                   value={productSearch}
                   onChange={(e) => setProductSearch(e.target.value)}
-                  className="bg-zinc-800 border-zinc-700 text-zinc-100 h-12"
+                  className="bg-muted border-border text-foreground h-12"
                   data-testid="floor-product-search"
                 />
                 <Select value={productId || undefined} onValueChange={setProductId}>
                   <SelectTrigger
-                    className="w-full bg-zinc-800 border-zinc-700 text-zinc-100 min-h-[48px]"
+                    className="w-full bg-muted border-border text-foreground min-h-[48px]"
                     data-testid="floor-product-select"
                   >
                     <SelectValue placeholder="Seleccionar producto" />
@@ -810,10 +810,10 @@ function ActionForm({
           {action === 'transfer' && (
             <>
               <div className="space-y-2">
-                <Label className="text-zinc-300">Almacen origen</Label>
+                <Label className="text-muted-foreground">Almacen origen</Label>
                 <Select value={fromWarehouseId || undefined} onValueChange={(v) => { setFromWarehouseId(v); setFromLocationId(''); }}>
                   <SelectTrigger
-                    className="w-full bg-zinc-800 border-zinc-700 text-zinc-100 min-h-[48px]"
+                    className="w-full bg-muted border-border text-foreground min-h-[48px]"
                     data-testid="floor-from-warehouse"
                   >
                     <SelectValue placeholder="Seleccionar almacen" />
@@ -826,14 +826,14 @@ function ActionForm({
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label className="text-zinc-300">Ubicacion origen</Label>
+                <Label className="text-muted-foreground">Ubicacion origen</Label>
                 <Select
                   value={fromLocationId || undefined}
                   onValueChange={setFromLocationId}
                   disabled={!fromWarehouseId}
                 >
                   <SelectTrigger
-                    className="w-full bg-zinc-800 border-zinc-700 text-zinc-100 min-h-[48px]"
+                    className="w-full bg-muted border-border text-foreground min-h-[48px]"
                     data-testid="floor-from-location"
                   >
                     <SelectValue placeholder={fromWarehouseId ? 'Seleccionar ubicacion' : 'Selecciona almacen primero'} />
@@ -850,12 +850,12 @@ function ActionForm({
 
           {/* Destination / source warehouse + location */}
           <div className="space-y-2">
-            <Label className="text-zinc-300">
+            <Label className="text-muted-foreground">
               {action === 'entry' ? 'Almacen destino' : action === 'exit' ? 'Almacen origen' : 'Almacen destino'}
             </Label>
             <Select value={warehouseId || undefined} onValueChange={(v) => { setWarehouseId(v); setLocationId(''); }}>
               <SelectTrigger
-                className="w-full bg-zinc-800 border-zinc-700 text-zinc-100 min-h-[48px]"
+                className="w-full bg-muted border-border text-foreground min-h-[48px]"
                 data-testid="floor-warehouse"
               >
                 <SelectValue placeholder="Seleccionar almacen" />
@@ -868,7 +868,7 @@ function ActionForm({
             </Select>
           </div>
           <div className="space-y-2">
-            <Label className="text-zinc-300">
+            <Label className="text-muted-foreground">
               {action === 'entry' ? 'Ubicacion destino' : action === 'exit' ? 'Ubicacion origen' : 'Ubicacion destino'}
             </Label>
             <Select
@@ -877,7 +877,7 @@ function ActionForm({
               disabled={!warehouseId}
             >
               <SelectTrigger
-                className="w-full bg-zinc-800 border-zinc-700 text-zinc-100 min-h-[48px]"
+                className="w-full bg-muted border-border text-foreground min-h-[48px]"
                 data-testid="floor-location"
               >
                 <SelectValue placeholder={warehouseId ? 'Seleccionar ubicacion' : 'Selecciona almacen primero'} />
@@ -892,7 +892,7 @@ function ActionForm({
 
           {/* Quantity */}
           <div className="space-y-2">
-            <Label className="text-zinc-300">Cantidad</Label>
+            <Label className="text-muted-foreground">Cantidad</Label>
             <Input
               type="number"
               inputMode="numeric"
@@ -900,7 +900,7 @@ function ActionForm({
               placeholder="0"
               value={quantity}
               onChange={(e) => setQuantity(e.target.value)}
-              className="h-16 text-3xl text-center font-bold bg-zinc-800 border-zinc-700 text-zinc-100 rounded-2xl"
+              className="h-16 text-3xl text-center font-bold bg-muted border-border text-foreground rounded-2xl"
               data-testid="floor-quantity"
             />
           </div>
