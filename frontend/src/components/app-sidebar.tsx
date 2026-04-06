@@ -1,6 +1,6 @@
 'use client';
 
-import { useAuth } from '@/lib/auth-context';
+import { useAuth } from '@/features/auth/auth-context';
 import {
   Sidebar,
   SidebarContent,
@@ -32,11 +32,11 @@ import { usePathname } from 'next/navigation';
 
 const navItems = [
   { title: 'Dashboard', href: '/dashboard', icon: DashboardSquare01Icon },
-  { title: 'Almacenes', href: '/warehouses', icon: Store01Icon },
-  { title: 'Ubicaciones', href: '/locations', icon: Location01Icon },
-  { title: 'Productos', href: '/products', icon: Package01Icon },
-  { title: 'Categorias', href: '/categories', icon: Tag01Icon },
-  { title: 'Proveedores', href: '/suppliers', icon: DeliveryTruck01Icon },
+  { title: 'Almacenes', href: '/almacenes', icon: Store01Icon },
+  { title: 'Ubicaciones', href: '/ubicaciones', icon: Location01Icon },
+  { title: 'Productos', href: '/productos', icon: Package01Icon },
+  { title: 'Categorias', href: '/categorias', icon: Tag01Icon },
+  { title: 'Proveedores', href: '/proveedores', icon: DeliveryTruck01Icon },
   { title: 'Movimientos', href: '/movements', icon: ArrowDataTransferHorizontalIcon },
   { title: 'Inventario', href: '/inventory', icon: ClipboardIcon },
   { title: 'Conteos', href: '/cycle-counts', icon: CheckListIcon },
