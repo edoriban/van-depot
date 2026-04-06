@@ -25,6 +25,14 @@ import {
 } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from 'sonner';
+import { HugeiconsIcon } from '@hugeicons/react';
+import {
+  ArrowDown01Icon,
+  ArrowUp01Icon,
+  ArrowDataTransferHorizontalIcon,
+  Search01Icon,
+  Cancel01Icon,
+} from '@hugeicons/core-free-icons';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -248,7 +256,7 @@ export default function FloorModePage() {
       <div className="p-4">
         <Input
           className="h-14 text-lg rounded-2xl bg-zinc-900 border-zinc-700 text-zinc-100 placeholder:text-zinc-500 focus-visible:border-zinc-500 focus-visible:ring-zinc-500/30"
-          placeholder="\u{1F50D} \u00bfQu\u00e9 material buscas?"
+          placeholder="Buscar material..."
           autoFocus
           value={query}
           onChange={(e) => setQuery(e.target.value)}
@@ -383,7 +391,7 @@ export default function FloorModePage() {
               className="flex flex-col items-center justify-center gap-2 rounded-2xl bg-emerald-900/40 border border-emerald-800/50 p-5 min-h-[80px] active:scale-95 transition-transform"
               data-testid="floor-action-entry"
             >
-              <span className="text-2xl">{'\u{1F4E5}'}</span>
+              <HugeiconsIcon icon={ArrowDown01Icon} className="h-7 w-7 text-emerald-400" />
               <span className="text-sm font-medium text-emerald-300">Entrada</span>
             </button>
             <button
@@ -391,7 +399,7 @@ export default function FloorModePage() {
               className="flex flex-col items-center justify-center gap-2 rounded-2xl bg-red-900/40 border border-red-800/50 p-5 min-h-[80px] active:scale-95 transition-transform"
               data-testid="floor-action-exit"
             >
-              <span className="text-2xl">{'\u{1F4E4}'}</span>
+              <HugeiconsIcon icon={ArrowUp01Icon} className="h-7 w-7 text-red-400" />
               <span className="text-sm font-medium text-red-300">Salida</span>
             </button>
             <button
@@ -399,7 +407,7 @@ export default function FloorModePage() {
               className="flex flex-col items-center justify-center gap-2 rounded-2xl bg-blue-900/40 border border-blue-800/50 p-5 min-h-[80px] active:scale-95 transition-transform"
               data-testid="floor-action-transfer"
             >
-              <span className="text-2xl">{'\u{1F504}'}</span>
+              <HugeiconsIcon icon={ArrowDataTransferHorizontalIcon} className="h-7 w-7 text-blue-400" />
               <span className="text-sm font-medium text-blue-300">Mover</span>
             </button>
           </div>
@@ -665,19 +673,22 @@ function ActionForm({
   const actionConfig = {
     entry: {
       title: 'Registrar entrada',
-      emoji: '\u{1F4E5}',
+      icon: ArrowDown01Icon,
+      iconColor: 'text-emerald-400',
       color: 'bg-emerald-900/30 border-emerald-800/50',
       buttonClass: 'bg-emerald-600 hover:bg-emerald-700 text-white',
     },
     exit: {
       title: 'Registrar salida',
-      emoji: '\u{1F4E4}',
+      icon: ArrowUp01Icon,
+      iconColor: 'text-red-400',
       color: 'bg-red-900/30 border-red-800/50',
       buttonClass: 'bg-red-600 hover:bg-red-700 text-white',
     },
     transfer: {
       title: 'Mover material',
-      emoji: '\u{1F504}',
+      icon: ArrowDataTransferHorizontalIcon,
+      iconColor: 'text-blue-400',
       color: 'bg-blue-900/30 border-blue-800/50',
       buttonClass: 'bg-blue-600 hover:bg-blue-700 text-white',
     },
@@ -691,15 +702,16 @@ function ActionForm({
         <CardContent className="p-4 space-y-4">
           {/* Header */}
           <div className="flex items-center justify-between">
-            <h3 className="text-lg font-semibold text-zinc-100">
-              {config.emoji} {config.title}
+            <h3 className="text-lg font-semibold text-zinc-100 flex items-center gap-2">
+              <HugeiconsIcon icon={config.icon} className={`h-5 w-5 ${config.iconColor}`} />
+              {config.title}
             </h3>
             <button
               onClick={onClose}
-              className="text-zinc-500 hover:text-zinc-300 text-xl p-1 min-w-[44px] min-h-[44px] flex items-center justify-center"
+              className="text-zinc-500 hover:text-zinc-300 p-1 min-w-[44px] min-h-[44px] flex items-center justify-center"
               data-testid="floor-action-close"
             >
-              ✕
+              <HugeiconsIcon icon={Cancel01Icon} className="h-5 w-5" />
             </button>
           </div>
 
