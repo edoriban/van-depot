@@ -24,6 +24,8 @@ import {
   ArrowDataTransferHorizontalIcon,
   ClipboardIcon,
   CheckListIcon,
+  Alert02Icon,
+  Analytics01Icon,
   UserGroupIcon,
   Logout01Icon,
 } from '@hugeicons/core-free-icons';
@@ -40,6 +42,8 @@ const navItems = [
   { title: 'Movimientos', href: '/movements', icon: ArrowDataTransferHorizontalIcon },
   { title: 'Inventario', href: '/inventory', icon: ClipboardIcon },
   { title: 'Conteos', href: '/cycle-counts', icon: CheckListIcon },
+  { title: 'Alertas', href: '/alertas', icon: Alert02Icon },
+  { title: 'Clasificacion ABC', href: '/clasificacion-abc', icon: Analytics01Icon },
 ];
 
 const adminItems = [

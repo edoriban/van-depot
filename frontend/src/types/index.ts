@@ -115,6 +115,54 @@ export interface PaginatedResponse<T> {
   per_page: number;
 }
 
+// Alerts
+export interface StockAlert {
+  product_id: string;
+  product_name: string;
+  product_sku: string;
+  location_id: string;
+  location_name: string;
+  warehouse_id: string;
+  warehouse_name: string;
+  current_quantity: number;
+  min_stock: number;
+  deficit: number;
+  severity: 'critical' | 'low' | 'warning';
+}
+
+export interface AlertSummary {
+  critical_count: number;
+  low_count: number;
+  warning_count: number;
+  total_alerts: number;
+}
+
+// ABC Classification
+export interface AbcItem {
+  product_id: string;
+  product_name: string;
+  product_sku: string;
+  movement_count: number;
+  total_quantity: number;
+  classification: 'A' | 'B' | 'C';
+  cumulative_percentage: number;
+}
+
+export interface AbcSummary {
+  a_count: number;
+  b_count: number;
+  c_count: number;
+  a_movement_percentage: number;
+  b_movement_percentage: number;
+  c_movement_percentage: number;
+}
+
+export interface AbcReport {
+  items: AbcItem[];
+  summary: AbcSummary;
+  period_days: number;
+}
+
 // Dashboard
 export interface DashboardStats {
   total_products: number;

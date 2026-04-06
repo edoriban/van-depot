@@ -1,3 +1,5 @@
+pub mod abc_repo;
+pub mod alerts_repo;
 pub mod category_repo;
 pub mod cycle_count_repo;
 pub mod dashboard_repo;

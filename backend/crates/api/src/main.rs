@@ -49,6 +49,8 @@ async fn main() -> anyhow::Result<()> {
         .merge(routes::inventory::inventory_routes())
         .merge(routes::cycle_counts::cycle_count_routes())
         .merge(routes::dashboard::dashboard_routes())
+        .merge(routes::alerts::alert_routes())
+        .merge(routes::abc::abc_routes())
         .layer(CorsLayer::permissive())
         .with_state(state);
 

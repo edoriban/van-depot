@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/features/auth/auth-context';
 import { api } from '@/features/auth/api';
-import type { DashboardStats, MovementType } from '@/types';
+import type { DashboardStats, MovementType, AlertSummary } from '@/types';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -25,6 +25,7 @@ import {
   Calendar01Icon,
 } from '@hugeicons/core-free-icons';
 import { cn } from '@/lib/utils';
+import Link from 'next/link';
 
 // --- Types for API responses ---
 
@@ -99,6 +100,7 @@ export default function DashboardPage() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [movements, setMovements] = useState<RecentMovement[]>([]);
   const [lowStock, setLowStock] = useState<LowStockItem[]>([]);
+  const [alertSummary, setAlertSummary] = useState<AlertSummary | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -108,15 +110,17 @@ export default function DashboardPage() {
         setIsLoading(true);
         setError(null);
 
-        const [statsRes, movementsRes, lowStockRes] = await Promise.all([
+        const [statsRes, movementsRes, lowStockRes, alertSummaryRes] = await Promise.all([
           api.get<DashboardStats>('/dashboard/stats'),
           api.get<RecentMovement[]>('/dashboard/recent-movements'),
           api.get<{ data: LowStockItem[] }>('/reports/low-stock?per_page=5'),
+          api.get<AlertSummary>('/alerts/summary'),
         ]);
 
         setStats(statsRes);
         setMovements(movementsRes);
         setLowStock(lowStockRes.data ?? lowStockRes as unknown as LowStockItem[]);
+        setAlertSummary(alertSummaryRes);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Error al cargar el dashboard');
       } finally {
@@ -227,11 +231,27 @@ export default function DashboardPage() {
         <div data-testid="low-stock-alert">
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <HugeiconsIcon icon={Alert02Icon} size={18} className="text-amber-500" />
-                Stock Bajo
-              </CardTitle>
-              <CardDescription>Productos debajo del minimo</CardDescription>
+              <div className="flex items-center justify-between">
+                <CardTitle className="flex items-center gap-2">
+                  <HugeiconsIcon icon={Alert02Icon} size={18} className="text-amber-500" />
+                  Stock Bajo
+                </CardTitle>
+                <Link
+                  href="/alertas"
+                  className="text-sm text-primary hover:underline"
+                  data-testid="link-alertas"
+                >
+                  Ver todas
+                </Link>
+              </div>
+              <CardDescription>
+                Productos debajo del minimo
+                {alertSummary && alertSummary.total_alerts > 0 && (
+                  <span className="ml-2 text-amber-600 dark:text-amber-400 font-medium" data-testid="alert-count">
+                    ({alertSummary.total_alerts} alertas)
+                  </span>
+                )}
+              </CardDescription>
             </CardHeader>
             <CardContent>
               {isLoading ? (
