@@ -4,30 +4,50 @@ import { useTheme } from 'next-themes';
 import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { HugeiconsIcon } from '@hugeicons/react';
-import { Sun01Icon, Moon01Icon } from '@hugeicons/core-free-icons';
+import { Sun01Icon, Moon01Icon, ComputerIcon, Clock01Icon } from '@hugeicons/core-free-icons';
+
+const THEME_CYCLE = ['light', 'dark', 'system', 'auto'] as const;
+
+const THEME_LABELS: Record<string, string> = {
+  light: 'Modo claro',
+  dark: 'Modo oscuro',
+  system: 'Seguir sistema',
+  auto: 'Automatico por horario',
+};
+
+const THEME_ICONS: Record<string, typeof Sun01Icon> = {
+  light: Sun01Icon,
+  dark: Moon01Icon,
+  system: ComputerIcon,
+  auto: Clock01Icon,
+};
 
 export function ThemeToggle() {
-  const { theme, setTheme, resolvedTheme } = useTheme();
+  const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => setMounted(true), []);
 
   if (!mounted) return <Button variant="ghost" size="icon" className="h-8 w-8" disabled />;
 
-  const isDark = resolvedTheme === 'dark';
+  const currentTheme = theme ?? 'system';
+  const currentIndex = THEME_CYCLE.indexOf(currentTheme as typeof THEME_CYCLE[number]);
+  const nextIndex = (currentIndex + 1) % THEME_CYCLE.length;
+  const nextTheme = THEME_CYCLE[nextIndex];
+
+  const icon = THEME_ICONS[currentTheme] ?? Sun01Icon;
+  const label = THEME_LABELS[currentTheme] ?? 'Tema';
 
   return (
     <Button
       variant="ghost"
       size="icon"
       className="h-8 w-8"
-      onClick={() => setTheme(isDark ? 'light' : 'dark')}
-      aria-label={isDark ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'}
+      onClick={() => setTheme(nextTheme)}
+      aria-label={`${label} - Cambiar a ${THEME_LABELS[nextTheme]}`}
+      title={label}
     >
-      <HugeiconsIcon
-        icon={isDark ? Sun01Icon : Moon01Icon}
-        className="h-4 w-4"
-      />
+      <HugeiconsIcon icon={icon} className="h-4 w-4" />
     </Button>
   );
 }

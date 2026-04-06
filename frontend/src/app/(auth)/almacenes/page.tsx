@@ -31,6 +31,7 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import Link from 'next/link';
+import { PageTransition } from '@/components/shared/page-transition';
 
 export default function AlmacenesPage() {
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
@@ -128,6 +129,7 @@ export default function AlmacenesPage() {
   const totalPages = Math.ceil(total / perPage);
 
   return (
+    <PageTransition>
     <div className="space-y-6" data-testid="almacenes-page">
       <div className="flex items-center justify-between">
         <div>
@@ -150,13 +152,13 @@ export default function AlmacenesPage() {
       {isLoading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {Array.from({ length: 3 }).map((_, i) => (
-            <Card key={i} className="animate-pulse">
+            <Card key={i}>
               <CardHeader>
-                <div className="h-5 bg-muted rounded w-2/3" />
-                <div className="h-4 bg-muted rounded w-1/2 mt-2" />
+                <div className="h-5 skeleton-shimmer rounded w-2/3" />
+                <div className="h-4 skeleton-shimmer rounded w-1/2 mt-2" />
               </CardHeader>
               <CardContent>
-                <div className="h-4 bg-muted rounded w-1/3" />
+                <div className="h-4 skeleton-shimmer rounded w-1/3" />
               </CardContent>
             </Card>
           ))}
@@ -172,10 +174,11 @@ export default function AlmacenesPage() {
       ) : (
         <>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4" data-testid="warehouse-grid">
-            {warehouses.map((warehouse) => (
+            {warehouses.map((warehouse, i) => (
               <Card
                 key={warehouse.id}
-                className="hover:border-primary/50 transition-colors"
+                className="animate-fade-in-up hover:border-primary/50 transition-colors"
+                style={{ animationDelay: `${i * 50}ms` }}
                 data-testid="warehouse-card"
               >
                 <CardHeader>
@@ -317,5 +320,6 @@ export default function AlmacenesPage() {
         isLoading={isDeleting}
       />
     </div>
+    </PageTransition>
   );
 }

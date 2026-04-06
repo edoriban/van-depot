@@ -35,6 +35,8 @@ import {
   Cancel01Icon,
   BarCode01Icon,
 } from '@hugeicons/core-free-icons';
+import { SwipeableItem } from '@/components/shared/swipeable-item';
+import { useIsMobile } from '@/hooks/use-mobile';
 
 const BarcodeScanner = dynamic(
   () =>
@@ -166,6 +168,7 @@ function hapticFeedback(type: 'success' | 'error' = 'success') {
 
 export default function FloorModePage() {
   const user = useAuthStore((s) => s.user);
+  const isMobile = useIsMobile();
 
   // Scanner state
   const [scannerOpen, setScannerOpen] = useState(false);
@@ -352,15 +355,34 @@ export default function FloorModePage() {
           {/* Product results */}
           {searchResults.length > 0 && (
             <div className="px-4 space-y-3" data-testid="search-results">
+              {isMobile && (
+                <p className="text-xs text-muted-foreground px-1">
+                  Desliza para registrar entrada o salida
+                </p>
+              )}
               {searchResults.map((product) => (
-                <ProductCard
+                <SwipeableItem
                   key={product.id}
-                  product={product}
-                  highlightLocations={intent?.type === 'location_check'}
-                  onTap={handleSelectProduct}
-                  onAction={handleActionFromCard}
-                  isExpanded={selectedProduct?.id === product.id}
-                />
+                  disabled={!isMobile}
+                  onSwipeRight={() => {
+                    toast.info(`Registrar entrada de ${product.name}`);
+                    handleActionFromCard('entry', product);
+                  }}
+                  onSwipeLeft={() => {
+                    toast.info(`Registrar salida de ${product.name}`);
+                    handleActionFromCard('exit', product);
+                  }}
+                  leftLabel="Entrada"
+                  rightLabel="Salida"
+                >
+                  <ProductCard
+                    product={product}
+                    highlightLocations={intent?.type === 'location_check'}
+                    onTap={handleSelectProduct}
+                    onAction={handleActionFromCard}
+                    isExpanded={selectedProduct?.id === product.id}
+                  />
+                </SwipeableItem>
               ))}
             </div>
           )}

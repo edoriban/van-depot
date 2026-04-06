@@ -29,7 +29,63 @@ import {
   Search01Icon,
 } from '@hugeicons/core-free-icons';
 import { cn } from '@/lib/utils';
+import { PageTransition } from '@/components/shared/page-transition';
 import Link from 'next/link';
+
+// --- Trend helpers ---
+
+const STATS_STORAGE_KEY = 'vandepot_dashboard_prev_stats';
+
+interface StoredStats {
+  stats: DashboardStats;
+  timestamp: number;
+}
+
+function loadPreviousStats(): DashboardStats | null {
+  try {
+    const raw = localStorage.getItem(STATS_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed: StoredStats = JSON.parse(raw);
+    return parsed.stats;
+  } catch {
+    return null;
+  }
+}
+
+function savePreviousStats(stats: DashboardStats): void {
+  try {
+    const stored: StoredStats = { stats, timestamp: Date.now() };
+    localStorage.setItem(STATS_STORAGE_KEY, JSON.stringify(stored));
+  } catch {
+    // localStorage unavailable
+  }
+}
+
+type TrendDirection = 'up' | 'down' | 'neutral';
+
+interface TrendInfo {
+  direction: TrendDirection;
+  diff: number;
+}
+
+/** For most KPIs, "up" is good. For low_stock_count, "down" is good. */
+function computeTrend(
+  key: keyof DashboardStats,
+  current: number,
+  previous: number
+): TrendInfo {
+  const diff = current - previous;
+  if (diff === 0) return { direction: 'neutral', diff: 0 };
+  return { direction: diff > 0 ? 'up' : 'down', diff };
+}
+
+function isTrendPositive(key: keyof DashboardStats, direction: TrendDirection): boolean {
+  const invertedKeys: (keyof DashboardStats)[] = ['low_stock_count'];
+  if (invertedKeys.includes(key)) {
+    return direction === 'down';
+  }
+  return direction === 'up';
+}
 
 // --- Types for API responses ---
 
@@ -149,6 +205,18 @@ export default function DashboardPage() {
   const [alertSummary, setAlertSummary] = useState<AlertSummary | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [prevStats, setPrevStats] = useState<DashboardStats | null>(null);
+
+  // Load previous stats from localStorage on mount
+  useEffect(() => {
+    const prev = loadPreviousStats();
+    if (prev) setPrevStats(prev);
+  }, []);
+
+  // Save current stats to localStorage when they arrive
+  useEffect(() => {
+    if (stats) savePreviousStats(stats);
+  }, [stats]);
 
   // Detect mobile and redirect to floor mode
   useEffect(() => {
@@ -211,6 +279,7 @@ export default function DashboardPage() {
   }
 
   return (
+    <PageTransition>
     <div className="space-y-6">
       <DashboardHeader userName={user?.name} />
 
@@ -233,24 +302,33 @@ export default function DashboardPage() {
         <div data-testid="kpi-cards" className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
           {isLoading
             ? Array.from({ length: 6 }).map((_, i) => <KpiSkeleton key={i} />)
-            : kpiCards.map((kpi) => (
-                <KpiCard
-                  key={kpi.key}
-                  label={kpi.label}
-                  value={stats?.[kpi.key] ?? 0}
-                  description={kpi.description}
-                  icon={kpi.icon}
-                  isWarning={kpi.isWarning}
-                  href={kpi.href}
-                />
-              ))}
+            : kpiCards.map((kpi, i) => {
+                const currentVal = stats?.[kpi.key] ?? 0;
+                const trend = prevStats
+                  ? computeTrend(kpi.key, currentVal, prevStats[kpi.key])
+                  : null;
+                return (
+                  <KpiCard
+                    key={kpi.key}
+                    kpiKey={kpi.key}
+                    label={kpi.label}
+                    value={currentVal}
+                    description={kpi.description}
+                    icon={kpi.icon}
+                    isWarning={kpi.isWarning}
+                    href={kpi.href}
+                    trend={trend}
+                    index={i}
+                  />
+                );
+              })}
         </div>
       )}
 
       {/* Quick Actions */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3" data-testid="quick-actions">
-        {quickActions.map((action) => (
-          <QuickActionCard key={action.label} {...action} />
+        {quickActions.map((action, i) => (
+          <QuickActionCard key={action.label} {...action} index={i} />
         ))}
       </div>
 
@@ -388,6 +466,7 @@ export default function DashboardPage() {
         </div>
       </div>
     </div>
+    </PageTransition>
   );
 }
 
@@ -410,10 +489,14 @@ function QuickActionCard({
   label,
   description,
   color,
-}: QuickAction) {
+  index = 0,
+}: QuickAction & { index?: number }) {
   return (
     <Link href={href}>
-      <Card className="hover:border-primary/50 transition-colors cursor-pointer">
+      <Card
+        className="animate-fade-in-up hover:border-primary/50 transition-colors cursor-pointer"
+        style={{ animationDelay: `${index * 50}ms` }}
+      >
         <CardContent className="flex items-center gap-3 p-4">
           <HugeiconsIcon icon={icon} className={cn('h-8 w-8', color)} />
           <div>
@@ -427,23 +510,36 @@ function QuickActionCard({
 }
 
 function KpiCard({
+  kpiKey,
   label,
   value,
   description,
   icon,
   isWarning,
   href,
+  trend,
+  index = 0,
 }: {
+  kpiKey: keyof DashboardStats;
   label: string;
   value: number;
   description: string;
   icon: typeof Package01Icon;
   isWarning?: boolean;
   href: string;
+  trend: TrendInfo | null;
+  index?: number;
 }) {
+  const showTrend = trend && trend.direction !== 'neutral';
+  const positive = showTrend ? isTrendPositive(kpiKey, trend.direction) : false;
+
   return (
     <Link href={href}>
-      <Card size="sm" className="hover:border-primary/50 transition-colors cursor-pointer h-full">
+      <Card
+        size="sm"
+        className="animate-fade-in-up hover:border-primary/50 hover:shadow-md transition-all cursor-pointer h-full group"
+        style={{ animationDelay: `${index * 50}ms` }}
+      >
         <CardHeader>
           <div className="flex items-center justify-between">
             <CardDescription className="text-xs">{label}</CardDescription>
@@ -458,13 +554,32 @@ function KpiCard({
           </div>
         </CardHeader>
         <CardContent>
-          <p className={cn(
-            'text-2xl font-bold',
-            isWarning && value > 0 && 'text-amber-600 dark:text-amber-400'
-          )}>
-            {value.toLocaleString('es-MX')}
-          </p>
+          <div className="flex items-baseline gap-1.5">
+            <p className={cn(
+              'text-2xl font-bold',
+              isWarning && value > 0 && 'text-amber-600 dark:text-amber-400'
+            )}>
+              {value.toLocaleString('es-MX')}
+            </p>
+            {showTrend && (
+              <span className={cn(
+                'flex items-center gap-0.5 text-xs font-medium',
+                positive
+                  ? 'text-emerald-600 dark:text-emerald-400'
+                  : 'text-red-600 dark:text-red-400'
+              )}>
+                <HugeiconsIcon
+                  icon={trend.direction === 'up' ? ArrowUp01Icon : ArrowDown01Icon}
+                  size={12}
+                />
+                {Math.abs(trend.diff)} vs ayer
+              </span>
+            )}
+          </div>
           <p className="text-muted-foreground text-xs mt-1">{description}</p>
+          <p className="text-xs text-primary/60 group-hover:text-primary mt-2 transition-colors">
+            Ver detalles &rarr;
+          </p>
         </CardContent>
       </Card>
     </Link>
