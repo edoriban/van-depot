@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useParams } from 'next/navigation';
+import useSWR from 'swr';
 import { api } from '@/lib/api-mutations';
 import type {
   Warehouse,
@@ -11,7 +12,12 @@ import type {
   Movement,
   MovementType,
   PaginatedResponse,
+  WarehouseMapResponse,
+  ZoneHealth,
 } from '@/types';
+import { ZoneCard } from '@/components/warehouse/zone-card';
+import { ZoneDetail } from '@/components/warehouse/zone-detail';
+import { MapSummaryBar } from '@/components/warehouse/map-summary-bar';
 import { DataTable, type ColumnDef } from '@/components/shared/data-table';
 import { EmptyState } from '@/components/shared/empty-state';
 import { ConfirmDialog } from '@/components/shared/confirm-dialog';
@@ -40,6 +46,7 @@ import {
   Location01Icon,
   ClipboardIcon,
   ArrowDataTransferHorizontalIcon,
+  MapsLocation01Icon,
 } from '@hugeicons/core-free-icons';
 import Link from 'next/link';
 
@@ -626,6 +633,11 @@ export default function WarehouseDetailPage() {
   const [warehouse, setWarehouse] = useState<Warehouse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [selectedZone, setSelectedZone] = useState<ZoneHealth | null>(null);
+
+  const { data: mapData, isLoading: mapLoading } = useSWR<WarehouseMapResponse>(
+    warehouseId ? `/warehouses/${warehouseId}/map` : null
+  );
 
   useEffect(() => {
     const fetchWarehouse = async () => {
@@ -647,10 +659,10 @@ export default function WarehouseDetailPage() {
     return (
       <div className="space-y-6" data-testid="warehouse-detail-loading">
         <div className="flex items-center gap-3">
-          <div className="h-10 w-10 rounded bg-muted animate-pulse" />
+          <div className="h-10 w-10 rounded skeleton-shimmer" />
           <div className="space-y-2">
-            <div className="h-6 w-48 bg-muted rounded animate-pulse" />
-            <div className="h-4 w-32 bg-muted rounded animate-pulse" />
+            <div className="h-6 w-48 rounded skeleton-shimmer" />
+            <div className="h-4 w-32 rounded skeleton-shimmer" />
           </div>
         </div>
       </div>
@@ -702,18 +714,92 @@ export default function WarehouseDetailPage() {
           <TabsTrigger value="movimientos" data-testid="tab-movimientos">
             Movimientos
           </TabsTrigger>
+          <TabsTrigger value="mapa" data-testid="tab-mapa">
+            Mapa
+          </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="ubicaciones">
+        <TabsContent value="ubicaciones" className="animate-in fade-in-0 duration-200">
           <LocationsTab warehouseId={warehouseId} />
         </TabsContent>
 
-        <TabsContent value="inventario">
+        <TabsContent value="inventario" className="animate-in fade-in-0 duration-200">
           <InventoryTab warehouseId={warehouseId} />
         </TabsContent>
 
-        <TabsContent value="movimientos">
+        <TabsContent value="movimientos" className="animate-in fade-in-0 duration-200">
           <MovementsTab warehouseId={warehouseId} />
+        </TabsContent>
+
+        <TabsContent value="mapa" className="animate-in fade-in-0 duration-200 space-y-4">
+          {mapLoading ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <div key={i} className="h-28 rounded-lg skeleton-shimmer" />
+              ))}
+            </div>
+          ) : mapData && mapData.zones.length > 0 ? (
+            <>
+              <MapSummaryBar summary={mapData.summary} />
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                {mapData.zones.map((zone, i) => (
+                  <div key={zone.zone_id} className="animate-fade-in-up" style={{ animationDelay: `${i * 50}ms` }}>
+                    <ZoneCard
+                      zone={zone}
+                      selected={selectedZone?.zone_id === zone.zone_id}
+                      onClick={(z) =>
+                        setSelectedZone((prev) =>
+                          prev?.zone_id === z.zone_id ? null : z
+                        )
+                      }
+                    />
+                  </div>
+                ))}
+              </div>
+
+              {/* Zone detail panel */}
+              {selectedZone && (
+                <ZoneDetail
+                  zone={selectedZone}
+                  warehouseId={warehouseId}
+                  onClose={() => setSelectedZone(null)}
+                />
+              )}
+            </>
+          ) : (
+            /* Visual empty state with placeholder grid */
+            <div className="relative">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 opacity-40 pointer-events-none select-none">
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <div
+                    key={i}
+                    className="h-28 rounded-lg border-2 border-dashed border-muted-foreground/20 bg-muted/30"
+                  />
+                ))}
+              </div>
+              <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-4">
+                <HugeiconsIcon
+                  icon={MapsLocation01Icon}
+                  className="h-10 w-10 text-muted-foreground/50 mb-3"
+                />
+                <h3 className="text-base font-medium mb-1">
+                  Crea zonas en tu almacen para visualizar el mapa de stock
+                </h3>
+                <p className="text-sm text-muted-foreground mb-4 max-w-md">
+                  Las zonas agrupan tus ubicaciones y muestran el estado del inventario de forma visual.
+                </p>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    const tab = document.querySelector<HTMLButtonElement>('[data-testid="tab-ubicaciones"]');
+                    tab?.click();
+                  }}
+                >
+                  Crear zona
+                </Button>
+              </div>
+            </div>
+          )}
         </TabsContent>
       </Tabs>
     </div>

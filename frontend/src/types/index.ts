@@ -173,3 +173,129 @@ export interface DashboardStats {
   movements_today: number;
   movements_this_week: number;
 }
+
+// Warehouse Map
+export type ZoneSeverity = 'critical' | 'low' | 'warning' | 'ok' | 'empty';
+
+export interface ZoneHealth {
+  zone_id: string;
+  zone_name: string;
+  severity: ZoneSeverity;
+  critical_count: number;
+  low_count: number;
+  warning_count: number;
+  ok_count: number;
+  total_items: number;
+  child_location_count: number;
+}
+
+export interface WarehouseMapResponse {
+  zones: ZoneHealth[];
+  summary: {
+    total_zones: number;
+    critical_zones: number;
+    low_zones: number;
+    warning_zones: number;
+    ok_zones: number;
+    empty_zones: number;
+  };
+}
+
+// Notifications
+export type NotificationType = 'stock_critical' | 'stock_low' | 'stock_warning' | 'cycle_count_due' | 'system';
+
+export interface Notification {
+  id: string;
+  notification_type: NotificationType;
+  title: string;
+  body: string;
+  is_read: boolean;
+  reference_id: string | null;
+  reference_type: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  read_at: string | null;
+}
+
+export interface PaginatedNotifications {
+  data: Notification[];
+  total: number;
+  page: number;
+  per_page: number;
+}
+
+export interface UnreadCount {
+  count: number;
+}
+
+export interface ReadAllResponse {
+  updated: number;
+}
+
+export interface DailySummary {
+  total_today: number;
+  unread_today: number;
+  by_type: {
+    stock_critical: number;
+    stock_low: number;
+    stock_warning: number;
+    cycle_count_due: number;
+    system: number;
+  };
+}
+
+export interface GenerateResponse {
+  created: number;
+  skipped: number;
+}
+
+// Recipes
+export interface Recipe {
+  id: string;
+  name: string;
+  description: string | null;
+  created_by: string;
+  is_active: boolean;
+  item_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface RecipeItem {
+  id: string;
+  product_id: string;
+  product_name: string;
+  product_sku: string;
+  unit_of_measure: string;
+  quantity: number;
+  notes: string | null;
+}
+
+export interface RecipeDetail {
+  recipe: Recipe;
+  items: RecipeItem[];
+}
+
+export interface RecipeItemInput {
+  product_id: string;
+  quantity: number;
+  notes?: string;
+}
+
+export interface ItemAvailability {
+  product_id: string;
+  product_name: string;
+  product_sku: string;
+  required_quantity: number;
+  available_quantity: number;
+  status: 'available' | 'insufficient' | 'out_of_stock';
+}
+
+export interface AvailabilityResponse {
+  items: ItemAvailability[];
+  all_available: boolean;
+}
+
+export interface DispatchResponse {
+  movements_created: number;
+}

@@ -23,7 +23,9 @@ import {
   ArrowDataTransferHorizontalIcon,
   ClipboardIcon,
   CheckListIcon,
+  TaskDaily01Icon,
   Alert02Icon,
+  Notification03Icon,
   Analytics01Icon,
   UserGroupIcon,
   Logout01Icon,
@@ -64,6 +66,7 @@ const navGroups: NavGroup[] = [
       { title: 'Almacenes', href: '/almacenes', icon: Store01Icon },
       { title: 'Inventario', href: '/inventory', icon: ClipboardIcon },
       { title: 'Alertas', href: '/alertas', icon: Alert02Icon },
+      { title: 'Notificaciones', href: '/notificaciones', icon: Notification03Icon },
     ],
   },
   {
@@ -71,6 +74,7 @@ const navGroups: NavGroup[] = [
     items: [
       { title: 'Movimientos', href: '/movements', icon: ArrowDataTransferHorizontalIcon },
       { title: 'Conteos', href: '/cycle-counts', icon: CheckListIcon },
+      { title: 'Recetas', href: '/recetas', icon: TaskDaily01Icon },
     ],
   },
   {

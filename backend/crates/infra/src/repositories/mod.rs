@@ -1,14 +1,17 @@
 pub mod abc_repo;
 pub mod alerts_repo;
 pub mod category_repo;
+pub mod notifications_repo;
 pub mod cycle_count_repo;
 pub mod dashboard_repo;
 pub mod inventory_repo;
 pub mod location_repo;
 pub mod product_repo;
+pub mod recipes_repo;
 pub mod shared;
 pub mod supplier_repo;
 pub mod user_repo;
+pub mod warehouse_map_repo;
 pub mod warehouse_repo;
 
 pub use category_repo::PgCategoryRepository;
