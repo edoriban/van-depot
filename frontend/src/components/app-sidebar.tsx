@@ -26,6 +26,7 @@ import {
   Analytics01Icon,
   UserGroupIcon,
   Logout01Icon,
+  SmartPhone01Icon,
 } from '@hugeicons/core-free-icons';
 import { ThemeToggle } from '@/components/shared/theme-toggle';
 import Link from 'next/link';
@@ -130,6 +131,21 @@ export function AppSidebar() {
       <SidebarContent>
         {navGroups.map((group, i) => renderGroup(group, i))}
         {isAdmin && renderGroup(adminGroup, navGroups.length)}
+
+        <SidebarGroup>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild className="bg-primary/10 hover:bg-primary/20">
+                  <Link href="/piso">
+                    <HugeiconsIcon icon={SmartPhone01Icon} size={18} />
+                    <span>Modo almacen</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
       </SidebarContent>
 
       <SidebarFooter className="border-t p-4">
