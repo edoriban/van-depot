@@ -284,7 +284,7 @@ export default function UbicacionesPage() {
           id="warehouse-filter"
           value={selectedWarehouseId}
           onChange={(e) => handleWarehouseChange(e.target.value)}
-          className="h-9 rounded-3xl border border-transparent bg-input/50 px-3 py-1 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30"
+          className="h-9 rounded-3xl border border-transparent bg-input/50 px-3 py-1 text-sm text-foreground outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 [&>option]:bg-popover [&>option]:text-popover-foreground"
           data-testid="warehouse-selector"
         >
           {warehouses.length === 0 && (
@@ -342,7 +342,7 @@ export default function UbicacionesPage() {
                 name="location_type"
                 value={formLocationType}
                 onChange={(e) => setFormLocationType(e.target.value as LocationType)}
-                className="h-9 w-full rounded-3xl border border-transparent bg-input/50 px-3 py-1 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30"
+                className="h-9 w-full rounded-3xl border border-transparent bg-input/50 px-3 py-1 text-sm text-foreground outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 [&>option]:bg-popover [&>option]:text-popover-foreground"
                 data-testid="location-type-select"
               >
                 {LOCATION_TYPES.map((type) => (
@@ -360,7 +360,7 @@ export default function UbicacionesPage() {
                   name="parent_id"
                   value={formParentId}
                   onChange={(e) => setFormParentId(e.target.value)}
-                  className="h-9 w-full rounded-3xl border border-transparent bg-input/50 px-3 py-1 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30"
+                  className="h-9 w-full rounded-3xl border border-transparent bg-input/50 px-3 py-1 text-sm text-foreground outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 [&>option]:bg-popover [&>option]:text-popover-foreground"
                   data-testid="location-parent-select"
                 >
                   <option value="">Ninguna</option>
