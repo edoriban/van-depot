@@ -29,6 +29,7 @@ import {
   UserGroupIcon,
   Logout01Icon,
 } from '@hugeicons/core-free-icons';
+import { ThemeToggle } from '@/components/shared/theme-toggle';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
@@ -112,13 +113,16 @@ export function AppSidebar() {
             <span className="font-medium">{user?.name}</span>
             <span className="text-muted-foreground text-xs">{user?.role}</span>
           </div>
-          <button
-            onClick={logout}
-            className="text-muted-foreground hover:text-foreground transition-colors"
-            aria-label="Cerrar sesion"
-          >
-            <HugeiconsIcon icon={Logout01Icon} size={18} />
-          </button>
+          <div className="flex items-center gap-1">
+            <ThemeToggle />
+            <button
+              onClick={logout}
+              className="text-muted-foreground hover:text-foreground transition-colors p-1"
+              aria-label="Cerrar sesion"
+            >
+              <HugeiconsIcon icon={Logout01Icon} size={18} />
+            </button>
+          </div>
         </div>
       </SidebarFooter>
     </Sidebar>
