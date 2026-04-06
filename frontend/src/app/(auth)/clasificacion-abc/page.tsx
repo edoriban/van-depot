@@ -5,7 +5,13 @@ import { api } from '@/lib/api-mutations';
 import type { AbcReport } from '@/types';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Select } from '@/components/ui/select';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 
 const PERIOD_OPTIONS = [
   { value: '30', label: '30 dias' },
@@ -59,15 +65,18 @@ export default function ClasificacionAbcPage() {
         </div>
         <Select
           value={period}
-          onChange={(e) => handlePeriodChange(e.target.value)}
-          className="w-40"
-          data-testid="period-selector"
+          onValueChange={handlePeriodChange}
         >
-          {PERIOD_OPTIONS.map((opt) => (
-            <option key={opt.value} value={opt.value}>
-              {opt.label}
-            </option>
-          ))}
+          <SelectTrigger data-testid="period-selector" className="w-40">
+            <SelectValue placeholder="Seleccionar periodo" />
+          </SelectTrigger>
+          <SelectContent>
+            {PERIOD_OPTIONS.map((opt) => (
+              <SelectItem key={opt.value} value={opt.value}>
+                {opt.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
         </Select>
       </div>
 

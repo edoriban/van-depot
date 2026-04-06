@@ -10,7 +10,13 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Select } from '@/components/ui/select';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import {
   Dialog,
@@ -264,35 +270,41 @@ export default function CycleCountsPage() {
       {/* Filters */}
       <div className="flex items-center gap-4">
         <Select
-          value={filterStatus}
-          onChange={(e) => {
-            setFilterStatus(e.target.value);
+          value={filterStatus || 'all'}
+          onValueChange={(val) => {
+            setFilterStatus(val === 'all' ? '' : val);
             setPage(1);
           }}
-          className="w-48"
-          data-testid="filter-status"
         >
-          <option value="">Todos los estados</option>
-          <option value="draft">Borrador</option>
-          <option value="in_progress">En progreso</option>
-          <option value="completed">Completado</option>
-          <option value="cancelled">Cancelado</option>
+          <SelectTrigger data-testid="filter-status" className="w-48">
+            <SelectValue placeholder="Todos los estados" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Todos los estados</SelectItem>
+            <SelectItem value="draft">Borrador</SelectItem>
+            <SelectItem value="in_progress">En progreso</SelectItem>
+            <SelectItem value="completed">Completado</SelectItem>
+            <SelectItem value="cancelled">Cancelado</SelectItem>
+          </SelectContent>
         </Select>
         <Select
-          value={filterWarehouseId}
-          onChange={(e) => {
-            setFilterWarehouseId(e.target.value);
+          value={filterWarehouseId || 'all'}
+          onValueChange={(val) => {
+            setFilterWarehouseId(val === 'all' ? '' : val);
             setPage(1);
           }}
-          className="w-48"
-          data-testid="filter-warehouse"
         >
-          <option value="">Todos los almacenes</option>
-          {warehouses.map((w) => (
-            <option key={w.id} value={w.id}>
-              {w.name}
-            </option>
-          ))}
+          <SelectTrigger data-testid="filter-warehouse" className="w-48">
+            <SelectValue placeholder="Todos los almacenes" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Todos los almacenes</SelectItem>
+            {warehouses.map((w) => (
+              <SelectItem key={w.id} value={w.id}>
+                {w.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
         </Select>
       </div>
 
@@ -335,19 +347,19 @@ export default function CycleCountsPage() {
             <div className="space-y-2">
               <Label htmlFor="count-warehouse">Almacen</Label>
               <Select
-                id="count-warehouse"
-                name="warehouse_id"
-                value={formWarehouseId}
-                onChange={(e) => setFormWarehouseId(e.target.value)}
-                required
-                data-testid="count-warehouse-select"
+                value={formWarehouseId || undefined}
+                onValueChange={setFormWarehouseId}
               >
-                <option value="">Seleccionar almacen</option>
-                {warehouses.map((w) => (
-                  <option key={w.id} value={w.id}>
-                    {w.name}
-                  </option>
-                ))}
+                <SelectTrigger data-testid="count-warehouse-select" className="w-full">
+                  <SelectValue placeholder="Seleccionar almacen" />
+                </SelectTrigger>
+                <SelectContent>
+                  {warehouses.map((w) => (
+                    <SelectItem key={w.id} value={w.id}>
+                      {w.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
               </Select>
             </div>
             <div className="space-y-2">

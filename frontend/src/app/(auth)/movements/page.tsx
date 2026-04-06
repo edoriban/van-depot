@@ -18,7 +18,13 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Select } from '@/components/ui/select';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { toast } from 'sonner';
 
 // --- Constants ---
@@ -132,33 +138,37 @@ function WarehouseLocationSelector({
       <div className="space-y-2">
         <Label>Almacen</Label>
         <Select
-          value={warehouseId}
-          onChange={(e) => {
-            onWarehouseChange(e.target.value);
+          value={warehouseId || undefined}
+          onValueChange={(val) => {
+            onWarehouseChange(val);
             onLocationChange('');
           }}
-          required
-          data-testid={warehouseTestId}
         >
-          <option value="">Seleccionar almacen</option>
-          {warehouses.map((w) => (
-            <option key={w.id} value={w.id}>{w.name}</option>
-          ))}
+          <SelectTrigger data-testid={warehouseTestId} className="w-full">
+            <SelectValue placeholder="Seleccionar almacen" />
+          </SelectTrigger>
+          <SelectContent>
+            {warehouses.map((w) => (
+              <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>
+            ))}
+          </SelectContent>
         </Select>
       </div>
       <div className="space-y-2">
         <Label>{label}</Label>
         <Select
-          value={locationId}
-          onChange={(e) => onLocationChange(e.target.value)}
-          required
+          value={locationId || undefined}
+          onValueChange={onLocationChange}
           disabled={!warehouseId}
-          data-testid={locationTestId}
         >
-          <option value="">Seleccionar ubicacion</option>
-          {locations.map((l) => (
-            <option key={l.id} value={l.id}>{l.name}{l.label ? ` (${l.label})` : ''}</option>
-          ))}
+          <SelectTrigger data-testid={locationTestId} className="w-full">
+            <SelectValue placeholder="Seleccionar ubicacion" />
+          </SelectTrigger>
+          <SelectContent>
+            {locations.map((l) => (
+              <SelectItem key={l.id} value={l.id}>{l.name}{l.label ? ` (${l.label})` : ''}</SelectItem>
+            ))}
+          </SelectContent>
         </Select>
       </div>
     </>
@@ -215,11 +225,15 @@ function EntryForm({ products, warehouses, suppliers, onSuccess }: {
     <form onSubmit={handleSubmit} className="space-y-4" data-testid="entry-form">
       <div className="space-y-2">
         <Label>Producto</Label>
-        <Select value={productId} onChange={(e) => setProductId(e.target.value)} required data-testid="entry-product">
-          <option value="">Seleccionar producto</option>
-          {products.map((p) => (
-            <option key={p.id} value={p.id}>{p.name} ({p.sku})</option>
-          ))}
+        <Select value={productId || undefined} onValueChange={setProductId}>
+          <SelectTrigger data-testid="entry-product" className="w-full">
+            <SelectValue placeholder="Seleccionar producto" />
+          </SelectTrigger>
+          <SelectContent>
+            {products.map((p) => (
+              <SelectItem key={p.id} value={p.id}>{p.name} ({p.sku})</SelectItem>
+            ))}
+          </SelectContent>
         </Select>
       </div>
 
@@ -251,11 +265,16 @@ function EntryForm({ products, warehouses, suppliers, onSuccess }: {
 
       <div className="space-y-2">
         <Label>Proveedor (opcional)</Label>
-        <Select value={supplierId} onChange={(e) => setSupplierId(e.target.value)} data-testid="entry-supplier">
-          <option value="">Sin proveedor</option>
-          {suppliers.map((s) => (
-            <option key={s.id} value={s.id}>{s.name}</option>
-          ))}
+        <Select value={supplierId || 'none'} onValueChange={(val) => setSupplierId(val === 'none' ? '' : val)}>
+          <SelectTrigger data-testid="entry-supplier" className="w-full">
+            <SelectValue placeholder="Sin proveedor" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="none">Sin proveedor</SelectItem>
+            {suppliers.map((s) => (
+              <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+            ))}
+          </SelectContent>
         </Select>
       </div>
 
@@ -322,11 +341,15 @@ function ExitForm({ products, warehouses, onSuccess }: {
     <form onSubmit={handleSubmit} className="space-y-4" data-testid="exit-form">
       <div className="space-y-2">
         <Label>Producto</Label>
-        <Select value={productId} onChange={(e) => setProductId(e.target.value)} required data-testid="exit-product">
-          <option value="">Seleccionar producto</option>
-          {products.map((p) => (
-            <option key={p.id} value={p.id}>{p.name} ({p.sku})</option>
-          ))}
+        <Select value={productId || undefined} onValueChange={setProductId}>
+          <SelectTrigger data-testid="exit-product" className="w-full">
+            <SelectValue placeholder="Seleccionar producto" />
+          </SelectTrigger>
+          <SelectContent>
+            {products.map((p) => (
+              <SelectItem key={p.id} value={p.id}>{p.name} ({p.sku})</SelectItem>
+            ))}
+          </SelectContent>
         </Select>
       </div>
 
@@ -425,11 +448,15 @@ function TransferForm({ products, warehouses, onSuccess }: {
     <form onSubmit={handleSubmit} className="space-y-4" data-testid="transfer-form">
       <div className="space-y-2">
         <Label>Producto</Label>
-        <Select value={productId} onChange={(e) => setProductId(e.target.value)} required data-testid="transfer-product">
-          <option value="">Seleccionar producto</option>
-          {products.map((p) => (
-            <option key={p.id} value={p.id}>{p.name} ({p.sku})</option>
-          ))}
+        <Select value={productId || undefined} onValueChange={setProductId}>
+          <SelectTrigger data-testid="transfer-product" className="w-full">
+            <SelectValue placeholder="Seleccionar producto" />
+          </SelectTrigger>
+          <SelectContent>
+            {products.map((p) => (
+              <SelectItem key={p.id} value={p.id}>{p.name} ({p.sku})</SelectItem>
+            ))}
+          </SelectContent>
         </Select>
       </div>
 
@@ -540,11 +567,15 @@ function AdjustmentForm({ products, warehouses, onSuccess }: {
     <form onSubmit={handleSubmit} className="space-y-4" data-testid="adjustment-form">
       <div className="space-y-2">
         <Label>Producto</Label>
-        <Select value={productId} onChange={(e) => setProductId(e.target.value)} required data-testid="adjustment-product">
-          <option value="">Seleccionar producto</option>
-          {products.map((p) => (
-            <option key={p.id} value={p.id}>{p.name} ({p.sku})</option>
-          ))}
+        <Select value={productId || undefined} onValueChange={setProductId}>
+          <SelectTrigger data-testid="adjustment-product" className="w-full">
+            <SelectValue placeholder="Seleccionar producto" />
+          </SelectTrigger>
+          <SelectContent>
+            {products.map((p) => (
+              <SelectItem key={p.id} value={p.id}>{p.name} ({p.sku})</SelectItem>
+            ))}
+          </SelectContent>
         </Select>
       </div>
 
@@ -764,20 +795,22 @@ export default function MovementsPage() {
           <div className="flex items-center gap-2">
             <Label htmlFor="filter-type" className="text-sm whitespace-nowrap">Filtrar por tipo:</Label>
             <Select
-              id="filter-type"
-              value={filterType}
-              onChange={(e) => {
-                setFilterType(e.target.value);
+              value={filterType || 'all'}
+              onValueChange={(val) => {
+                setFilterType(val === 'all' ? '' : val);
                 setPage(1);
               }}
-              className="w-48"
-              data-testid="filter-movement-type"
             >
-              <option value="">Todos</option>
-              <option value="entry">Entrada</option>
-              <option value="exit">Salida</option>
-              <option value="transfer">Transferencia</option>
-              <option value="adjustment">Ajuste</option>
+              <SelectTrigger data-testid="filter-movement-type" className="w-48">
+                <SelectValue placeholder="Todos" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos</SelectItem>
+                <SelectItem value="entry">Entrada</SelectItem>
+                <SelectItem value="exit">Salida</SelectItem>
+                <SelectItem value="transfer">Transferencia</SelectItem>
+                <SelectItem value="adjustment">Ajuste</SelectItem>
+              </SelectContent>
             </Select>
           </div>
         </div>

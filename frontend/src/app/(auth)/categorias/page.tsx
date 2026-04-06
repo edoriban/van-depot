@@ -8,7 +8,13 @@ import { ConfirmDialog } from '@/components/shared/confirm-dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Select } from '@/components/ui/select';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import {
   Dialog,
   DialogContent,
@@ -230,18 +236,20 @@ export default function CategoriasPage() {
             <div className="space-y-2">
               <Label htmlFor="category-parent">Categoria padre</Label>
               <Select
-                id="category-parent"
-                name="parent_id"
-                value={formParentId}
-                onChange={(e) => setFormParentId(e.target.value)}
-                data-testid="category-parent-select"
+                value={formParentId || 'none'}
+                onValueChange={(val) => setFormParentId(val === 'none' ? '' : val)}
               >
-                <option value="">Sin categoria padre</option>
-                {parentOptions.map((cat) => (
-                  <option key={cat.id} value={cat.id}>
-                    {cat.name}
-                  </option>
-                ))}
+                <SelectTrigger data-testid="category-parent-select" className="w-full">
+                  <SelectValue placeholder="Sin categoria padre" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Sin categoria padre</SelectItem>
+                  {parentOptions.map((cat) => (
+                    <SelectItem key={cat.id} value={cat.id}>
+                      {cat.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
               </Select>
             </div>
             <DialogFooter>

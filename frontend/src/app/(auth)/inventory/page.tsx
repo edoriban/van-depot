@@ -7,7 +7,13 @@ import { DataTable, type ColumnDef } from '@/components/shared/data-table';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Select } from '@/components/ui/select';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 
 const PER_PAGE = 20;
 
@@ -206,18 +212,20 @@ export default function InventoryPage() {
             Almacen
           </Label>
           <Select
-            id="filter-warehouse"
-            value={filterWarehouseId}
-            onChange={(e) => handleWarehouseChange(e.target.value)}
-            className="w-48"
-            data-testid="filter-warehouse"
+            value={filterWarehouseId || 'all'}
+            onValueChange={(val) => handleWarehouseChange(val === 'all' ? '' : val)}
           >
-            <option value="">Todos los almacenes</option>
-            {warehouses.map((w) => (
-              <option key={w.id} value={w.id}>
-                {w.name}
-              </option>
-            ))}
+            <SelectTrigger data-testid="filter-warehouse" className="w-48">
+              <SelectValue placeholder="Todos los almacenes" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todos los almacenes</SelectItem>
+              {warehouses.map((w) => (
+                <SelectItem key={w.id} value={w.id}>
+                  {w.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
           </Select>
         </div>
 
@@ -226,20 +234,22 @@ export default function InventoryPage() {
             Ubicacion
           </Label>
           <Select
-            id="filter-location"
-            value={filterLocationId}
-            onChange={(e) => handleLocationChange(e.target.value)}
-            className="w-48"
+            value={filterLocationId || 'all'}
+            onValueChange={(val) => handleLocationChange(val === 'all' ? '' : val)}
             disabled={!filterWarehouseId}
-            data-testid="filter-location"
           >
-            <option value="">Todas las ubicaciones</option>
-            {locations.map((l) => (
-              <option key={l.id} value={l.id}>
-                {l.name}
-                {l.label ? ` (${l.label})` : ''}
-              </option>
-            ))}
+            <SelectTrigger data-testid="filter-location" className="w-48">
+              <SelectValue placeholder="Todas las ubicaciones" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todas las ubicaciones</SelectItem>
+              {locations.map((l) => (
+                <SelectItem key={l.id} value={l.id}>
+                  {l.name}
+                  {l.label ? ` (${l.label})` : ''}
+                </SelectItem>
+              ))}
+            </SelectContent>
           </Select>
         </div>
 

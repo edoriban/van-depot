@@ -10,6 +10,13 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
   Dialog,
   DialogContent,
   DialogHeader,
@@ -280,22 +287,21 @@ export default function UbicacionesPage() {
       {/* Warehouse selector */}
       <div className="flex items-center gap-3">
         <Label htmlFor="warehouse-filter">Almacen:</Label>
-        <select
-          id="warehouse-filter"
-          value={selectedWarehouseId}
-          onChange={(e) => handleWarehouseChange(e.target.value)}
-          className="h-9 rounded-3xl border border-transparent bg-input/50 px-3 py-1 text-sm text-foreground outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 [&>option]:bg-popover [&>option]:text-popover-foreground"
-          data-testid="warehouse-selector"
+        <Select
+          value={selectedWarehouseId || undefined}
+          onValueChange={handleWarehouseChange}
         >
-          {warehouses.length === 0 && (
-            <option value="">Sin almacenes</option>
-          )}
-          {warehouses.map((w) => (
-            <option key={w.id} value={w.id}>
-              {w.name}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger data-testid="warehouse-selector" className="w-48">
+            <SelectValue placeholder={warehouses.length === 0 ? 'Sin almacenes' : 'Seleccionar almacen'} />
+          </SelectTrigger>
+          <SelectContent>
+            {warehouses.map((w) => (
+              <SelectItem key={w.id} value={w.id}>
+                {w.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       {error && (
@@ -337,39 +343,41 @@ export default function UbicacionesPage() {
             </div>
             <div className="space-y-2">
               <Label htmlFor="location-type">Tipo</Label>
-              <select
-                id="location-type"
-                name="location_type"
+              <Select
                 value={formLocationType}
-                onChange={(e) => setFormLocationType(e.target.value as LocationType)}
-                className="h-9 w-full rounded-3xl border border-transparent bg-input/50 px-3 py-1 text-sm text-foreground outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 [&>option]:bg-popover [&>option]:text-popover-foreground"
-                data-testid="location-type-select"
+                onValueChange={(val) => setFormLocationType(val as LocationType)}
               >
-                {LOCATION_TYPES.map((type) => (
-                  <option key={type} value={type}>
-                    {LOCATION_TYPE_LABELS[type]}
-                  </option>
-                ))}
-              </select>
+                <SelectTrigger data-testid="location-type-select" className="w-full">
+                  <SelectValue placeholder="Seleccionar tipo" />
+                </SelectTrigger>
+                <SelectContent>
+                  {LOCATION_TYPES.map((type) => (
+                    <SelectItem key={type} value={type}>
+                      {LOCATION_TYPE_LABELS[type]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             {!editingLocation && (
               <div className="space-y-2">
                 <Label htmlFor="location-parent">Ubicacion padre (opcional)</Label>
-                <select
-                  id="location-parent"
-                  name="parent_id"
-                  value={formParentId}
-                  onChange={(e) => setFormParentId(e.target.value)}
-                  className="h-9 w-full rounded-3xl border border-transparent bg-input/50 px-3 py-1 text-sm text-foreground outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 [&>option]:bg-popover [&>option]:text-popover-foreground"
-                  data-testid="location-parent-select"
+                <Select
+                  value={formParentId || 'none'}
+                  onValueChange={(val) => setFormParentId(val === 'none' ? '' : val)}
                 >
-                  <option value="">Ninguna</option>
-                  {allLocationsForParent.map((l) => (
-                    <option key={l.id} value={l.id}>
-                      {l.name} ({LOCATION_TYPE_LABELS[l.location_type]})
-                    </option>
-                  ))}
-                </select>
+                  <SelectTrigger data-testid="location-parent-select" className="w-full">
+                    <SelectValue placeholder="Ninguna" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Ninguna</SelectItem>
+                    {allLocationsForParent.map((l) => (
+                      <SelectItem key={l.id} value={l.id}>
+                        {l.name} ({LOCATION_TYPE_LABELS[l.location_type]})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
             )}
             <DialogFooter>

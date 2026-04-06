@@ -9,7 +9,13 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Select } from '@/components/ui/select';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import {
   Dialog,
@@ -265,17 +271,20 @@ export default function ProductosPage() {
           data-testid="search-input"
         />
         <Select
-          value={filterCategoryId}
-          onChange={(e) => handleCategoryFilterChange(e.target.value)}
-          className="max-w-xs"
-          data-testid="category-filter"
+          value={filterCategoryId || 'all'}
+          onValueChange={(val) => handleCategoryFilterChange(val === 'all' ? '' : val)}
         >
-          <option value="">Todas las categorias</option>
-          {categories.map((cat) => (
-            <option key={cat.id} value={cat.id}>
-              {cat.name}
-            </option>
-          ))}
+          <SelectTrigger data-testid="category-filter" className="max-w-xs">
+            <SelectValue placeholder="Todas las categorias" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Todas las categorias</SelectItem>
+            {categories.map((cat) => (
+              <SelectItem key={cat.id} value={cat.id}>
+                {cat.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
         </Select>
       </div>
 
@@ -347,37 +356,40 @@ export default function ProductosPage() {
               <div className="space-y-2">
                 <Label htmlFor="product-category">Categoria</Label>
                 <Select
-                  id="product-category"
-                  name="category_id"
-                  value={formCategoryId}
-                  onChange={(e) => setFormCategoryId(e.target.value)}
-                  data-testid="product-category-select"
+                  value={formCategoryId || 'none'}
+                  onValueChange={(val) => setFormCategoryId(val === 'none' ? '' : val)}
                 >
-                  <option value="">Sin categoria</option>
-                  {categories.map((cat) => (
-                    <option key={cat.id} value={cat.id}>
-                      {cat.name}
-                    </option>
-                  ))}
+                  <SelectTrigger data-testid="product-category-select" className="w-full">
+                    <SelectValue placeholder="Sin categoria" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Sin categoria</SelectItem>
+                    {categories.map((cat) => (
+                      <SelectItem key={cat.id} value={cat.id}>
+                        {cat.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
                 </Select>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="product-unit">Unidad de medida</Label>
                 <Select
-                  id="product-unit"
-                  name="unit_of_measure"
                   value={formUnit}
-                  onChange={(e) => setFormUnit(e.target.value as UnitType)}
-                  required
-                  data-testid="product-unit-select"
+                  onValueChange={(val) => setFormUnit(val as UnitType)}
                 >
-                  {(Object.entries(UNIT_LABELS) as [UnitType, string][]).map(
-                    ([value, label]) => (
-                      <option key={value} value={value}>
-                        {label}
-                      </option>
-                    )
-                  )}
+                  <SelectTrigger data-testid="product-unit-select" className="w-full">
+                    <SelectValue placeholder="Seleccionar unidad" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(Object.entries(UNIT_LABELS) as [UnitType, string][]).map(
+                      ([value, label]) => (
+                        <SelectItem key={value} value={value}>
+                          {label}
+                        </SelectItem>
+                      )
+                    )}
+                  </SelectContent>
                 </Select>
               </div>
             </div>

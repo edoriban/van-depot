@@ -14,7 +14,13 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { Select } from '@/components/ui/select';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { HugeiconsIcon } from '@hugeicons/react';
 import { Alert02Icon } from '@hugeicons/core-free-icons';
 import { cn } from '@/lib/utils';
@@ -107,29 +113,35 @@ export default function AlertasPage() {
       {/* Filters */}
       <div className="flex flex-wrap gap-4" data-testid="alertas-filters">
         <Select
-          className="w-[220px]"
           value={warehouseFilter}
-          onChange={(e) => setWarehouseFilter(e.target.value)}
-          data-testid="filter-warehouse"
+          onValueChange={setWarehouseFilter}
         >
-          <option value="all">Todos los almacenes</option>
-          {warehouses.map((w) => (
-            <option key={w.id} value={w.id}>
-              {w.name}
-            </option>
-          ))}
+          <SelectTrigger data-testid="filter-warehouse" className="w-[220px]">
+            <SelectValue placeholder="Todos los almacenes" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Todos los almacenes</SelectItem>
+            {warehouses.map((w) => (
+              <SelectItem key={w.id} value={w.id}>
+                {w.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
         </Select>
 
         <Select
-          className="w-[200px]"
           value={severityFilter}
-          onChange={(e) => setSeverityFilter(e.target.value)}
-          data-testid="filter-severity"
+          onValueChange={setSeverityFilter}
         >
-          <option value="all">Todas las severidades</option>
-          <option value="critical">Critico</option>
-          <option value="low">Bajo</option>
-          <option value="warning">Advertencia</option>
+          <SelectTrigger data-testid="filter-severity" className="w-[200px]">
+            <SelectValue placeholder="Todas las severidades" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Todas las severidades</SelectItem>
+            <SelectItem value="critical">Critico</SelectItem>
+            <SelectItem value="low">Bajo</SelectItem>
+            <SelectItem value="warning">Advertencia</SelectItem>
+          </SelectContent>
         </Select>
       </div>
 

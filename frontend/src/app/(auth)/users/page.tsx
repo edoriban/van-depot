@@ -10,7 +10,13 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Select } from '@/components/ui/select';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import {
   Dialog,
   DialogContent,
@@ -439,20 +445,21 @@ export default function UsersPage() {
             <div className="space-y-2">
               <Label htmlFor="user-role">Rol</Label>
               <Select
-                id="user-role"
-                name="role"
                 value={formRole}
-                onChange={(e) => setFormRole(e.target.value as UserRole)}
-                required
-                data-testid="user-role-select"
+                onValueChange={(val) => setFormRole(val as UserRole)}
               >
-                {(
-                  Object.entries(ROLE_LABELS) as [UserRole, string][]
-                ).map(([value, label]) => (
-                  <option key={value} value={value}>
-                    {label}
-                  </option>
-                ))}
+                <SelectTrigger data-testid="user-role-select" className="w-full">
+                  <SelectValue placeholder="Seleccionar rol" />
+                </SelectTrigger>
+                <SelectContent>
+                  {(
+                    Object.entries(ROLE_LABELS) as [UserRole, string][]
+                  ).map(([value, label]) => (
+                    <SelectItem key={value} value={value}>
+                      {label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
               </Select>
             </div>
             {editingUser && (
@@ -596,22 +603,24 @@ export default function UsersPage() {
               <Label>Asignar almacen</Label>
               <div className="flex items-center gap-2">
                 <Select
-                  value={selectedWarehouseId}
-                  onChange={(e) => setSelectedWarehouseId(e.target.value)}
-                  className="flex-1"
-                  data-testid="assign-warehouse-select"
+                  value={selectedWarehouseId || undefined}
+                  onValueChange={setSelectedWarehouseId}
                 >
-                  <option value="">Seleccionar almacen</option>
-                  {warehouses
-                    .filter(
-                      (w) =>
-                        !assignedWarehouses.some((aw) => aw.id === w.id)
-                    )
-                    .map((w) => (
-                      <option key={w.id} value={w.id}>
-                        {w.name}
-                      </option>
-                    ))}
+                  <SelectTrigger data-testid="assign-warehouse-select" className="flex-1">
+                    <SelectValue placeholder="Seleccionar almacen" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {warehouses
+                      .filter(
+                        (w) =>
+                          !assignedWarehouses.some((aw) => aw.id === w.id)
+                      )
+                      .map((w) => (
+                        <SelectItem key={w.id} value={w.id}>
+                          {w.name}
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
                 </Select>
                 <Button
                   onClick={handleAssignWarehouse}
