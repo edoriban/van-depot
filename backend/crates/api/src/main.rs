@@ -27,8 +27,9 @@ async fn main() -> anyhow::Result<()> {
     let redis = vandepot_infra::redis::create_redis_pool(&redis_url).await?;
     let jwt_config = vandepot_infra::auth::jwt::JwtConfig::from_env()?;
 
-    // Seed superadmin
+    // Seed superadmin and demo data
     vandepot_infra::seed::seed_superadmin(&pool).await?;
+    vandepot_infra::seed::seed_demo_data(&pool).await?;
 
     let state = state::AppState {
         pool,
