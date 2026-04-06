@@ -1,12 +1,9 @@
 import { test, expect } from '@playwright/test';
+import { login } from './helpers';
 
 test.describe('Products', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('/login');
-    await page.fill('input[name="email"]', 'admin@vandev.mx');
-    await page.fill('input[name="password"]', 'admin123');
-    await page.click('button[type="submit"]');
-    await page.waitForURL('**/dashboard');
+    await login(page);
   });
 
   test('can navigate to products page', async ({ page }) => {
@@ -70,11 +67,7 @@ test.describe('Products', () => {
 
 test.describe('Categories', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('/login');
-    await page.fill('input[name="email"]', 'admin@vandev.mx');
-    await page.fill('input[name="password"]', 'admin123');
-    await page.click('button[type="submit"]');
-    await page.waitForURL('**/dashboard');
+    await login(page);
   });
 
   test('can navigate to categories page', async ({ page }) => {
@@ -116,11 +109,7 @@ test.describe('Categories', () => {
 
 test.describe('Suppliers', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('/login');
-    await page.fill('input[name="email"]', 'admin@vandev.mx');
-    await page.fill('input[name="password"]', 'admin123');
-    await page.click('button[type="submit"]');
-    await page.waitForURL('**/dashboard');
+    await login(page);
   });
 
   test('can navigate to suppliers page', async ({ page }) => {

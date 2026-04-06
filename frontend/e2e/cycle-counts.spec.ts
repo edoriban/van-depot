@@ -1,7 +1,9 @@
 import { test, expect } from '@playwright/test';
+import { login } from './helpers';
 
 test.describe('Cycle Counts page', () => {
   test.beforeEach(async ({ page }) => {
+    await login(page);
     await page.goto('/cycle-counts');
   });
 

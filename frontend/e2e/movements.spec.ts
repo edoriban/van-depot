@@ -1,8 +1,9 @@
 import { test, expect } from '@playwright/test';
+import { login } from './helpers';
 
 test.describe('Movements page', () => {
   test.beforeEach(async ({ page }) => {
-    // Navigate to movements page (assumes user is already authenticated or login is handled)
+    await login(page);
     await page.goto('/movements');
   });
 
