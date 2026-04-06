@@ -26,9 +26,9 @@ import {
   Analytics01Icon,
   UserGroupIcon,
   Logout01Icon,
-  SmartPhone01Icon,
 } from '@hugeicons/core-free-icons';
 import { ThemeToggle } from '@/components/shared/theme-toggle';
+import { useIsMobile } from '@/hooks/use-mobile';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
@@ -96,8 +96,19 @@ export function AppSidebar() {
   const user = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
   const pathname = usePathname();
+  const isMobile = useIsMobile();
 
   const isAdmin = user?.role === 'superadmin' || user?.role === 'owner';
+
+  // On mobile: first item is "Inicio" → /piso. On desktop: "Dashboard" → /dashboard
+  const homeItem: NavItem = isMobile
+    ? { title: 'Inicio', href: '/piso', icon: DashboardSquare01Icon }
+    : { title: 'Dashboard', href: '/dashboard', icon: DashboardSquare01Icon };
+
+  const dynamicNavGroups: NavGroup[] = [
+    { label: null, items: [homeItem] },
+    ...navGroups.slice(1), // skip the original dashboard group
+  ];
 
   const renderGroup = (group: NavGroup, index: number) => (
     <SidebarGroup key={group.label ?? `group-${index}`}>
@@ -129,23 +140,8 @@ export function AppSidebar() {
       </SidebarHeader>
 
       <SidebarContent>
-        {navGroups.map((group, i) => renderGroup(group, i))}
-        {isAdmin && renderGroup(adminGroup, navGroups.length)}
-
-        <SidebarGroup>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              <SidebarMenuItem>
-                <SidebarMenuButton asChild className="bg-primary/10 hover:bg-primary/20">
-                  <Link href="/piso">
-                    <HugeiconsIcon icon={SmartPhone01Icon} size={18} />
-                    <span>Modo almacen</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+        {dynamicNavGroups.map((group, i) => renderGroup(group, i))}
+        {isAdmin && renderGroup(adminGroup, dynamicNavGroups.length)}
       </SidebarContent>
 
       <SidebarFooter className="border-t p-4">
