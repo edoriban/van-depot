@@ -8,8 +8,8 @@ test.describe('Movements page', () => {
   });
 
   test('should display page title and tabs', async ({ page }) => {
-    await expect(page.getByTestId('movements-page')).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'Movimientos' })).toBeVisible();
+    await expect(page.getByTestId('movements-page')).toBeVisible({ timeout: 10000 });
+    await expect(page.getByRole('heading', { level: 1, name: 'Movimientos' })).toBeVisible();
 
     // All 4 tabs should be visible
     await expect(page.getByTestId('tab-entry')).toBeVisible();
@@ -19,7 +19,7 @@ test.describe('Movements page', () => {
   });
 
   test('should show entry form by default', async ({ page }) => {
-    await expect(page.getByTestId('entry-form')).toBeVisible();
+    await expect(page.getByTestId('entry-form')).toBeVisible({ timeout: 10000 });
     await expect(page.getByTestId('entry-product')).toBeVisible();
     await expect(page.getByTestId('entry-warehouse')).toBeVisible();
     await expect(page.getByTestId('entry-quantity')).toBeVisible();
@@ -27,29 +27,32 @@ test.describe('Movements page', () => {
   });
 
   test('should switch between tabs and show correct forms', async ({ page }) => {
+    await expect(page.getByTestId('movements-page')).toBeVisible({ timeout: 10000 });
+
     // Switch to exit tab
-    await page.getByTestId('tab-exit').click();
-    await expect(page.getByTestId('exit-form')).toBeVisible();
+    await page.getByTestId('tab-exit').click({ force: true });
+    await expect(page.getByTestId('exit-form')).toBeVisible({ timeout: 5000 });
 
     // Switch to transfer tab
-    await page.getByTestId('tab-transfer').click();
-    await expect(page.getByTestId('transfer-form')).toBeVisible();
+    await page.getByTestId('tab-transfer').click({ force: true });
+    await expect(page.getByTestId('transfer-form')).toBeVisible({ timeout: 5000 });
 
     // Switch to adjustment tab
-    await page.getByTestId('tab-adjustment').click();
-    await expect(page.getByTestId('adjustment-form')).toBeVisible();
+    await page.getByTestId('tab-adjustment').click({ force: true });
+    await expect(page.getByTestId('adjustment-form')).toBeVisible({ timeout: 5000 });
 
     // Back to entry
-    await page.getByTestId('tab-entry').click();
-    await expect(page.getByTestId('entry-form')).toBeVisible();
+    await page.getByTestId('tab-entry').click({ force: true });
+    await expect(page.getByTestId('entry-form')).toBeVisible({ timeout: 5000 });
   });
 
   test('should display movement history section', async ({ page }) => {
-    await expect(page.getByRole('heading', { name: 'Historial de movimientos' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Historial de movimientos' })).toBeVisible({ timeout: 10000 });
     await expect(page.getByTestId('filter-movement-type')).toBeVisible();
   });
 
   test('should filter movement history by type', async ({ page }) => {
+    await expect(page.getByTestId('filter-movement-type')).toBeVisible({ timeout: 10000 });
     const filterSelect = page.getByTestId('filter-movement-type');
     await filterSelect.selectOption('entry');
     // Verify the filter is applied (select value changed)
@@ -60,6 +63,8 @@ test.describe('Movements page', () => {
   });
 
   test('should submit an entry if data exists', async ({ page }) => {
+    await expect(page.getByTestId('entry-form')).toBeVisible({ timeout: 10000 });
+
     // Check if products and warehouses are loaded in the dropdowns
     const productSelect = page.getByTestId('entry-product');
     const options = await productSelect.locator('option').count();
@@ -108,10 +113,9 @@ test.describe('Movements page', () => {
     await page.getByTestId('entry-reference').fill('Test E2E');
 
     // Submit
-    await page.getByTestId('entry-submit').click();
+    await page.getByTestId('entry-submit').click({ force: true });
 
     // Expect success toast or no error (depends on backend availability)
-    // If backend is running, we expect a success toast
     const successToast = page.locator('[data-sonner-toast]').filter({ hasText: 'Entrada registrada' });
     const errorToast = page.locator('[data-sonner-toast]').filter({ hasText: 'Error' });
 

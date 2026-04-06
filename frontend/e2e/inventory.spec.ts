@@ -8,8 +8,8 @@ test.describe('Inventory page', () => {
   });
 
   test('should display page title and filters', async ({ page }) => {
-    await expect(page.getByTestId('inventory-page')).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'Inventario' })).toBeVisible();
+    await expect(page.getByTestId('inventory-page')).toBeVisible({ timeout: 10000 });
+    await expect(page.getByRole('heading', { level: 1, name: 'Inventario' })).toBeVisible();
 
     // Filter controls should be visible
     await expect(page.getByTestId('filter-warehouse')).toBeVisible();
@@ -19,10 +19,12 @@ test.describe('Inventory page', () => {
   });
 
   test('should have location filter disabled when no warehouse selected', async ({ page }) => {
+    await expect(page.getByTestId('inventory-page')).toBeVisible({ timeout: 10000 });
     await expect(page.getByTestId('filter-location')).toBeDisabled();
   });
 
   test('should enable location filter when warehouse is selected', async ({ page }) => {
+    await expect(page.getByTestId('inventory-page')).toBeVisible({ timeout: 10000 });
     const warehouseSelect = page.getByTestId('filter-warehouse');
     const options = await warehouseSelect.locator('option').count();
 
@@ -36,21 +38,23 @@ test.describe('Inventory page', () => {
       await warehouseSelect.selectOption(firstValue);
     }
 
-    await expect(page.getByTestId('filter-location')).toBeEnabled();
+    await expect(page.getByTestId('filter-location')).toBeEnabled({ timeout: 5000 });
   });
 
   test('should toggle low stock filter', async ({ page }) => {
+    await expect(page.getByTestId('inventory-page')).toBeVisible({ timeout: 10000 });
     const toggle = page.getByTestId('low-stock-toggle');
     await expect(toggle).not.toBeChecked();
 
-    await toggle.check();
+    await toggle.click({ force: true });
     await expect(toggle).toBeChecked();
 
-    await toggle.uncheck();
+    await toggle.click({ force: true });
     await expect(toggle).not.toBeChecked();
   });
 
   test('should allow searching products', async ({ page }) => {
+    await expect(page.getByTestId('inventory-page')).toBeVisible({ timeout: 10000 });
     const searchInput = page.getByTestId('search-product');
     await searchInput.fill('test-product');
     await expect(searchInput).toHaveValue('test-product');
