@@ -17,9 +17,7 @@ import { HugeiconsIcon } from '@hugeicons/react';
 import {
   DashboardSquare01Icon,
   Store01Icon,
-  Location01Icon,
   Package01Icon,
-  Tag01Icon,
   DeliveryTruck01Icon,
   ArrowDataTransferHorizontalIcon,
   ClipboardIcon,
@@ -33,23 +31,65 @@ import { ThemeToggle } from '@/components/shared/theme-toggle';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
-const navItems = [
-  { title: 'Dashboard', href: '/dashboard', icon: DashboardSquare01Icon },
-  { title: 'Almacenes', href: '/almacenes', icon: Store01Icon },
-  { title: 'Ubicaciones', href: '/ubicaciones', icon: Location01Icon },
-  { title: 'Productos', href: '/productos', icon: Package01Icon },
-  { title: 'Categorias', href: '/categorias', icon: Tag01Icon },
-  { title: 'Proveedores', href: '/proveedores', icon: DeliveryTruck01Icon },
-  { title: 'Movimientos', href: '/movements', icon: ArrowDataTransferHorizontalIcon },
-  { title: 'Inventario', href: '/inventory', icon: ClipboardIcon },
-  { title: 'Conteos', href: '/cycle-counts', icon: CheckListIcon },
-  { title: 'Alertas', href: '/alertas', icon: Alert02Icon },
-  { title: 'Clasificacion ABC', href: '/clasificacion-abc', icon: Analytics01Icon },
+interface NavItem {
+  title: string;
+  href: string;
+  icon: Parameters<typeof HugeiconsIcon>[0]['icon'];
+}
+
+interface NavGroup {
+  label: string | null;
+  items: NavItem[];
+}
+
+const navGroups: NavGroup[] = [
+  {
+    label: null,
+    items: [
+      { title: 'Dashboard', href: '/dashboard', icon: DashboardSquare01Icon },
+    ],
+  },
+  {
+    label: 'Catalogo',
+    items: [
+      { title: 'Productos', href: '/productos', icon: Package01Icon },
+      { title: 'Proveedores', href: '/proveedores', icon: DeliveryTruck01Icon },
+    ],
+  },
+  {
+    label: 'Almacen',
+    items: [
+      { title: 'Almacenes', href: '/almacenes', icon: Store01Icon },
+      { title: 'Inventario', href: '/inventory', icon: ClipboardIcon },
+      { title: 'Alertas', href: '/alertas', icon: Alert02Icon },
+    ],
+  },
+  {
+    label: 'Operaciones',
+    items: [
+      { title: 'Movimientos', href: '/movements', icon: ArrowDataTransferHorizontalIcon },
+      { title: 'Conteos', href: '/cycle-counts', icon: CheckListIcon },
+    ],
+  },
+  {
+    label: 'Analisis',
+    items: [
+      { title: 'Clasificacion ABC', href: '/clasificacion-abc', icon: Analytics01Icon },
+    ],
+  },
 ];
 
-const adminItems = [
-  { title: 'Usuarios', href: '/users', icon: UserGroupIcon },
-];
+const adminGroup: NavGroup = {
+  label: 'Administracion',
+  items: [
+    { title: 'Usuarios', href: '/users', icon: UserGroupIcon },
+  ],
+};
+
+function isActive(pathname: string, href: string): boolean {
+  if (href === '/dashboard') return pathname === href;
+  return pathname === href || pathname.startsWith(href + '/');
+}
 
 export function AppSidebar() {
   const user = useAuthStore((s) => s.user);
@@ -57,6 +97,26 @@ export function AppSidebar() {
   const pathname = usePathname();
 
   const isAdmin = user?.role === 'superadmin' || user?.role === 'owner';
+
+  const renderGroup = (group: NavGroup, index: number) => (
+    <SidebarGroup key={group.label ?? `group-${index}`}>
+      {group.label && <SidebarGroupLabel>{group.label}</SidebarGroupLabel>}
+      <SidebarGroupContent>
+        <SidebarMenu>
+          {group.items.map((item) => (
+            <SidebarMenuItem key={item.href}>
+              <SidebarMenuButton asChild isActive={isActive(pathname, item.href)}>
+                <Link href={item.href}>
+                  <HugeiconsIcon icon={item.icon} size={18} />
+                  <span>{item.title}</span>
+                </Link>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          ))}
+        </SidebarMenu>
+      </SidebarGroupContent>
+    </SidebarGroup>
+  );
 
   return (
     <Sidebar>
@@ -68,43 +128,8 @@ export function AppSidebar() {
       </SidebarHeader>
 
       <SidebarContent>
-        <SidebarGroup>
-          <SidebarGroupLabel>Navegacion</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {navItems.map((item) => (
-                <SidebarMenuItem key={item.href}>
-                  <SidebarMenuButton asChild isActive={pathname === item.href}>
-                    <Link href={item.href}>
-                      <HugeiconsIcon icon={item.icon} size={18} />
-                      <span>{item.title}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-
-        {isAdmin && (
-          <SidebarGroup>
-            <SidebarGroupLabel>Administracion</SidebarGroupLabel>
-            <SidebarGroupContent>
-              <SidebarMenu>
-                {adminItems.map((item) => (
-                  <SidebarMenuItem key={item.href}>
-                    <SidebarMenuButton asChild isActive={pathname === item.href}>
-                      <Link href={item.href}>
-                        <HugeiconsIcon icon={item.icon} size={18} />
-                        <span>{item.title}</span>
-                      </Link>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                ))}
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
-        )}
+        {navGroups.map((group, i) => renderGroup(group, i))}
+        {isAdmin && renderGroup(adminGroup, navGroups.length)}
       </SidebarContent>
 
       <SidebarFooter className="border-t p-4">

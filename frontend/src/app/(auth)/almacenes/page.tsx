@@ -3,14 +3,26 @@
 import { useState, useEffect } from 'react';
 import { api } from '@/lib/api-mutations';
 import type { Warehouse, PaginatedResponse } from '@/types';
-import { DataTable, type ColumnDef } from '@/components/shared/data-table';
 import { EmptyState } from '@/components/shared/empty-state';
 import { ConfirmDialog } from '@/components/shared/confirm-dialog';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Store01Icon } from '@hugeicons/core-free-icons';
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+  CardContent,
+  CardAction,
+} from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { HugeiconsIcon } from '@hugeicons/react';
+import {
+  Store01Icon,
+  PencilEdit01Icon,
+  Delete01Icon,
+} from '@hugeicons/core-free-icons';
 import {
   Dialog,
   DialogContent,
@@ -18,6 +30,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog';
+import Link from 'next/link';
 
 export default function AlmacenesPage() {
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
@@ -112,55 +125,10 @@ export default function AlmacenesPage() {
     }
   };
 
-  const columns: ColumnDef<Warehouse>[] = [
-    {
-      key: 'name',
-      header: 'Nombre',
-      render: (w) => <span className="font-medium">{w.name}</span>,
-    },
-    {
-      key: 'address',
-      header: 'Direccion',
-      render: (w) => w.address || <span className="text-muted-foreground">-</span>,
-    },
-    {
-      key: 'status',
-      header: 'Estado',
-      render: (w) => (
-        <Badge variant={w.is_active ? 'default' : 'secondary'}>
-          {w.is_active ? 'Activo' : 'Inactivo'}
-        </Badge>
-      ),
-    },
-    {
-      key: 'actions',
-      header: 'Acciones',
-      render: (w) => (
-        <div className="flex items-center gap-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => openEditDialog(w)}
-            data-testid="edit-warehouse-btn"
-          >
-            Editar
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="text-destructive"
-            onClick={() => setDeleteTarget(w)}
-            data-testid="delete-warehouse-btn"
-          >
-            Eliminar
-          </Button>
-        </div>
-      ),
-    },
-  ];
+  const totalPages = Math.ceil(total / perPage);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" data-testid="almacenes-page">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">Almacenes</h1>
@@ -179,25 +147,118 @@ export default function AlmacenesPage() {
         </div>
       )}
 
-      <DataTable
-        columns={columns}
-        data={warehouses}
-        total={total}
-        page={page}
-        perPage={perPage}
-        onPageChange={setPage}
-        isLoading={isLoading}
-        emptyMessage="No hay almacenes registrados"
-        emptyState={
-          <EmptyState
-            icon={Store01Icon}
-            title="Aun no tienes almacenes"
-            description="Crea tu primer almacen para organizar tu inventario."
-            actionLabel="Nuevo almacen"
-            onAction={openCreateDialog}
-          />
-        }
-      />
+      {isLoading ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <Card key={i} className="animate-pulse">
+              <CardHeader>
+                <div className="h-5 bg-muted rounded w-2/3" />
+                <div className="h-4 bg-muted rounded w-1/2 mt-2" />
+              </CardHeader>
+              <CardContent>
+                <div className="h-4 bg-muted rounded w-1/3" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      ) : warehouses.length === 0 ? (
+        <EmptyState
+          icon={Store01Icon}
+          title="Aun no tienes almacenes"
+          description="Crea tu primer almacen para organizar tu inventario."
+          actionLabel="Nuevo almacen"
+          onAction={openCreateDialog}
+        />
+      ) : (
+        <>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4" data-testid="warehouse-grid">
+            {warehouses.map((warehouse) => (
+              <Card
+                key={warehouse.id}
+                className="hover:border-primary/50 transition-colors"
+                data-testid="warehouse-card"
+              >
+                <CardHeader>
+                  <div className="flex flex-row items-start justify-between">
+                    <div className="min-w-0 flex-1">
+                      <CardTitle className="text-lg">{warehouse.name}</CardTitle>
+                      <CardDescription>
+                        {warehouse.address || 'Sin direccion'}
+                      </CardDescription>
+                    </div>
+                    <div className="flex gap-1 shrink-0 ml-2">
+                      <Badge variant={warehouse.is_active ? 'default' : 'secondary'}>
+                        {warehouse.is_active ? 'Activo' : 'Inactivo'}
+                      </Badge>
+                    </div>
+                  </div>
+                  <CardAction>
+                    <div className="flex gap-1">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openEditDialog(warehouse);
+                        }}
+                        data-testid="edit-warehouse-btn"
+                      >
+                        <HugeiconsIcon icon={PencilEdit01Icon} size={16} />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="text-destructive hover:text-destructive"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setDeleteTarget(warehouse);
+                        }}
+                        data-testid="delete-warehouse-btn"
+                      >
+                        <HugeiconsIcon icon={Delete01Icon} size={16} />
+                      </Button>
+                    </div>
+                  </CardAction>
+                </CardHeader>
+                <CardContent>
+                  <Link
+                    href={`/almacenes/${warehouse.id}`}
+                    className="text-sm text-primary hover:underline"
+                    data-testid="warehouse-detail-link"
+                  >
+                    Ver ubicaciones e inventario →
+                  </Link>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-center gap-2" data-testid="pagination">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page <= 1}
+              >
+                Anterior
+              </Button>
+              <span className="text-sm text-muted-foreground">
+                Pagina {page} de {totalPages}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={page >= totalPages}
+              >
+                Siguiente
+              </Button>
+            </div>
+          )}
+        </>
+      )}
 
       {/* Create / Edit Dialog */}
       <Dialog open={formOpen} onOpenChange={setFormOpen}>
