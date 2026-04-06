@@ -1,9 +1,11 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/features/auth/auth-context";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/sonner";
+import { OfflineIndicator } from "@/components/shared/offline-indicator";
+import { ServiceWorkerRegister } from "@/components/shared/sw-register";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -17,7 +19,24 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "VanDepot - Sistema de Inventario",
-  description: "Sistema de gestion de inventario para PyMEs",
+  description: "Sistema de gestión de almacén para PyMEs",
+  manifest: "/manifest.json",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "VanDepot",
+  },
+  formatDetection: {
+    telephone: false,
+  },
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+  themeColor: "#18181b",
 };
 
 export default function RootLayout({
@@ -31,6 +50,8 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
+        <ServiceWorkerRegister />
+        <OfflineIndicator />
         <AuthProvider>
           <TooltipProvider>
             {children}
