@@ -2,14 +2,22 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { api } from '@/lib/api-mutations';
-import type { Supplier, PaginatedResponse } from '@/types';
+import type { Supplier, SupplierProduct, Product, PaginatedResponse } from '@/types';
 import { DataTable, type ColumnDef } from '@/components/shared/data-table';
 import { EmptyState } from '@/components/shared/empty-state';
 import { ConfirmDialog } from '@/components/shared/confirm-dialog';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { DeliveryTruck01Icon } from '@hugeicons/core-free-icons';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { DeliveryTruck01Icon, Package01Icon } from '@hugeicons/core-free-icons';
 import {
   Dialog,
   DialogContent,
@@ -17,6 +25,301 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog';
+import { toast } from 'sonner';
+
+// --- Supplier Products Dialog ---
+
+function SupplierProductsDialog({
+  supplier,
+  open,
+  onOpenChange,
+}: {
+  supplier: Supplier | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const [products, setProducts] = useState<SupplierProduct[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [linkOpen, setLinkOpen] = useState(false);
+
+  // All products for linking
+  const [allProducts, setAllProducts] = useState<Product[]>([]);
+
+  // Link form state
+  const [linkProductId, setLinkProductId] = useState('');
+  const [linkSupplierSku, setLinkSupplierSku] = useState('');
+  const [linkUnitCost, setLinkUnitCost] = useState('');
+  const [linkLeadTime, setLinkLeadTime] = useState('');
+  const [linkMinOrder, setLinkMinOrder] = useState('1');
+  const [isLinking, setIsLinking] = useState(false);
+
+  // Delete state
+  const [unlinkTarget, setUnlinkTarget] = useState<SupplierProduct | null>(null);
+  const [isUnlinking, setIsUnlinking] = useState(false);
+
+  const fetchProducts = useCallback(async () => {
+    if (!supplier) return;
+    setIsLoading(true);
+    try {
+      const res = await api.get<SupplierProduct[]>(
+        `/suppliers/${supplier.id}/products`
+      );
+      setProducts(Array.isArray(res) ? res : []);
+    } catch {
+      toast.error('Error al cargar productos del proveedor');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [supplier]);
+
+  const fetchAllProducts = useCallback(async () => {
+    try {
+      const res = await api.get<Product[] | PaginatedResponse<Product>>('/products');
+      setAllProducts(Array.isArray(res) ? res : res.data);
+    } catch {
+      // silent
+    }
+  }, []);
+
+  useEffect(() => {
+    if (open && supplier) {
+      fetchProducts();
+      fetchAllProducts();
+    }
+  }, [open, supplier, fetchProducts, fetchAllProducts]);
+
+  const handleLink = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!supplier) return;
+    setIsLinking(true);
+    try {
+      await api.post(`/suppliers/${supplier.id}/products`, {
+        product_id: linkProductId,
+        supplier_sku: linkSupplierSku || undefined,
+        unit_cost: Number(linkUnitCost),
+        lead_time_days: Number(linkLeadTime),
+        minimum_order_qty: Number(linkMinOrder),
+      });
+      toast.success('Producto vinculado correctamente');
+      setLinkOpen(false);
+      setLinkProductId('');
+      setLinkSupplierSku('');
+      setLinkUnitCost('');
+      setLinkLeadTime('');
+      setLinkMinOrder('1');
+      fetchProducts();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Error al vincular producto');
+    } finally {
+      setIsLinking(false);
+    }
+  };
+
+  const handleUnlink = async () => {
+    if (!unlinkTarget || !supplier) return;
+    setIsUnlinking(true);
+    try {
+      await api.del(`/suppliers/${supplier.id}/products/${unlinkTarget.id}`);
+      toast.success('Producto desvinculado');
+      setUnlinkTarget(null);
+      fetchProducts();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Error al desvincular');
+    } finally {
+      setIsUnlinking(false);
+    }
+  };
+
+  const columns: ColumnDef<SupplierProduct>[] = [
+    {
+      key: 'product',
+      header: 'Producto',
+      render: (sp) => (
+        <div>
+          <span className="font-medium">{sp.product_name}</span>
+          <span className="ml-2 font-mono text-sm text-muted-foreground">{sp.product_sku}</span>
+        </div>
+      ),
+    },
+    {
+      key: 'supplier_sku',
+      header: 'SKU Proveedor',
+      render: (sp) => sp.supplier_sku || <span className="text-muted-foreground">-</span>,
+    },
+    {
+      key: 'unit_cost',
+      header: 'Costo unitario',
+      render: (sp) => `$${sp.unit_cost.toFixed(2)}`,
+    },
+    {
+      key: 'lead_time',
+      header: 'Tiempo entrega',
+      render: (sp) => `${sp.lead_time_days} dias`,
+    },
+    {
+      key: 'min_order',
+      header: 'Pedido min.',
+      render: (sp) => sp.minimum_order_qty,
+    },
+    {
+      key: 'preferred',
+      header: 'Preferido',
+      render: (sp) =>
+        sp.is_preferred ? (
+          <Badge className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">
+            Si
+          </Badge>
+        ) : (
+          <span className="text-muted-foreground">No</span>
+        ),
+    },
+    {
+      key: 'actions',
+      header: '',
+      render: (sp) => (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="text-destructive"
+          onClick={() => setUnlinkTarget(sp)}
+        >
+          Desvincular
+        </Button>
+      ),
+    },
+  ];
+
+  return (
+    <>
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="max-w-4xl">
+          <DialogHeader>
+            <DialogTitle>
+              Productos de {supplier?.name}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-muted-foreground">
+                {products.length} producto{products.length !== 1 ? 's' : ''} vinculado{products.length !== 1 ? 's' : ''}
+              </p>
+              <Button size="sm" onClick={() => setLinkOpen(true)}>
+                Vincular producto
+              </Button>
+            </div>
+            <DataTable
+              columns={columns}
+              data={products}
+              total={products.length}
+              page={1}
+              perPage={100}
+              onPageChange={() => {}}
+              isLoading={isLoading}
+              emptyMessage="No hay productos vinculados"
+              emptyState={
+                <EmptyState
+                  icon={Package01Icon}
+                  title="Sin productos vinculados"
+                  description="Vincula productos a este proveedor para registrar costos y tiempos de entrega."
+                  actionLabel="Vincular producto"
+                  onAction={() => setLinkOpen(true)}
+                />
+              }
+            />
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Link Product Dialog */}
+      <Dialog open={linkOpen} onOpenChange={setLinkOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Vincular producto</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleLink} className="space-y-4">
+            <div className="space-y-2">
+              <Label>Producto</Label>
+              <Select value={linkProductId || undefined} onValueChange={setLinkProductId}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Seleccionar producto" />
+                </SelectTrigger>
+                <SelectContent>
+                  {allProducts.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>
+                      {p.name} ({p.sku})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>SKU del proveedor (opcional)</Label>
+              <Input
+                value={linkSupplierSku}
+                onChange={(e) => setLinkSupplierSku(e.target.value)}
+                placeholder="SKU del proveedor"
+              />
+            </div>
+            <div className="grid grid-cols-3 gap-4">
+              <div className="space-y-2">
+                <Label>Costo unitario</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={linkUnitCost}
+                  onChange={(e) => setLinkUnitCost(e.target.value)}
+                  required
+                  placeholder="0.00"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Dias entrega</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  value={linkLeadTime}
+                  onChange={(e) => setLinkLeadTime(e.target.value)}
+                  required
+                  placeholder="0"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Pedido min.</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  value={linkMinOrder}
+                  onChange={(e) => setLinkMinOrder(e.target.value)}
+                  required
+                  placeholder="1"
+                />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setLinkOpen(false)} disabled={isLinking}>
+                Cancelar
+              </Button>
+              <Button type="submit" disabled={isLinking || !linkProductId}>
+                {isLinking ? 'Vinculando...' : 'Vincular'}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Unlink Confirmation */}
+      <ConfirmDialog
+        open={!!unlinkTarget}
+        onOpenChange={(open) => !open && setUnlinkTarget(null)}
+        title="Desvincular producto"
+        description={`Se desvinculara "${unlinkTarget?.product_name}" de este proveedor.`}
+        onConfirm={handleUnlink}
+        isLoading={isUnlinking}
+      />
+    </>
+  );
+}
 
 export default function ProveedoresPage() {
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
@@ -37,6 +340,9 @@ export default function ProveedoresPage() {
   // Delete dialog state
   const [deleteTarget, setDeleteTarget] = useState<Supplier | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+
+  // Products dialog state
+  const [productsSupplier, setProductsSupplier] = useState<Supplier | null>(null);
 
   const perPage = 20;
 
@@ -146,6 +452,14 @@ export default function ProveedoresPage() {
       header: 'Acciones',
       render: (s) => (
         <div className="flex items-center gap-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setProductsSupplier(s)}
+            data-testid="supplier-products-btn"
+          >
+            Productos
+          </Button>
           <Button
             variant="ghost"
             size="sm"
@@ -291,6 +605,13 @@ export default function ProveedoresPage() {
         description={`Se eliminara el proveedor "${deleteTarget?.name}". Esta accion no se puede deshacer.`}
         onConfirm={handleDelete}
         isLoading={isDeleting}
+      />
+
+      {/* Supplier Products Dialog */}
+      <SupplierProductsDialog
+        supplier={productsSupplier}
+        open={!!productsSupplier}
+        onOpenChange={(open) => !open && setProductsSupplier(null)}
       />
     </div>
   );

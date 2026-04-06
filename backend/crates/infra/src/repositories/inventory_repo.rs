@@ -28,6 +28,7 @@ struct MovementRow {
     reference: Option<String>,
     notes: Option<String>,
     supplier_id: Option<Uuid>,
+    movement_reason: Option<String>,
     created_at: DateTime<Utc>,
 }
 
@@ -44,6 +45,7 @@ impl From<MovementRow> for Movement {
             reference: row.reference,
             notes: row.notes,
             supplier_id: row.supplier_id,
+            movement_reason: row.movement_reason,
             created_at: row.created_at,
         }
     }
@@ -82,7 +84,7 @@ impl From<InventoryItemRow> for InventoryItem {
 
 const MOVEMENT_COLUMNS: &str = "id, product_id, from_location_id, to_location_id, \
                                 quantity::float8, movement_type, user_id, reference, \
-                                notes, supplier_id, created_at";
+                                notes, supplier_id, movement_reason, created_at";
 
 const INVENTORY_ITEM_SELECT: &str = "\
     i.id, i.product_id, p.name AS product_name, p.sku AS product_sku, \

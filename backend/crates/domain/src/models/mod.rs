@@ -9,3 +9,7 @@ pub mod inventory;
 pub mod inventory_params;
 pub mod movement;
 pub mod cycle_count;
+pub mod supplier_product;
+pub mod product_lot;
+pub mod inventory_lot;
+pub mod stock_configuration;

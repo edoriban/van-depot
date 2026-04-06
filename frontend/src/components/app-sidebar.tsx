@@ -29,6 +29,9 @@ import {
   Analytics01Icon,
   UserGroupIcon,
   Logout01Icon,
+  PackageReceiveIcon,
+  Layers01Icon,
+  Settings01Icon,
 } from '@hugeicons/core-free-icons';
 import { ThemeToggle } from '@/components/shared/theme-toggle';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -58,6 +61,7 @@ const navGroups: NavGroup[] = [
     items: [
       { title: 'Productos', href: '/productos', icon: Package01Icon },
       { title: 'Proveedores', href: '/proveedores', icon: DeliveryTruck01Icon },
+      { title: 'Lotes', href: '/lotes', icon: Layers01Icon },
     ],
   },
   {
@@ -73,6 +77,7 @@ const navGroups: NavGroup[] = [
     label: 'Operaciones',
     items: [
       { title: 'Movimientos', href: '/movements', icon: ArrowDataTransferHorizontalIcon },
+      { title: 'Recibir Material', href: '/lotes/recibir', icon: PackageReceiveIcon },
       { title: 'Conteos', href: '/cycle-counts', icon: CheckListIcon },
       { title: 'Recetas', href: '/recetas', icon: TaskDaily01Icon },
     ],
@@ -89,6 +94,7 @@ const adminGroup: NavGroup = {
   label: 'Administracion',
   items: [
     { title: 'Usuarios', href: '/users', icon: UserGroupIcon },
+    { title: 'Config. Stock', href: '/configuracion-stock', icon: Settings01Icon },
   ],
 };
 

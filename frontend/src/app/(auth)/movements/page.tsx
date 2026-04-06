@@ -5,6 +5,7 @@ import { api } from '@/lib/api-mutations';
 import type {
   Movement,
   MovementType,
+  MovementReason,
   Product,
   Warehouse,
   Location,
@@ -43,6 +44,32 @@ const MOVEMENT_COLORS: Record<MovementType, string> = {
   exit: 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200',
   transfer: 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200',
   adjustment: 'bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200',
+};
+
+const REASON_LABELS: Record<MovementReason, string> = {
+  purchase_receive: 'Compra',
+  purchase_return: 'Devolucion',
+  quality_reject: 'Rechazo calidad',
+  scrap: 'Desecho',
+  loss_theft: 'Perdida/Robo',
+  loss_damage: 'Perdida/Dano',
+  production_input: 'Produccion (entrada)',
+  production_output: 'Produccion (salida)',
+  manual_adjustment: 'Ajuste manual',
+  cycle_count: 'Conteo ciclico',
+};
+
+const REASON_COLORS: Record<MovementReason, string> = {
+  purchase_receive: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200',
+  purchase_return: 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200',
+  quality_reject: 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200',
+  scrap: 'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200',
+  loss_theft: 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200',
+  loss_damage: 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200',
+  production_input: 'bg-cyan-100 text-cyan-800 dark:bg-cyan-900 dark:text-cyan-200',
+  production_output: 'bg-cyan-100 text-cyan-800 dark:bg-cyan-900 dark:text-cyan-200',
+  manual_adjustment: 'bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200',
+  cycle_count: 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200',
 };
 
 const PER_PAGE = 20;
@@ -715,6 +742,18 @@ export default function MovementsPage() {
           {MOVEMENT_LABELS[m.movement_type]}
         </Badge>
       ),
+    },
+    {
+      key: 'reason',
+      header: 'Razon',
+      render: (m) =>
+        m.movement_reason ? (
+          <Badge className={REASON_COLORS[m.movement_reason]} data-testid="movement-reason-badge">
+            {REASON_LABELS[m.movement_reason]}
+          </Badge>
+        ) : (
+          <span className="text-muted-foreground">-</span>
+        ),
     },
     {
       key: 'product',

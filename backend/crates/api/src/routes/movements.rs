@@ -83,6 +83,7 @@ pub struct MovementResponse {
     pub reference: Option<String>,
     pub notes: Option<String>,
     pub supplier_id: Option<Uuid>,
+    pub movement_reason: Option<String>,
     pub created_at: DateTime<Utc>,
 }
 
@@ -99,6 +100,7 @@ impl From<Movement> for MovementResponse {
             reference: m.reference,
             notes: m.notes,
             supplier_id: m.supplier_id,
+            movement_reason: m.movement_reason,
             created_at: m.created_at,
         }
     }

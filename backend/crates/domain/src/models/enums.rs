@@ -45,3 +45,13 @@ pub enum LocationType {
     Position,
     Bin,
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
+#[serde(rename_all = "snake_case")]
+#[sqlx(type_name = "quality_status", rename_all = "snake_case")]
+pub enum QualityStatus {
+    Pending,
+    Approved,
+    Rejected,
+    Quarantine,
+}

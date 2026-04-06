@@ -81,6 +81,8 @@ export interface Supplier {
   updated_at: string;
 }
 
+export type MovementReason = 'purchase_receive' | 'purchase_return' | 'quality_reject' | 'scrap' | 'loss_theft' | 'loss_damage' | 'production_input' | 'production_output' | 'manual_adjustment' | 'cycle_count';
+
 export interface Movement {
   id: string;
   product_id: string;
@@ -88,6 +90,7 @@ export interface Movement {
   to_location_id?: string;
   quantity: number;
   movement_type: MovementType;
+  movement_reason: MovementReason | null;
   user_id: string;
   reference?: string;
   notes?: string;
@@ -298,4 +301,77 @@ export interface AvailabilityResponse {
 
 export interface DispatchResponse {
   movements_created: number;
+}
+
+// Supplier Products
+export interface SupplierProduct {
+  id: string;
+  supplier_id: string;
+  product_id: string;
+  product_name: string;
+  product_sku: string;
+  supplier_sku: string | null;
+  unit_cost: number;
+  lead_time_days: number;
+  minimum_order_qty: number;
+  is_preferred: boolean;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SupplierProductWithSupplier extends SupplierProduct {
+  supplier_name: string;
+}
+
+// Product Lots
+export type QualityStatus = 'pending' | 'approved' | 'rejected' | 'quarantine';
+
+export interface ProductLot {
+  id: string;
+  product_id: string;
+  lot_number: string;
+  batch_date: string | null;
+  expiration_date: string | null;
+  supplier_id: string | null;
+  received_quantity: number;
+  quality_status: QualityStatus;
+  notes: string | null;
+  total_quantity: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface InventoryLot {
+  id: string;
+  product_lot_id: string;
+  location_id: string;
+  location_name: string;
+  quantity: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ReceiveLotRequest {
+  product_id: string;
+  lot_number: string;
+  location_id: string;
+  good_quantity: number;
+  defect_quantity?: number;
+  supplier_id?: string;
+  batch_date?: string;
+  expiration_date?: string;
+  notes?: string;
+}
+
+// Stock Configuration
+export interface StockConfig {
+  id: string;
+  warehouse_id: string | null;
+  product_id: string | null;
+  default_min_stock: number;
+  critical_stock_multiplier: number;
+  low_stock_multiplier: number;
+  created_at: string;
+  updated_at: string;
 }
