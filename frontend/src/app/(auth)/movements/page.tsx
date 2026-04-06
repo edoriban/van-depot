@@ -164,7 +164,7 @@ function WarehouseLocationSelector({
           disabled={!warehouseId}
         >
           <SelectTrigger data-testid={locationTestId} className="w-full">
-            <SelectValue placeholder="Seleccionar ubicacion" />
+            <SelectValue placeholder={warehouseId ? "Seleccionar ubicacion" : "Selecciona un almacen primero"} />
           </SelectTrigger>
           <SelectContent>
             {locations.map((l) => (
@@ -462,8 +462,8 @@ function TransferForm({ products, warehouses, onSuccess }: {
         </Select>
       </div>
 
-      <fieldset className="space-y-4 rounded-2xl border p-4">
-        <legend className="px-2 text-sm font-medium">Origen</legend>
+      <fieldset className="space-y-4 rounded-2xl border border-l-4 border-l-red-400 p-4">
+        <legend className="px-2 text-sm font-medium text-red-600 dark:text-red-400">Origen</legend>
         <WarehouseLocationSelector
           warehouses={warehouses}
           warehouseId={fromWarehouseId}
@@ -477,8 +477,12 @@ function TransferForm({ products, warehouses, onSuccess }: {
         />
       </fieldset>
 
-      <fieldset className="space-y-4 rounded-2xl border p-4">
-        <legend className="px-2 text-sm font-medium">Destino</legend>
+      <div className="flex items-center justify-center text-2xl text-muted-foreground">
+        <span aria-hidden="true">&darr;</span>
+      </div>
+
+      <fieldset className="space-y-4 rounded-2xl border border-l-4 border-l-green-400 p-4">
+        <legend className="px-2 text-sm font-medium text-green-600 dark:text-green-400">Destino</legend>
         <WarehouseLocationSelector
           warehouses={warehouses}
           warehouseId={toWarehouseId}
@@ -646,6 +650,7 @@ export default function MovementsPage() {
   const [page, setPage] = useState(1);
   const [isLoading, setIsLoading] = useState(true);
   const [filterType, setFilterType] = useState<string>('');
+  const [highlightNew, setHighlightNew] = useState(false);
 
   const fetchMovements = useCallback(async (p: number, typeFilter: string) => {
     setIsLoading(true);
@@ -668,7 +673,9 @@ export default function MovementsPage() {
 
   const handleSuccess = () => {
     setPage(1);
+    setHighlightNew(true);
     fetchMovements(1, filterType);
+    setTimeout(() => setHighlightNew(false), 2000);
   };
 
   // Build product/location lookup maps for display
@@ -756,6 +763,7 @@ export default function MovementsPage() {
           </TabsList>
 
           <TabsContent value="entry" className="pt-6">
+            <p className="text-sm text-muted-foreground mb-4">Registra material que llega al almacen</p>
             <EntryForm
               products={products}
               warehouses={warehouses}
@@ -765,6 +773,7 @@ export default function MovementsPage() {
           </TabsContent>
 
           <TabsContent value="exit" className="pt-6">
+            <p className="text-sm text-muted-foreground mb-4">Registra material que sale del almacen</p>
             <ExitForm
               products={products}
               warehouses={warehouses}
@@ -773,6 +782,7 @@ export default function MovementsPage() {
           </TabsContent>
 
           <TabsContent value="transfer" className="pt-6">
+            <p className="text-sm text-muted-foreground mb-4">Mueve material entre ubicaciones</p>
             <TransferForm
               products={products}
               warehouses={warehouses}
@@ -781,6 +791,7 @@ export default function MovementsPage() {
           </TabsContent>
 
           <TabsContent value="adjustment" className="pt-6">
+            <p className="text-sm text-muted-foreground mb-4">Corrige cantidades despues de un conteo fisico</p>
             <AdjustmentForm
               products={products}
               warehouses={warehouses}
@@ -825,6 +836,11 @@ export default function MovementsPage() {
           perPage={PER_PAGE}
           onPageChange={setPage}
           isLoading={isLoading}
+          rowClassName={(_item, index) =>
+            index === 0 && highlightNew
+              ? 'animate-[highlight-row_2s_ease-out]'
+              : ''
+          }
           emptyMessage="No hay movimientos registrados"
           emptyState={
             <EmptyState

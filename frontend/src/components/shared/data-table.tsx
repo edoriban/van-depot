@@ -27,6 +27,7 @@ interface DataTableProps<T> {
   isLoading?: boolean;
   emptyMessage?: string;
   emptyState?: React.ReactNode;
+  rowClassName?: (item: T, index: number) => string;
 }
 
 export function DataTable<T>({
@@ -39,6 +40,7 @@ export function DataTable<T>({
   isLoading = false,
   emptyMessage = 'No hay datos registrados',
   emptyState,
+  rowClassName,
 }: DataTableProps<T>) {
   const totalPages = Math.ceil(total / perPage);
 
@@ -95,7 +97,7 @@ export function DataTable<T>({
           </TableHeader>
           <TableBody>
             {data.map((item, idx) => (
-              <TableRow key={idx}>
+              <TableRow key={idx} className={rowClassName?.(item, idx)}>
                 {columns.map((col) => (
                   <TableCell key={col.key}>{col.render(item)}</TableCell>
                 ))}

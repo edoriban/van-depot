@@ -1,10 +1,12 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
+import Link from 'next/link';
 import { api } from '@/lib/api-mutations';
 import type { StockAlert, AlertSummary, Warehouse } from '@/types';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   Table,
@@ -167,13 +169,23 @@ export default function AlertasPage() {
                   <TableHead className="text-right">Cantidad actual</TableHead>
                   <TableHead className="text-right">Stock min</TableHead>
                   <TableHead className="text-right">Deficit</TableHead>
+                  <TableHead>Accion</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filteredAlerts.map((alert) => {
                   const config = severityConfig[alert.severity];
+                  const rowBorderClass =
+                    alert.severity === 'critical'
+                      ? 'border-l-4 border-l-red-500 bg-red-500/5'
+                      : alert.severity === 'low'
+                        ? 'border-l-4 border-l-amber-500'
+                        : 'border-l-4 border-l-yellow-500';
+                  const deficitRatio = alert.min_stock > 0
+                    ? Math.min((alert.deficit / alert.min_stock) * 100, 100)
+                    : 0;
                   return (
-                    <TableRow key={`${alert.product_id}-${alert.location_id}`} data-testid="alert-row">
+                    <TableRow key={`${alert.product_id}-${alert.location_id}`} className={rowBorderClass} data-testid="alert-row">
                       <TableCell>
                         <Badge
                           variant="outline"
@@ -196,14 +208,32 @@ export default function AlertasPage() {
                         {alert.min_stock}
                       </TableCell>
                       <TableCell className="text-right">
-                        <span className={cn(
-                          'font-semibold',
-                          alert.severity === 'critical' ? 'text-red-600 dark:text-red-400' :
-                          alert.severity === 'low' ? 'text-amber-600 dark:text-amber-400' :
-                          'text-yellow-600 dark:text-yellow-400'
-                        )}>
-                          {alert.deficit}
-                        </span>
+                        <div className="flex flex-col items-end gap-1">
+                          <span className={cn(
+                            'font-semibold',
+                            alert.severity === 'critical' ? 'text-red-600 dark:text-red-400' :
+                            alert.severity === 'low' ? 'text-amber-600 dark:text-amber-400' :
+                            'text-yellow-600 dark:text-yellow-400'
+                          )}>
+                            {alert.deficit}
+                          </span>
+                          <div className="h-1.5 w-16 rounded-full bg-muted overflow-hidden">
+                            <div
+                              className={cn(
+                                'h-full rounded-full',
+                                alert.severity === 'critical' ? 'bg-red-500' :
+                                alert.severity === 'low' ? 'bg-amber-500' :
+                                'bg-yellow-500'
+                              )}
+                              style={{ width: `${deficitRatio}%` }}
+                            />
+                          </div>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <Button variant="outline" size="sm" asChild>
+                          <Link href="/movements">Registrar entrada</Link>
+                        </Button>
                       </TableCell>
                     </TableRow>
                   );

@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
+import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 
 interface CycleCountDetail {
@@ -158,26 +159,6 @@ export default function CycleCountDetailPage() {
     fetchItems(page, showDiscrepanciesOnly);
   }, [page, showDiscrepanciesOnly, fetchItems]);
 
-  const handleRecordCount = async (itemId: string) => {
-    setIsCounting(true);
-    try {
-      await api.post(`/cycle-counts/${countId}/items/${itemId}/count`, {
-        counted_quantity: Number(editQuantity),
-      });
-      toast.success('Conteo registrado');
-      setEditingItemId(null);
-      setEditQuantity('');
-      fetchItems(page, showDiscrepanciesOnly);
-      fetchCount();
-    } catch (err) {
-      toast.error(
-        err instanceof Error ? err.message : 'Error al registrar conteo'
-      );
-    } finally {
-      setIsCounting(false);
-    }
-  };
-
   const handleStart = async () => {
     try {
       await api.put(`/cycle-counts/${countId}/start`);
@@ -223,6 +204,31 @@ export default function CycleCountDetailPage() {
     }
   };
 
+  // Track recently saved items for green checkmark animation
+  const [savedItemId, setSavedItemId] = useState<string | null>(null);
+
+  const handleInlineCount = async (itemId: string, value: string) => {
+    if (!value || isNaN(Number(value))) return;
+    setIsCounting(true);
+    try {
+      await api.post(`/cycle-counts/${countId}/items/${itemId}/count`, {
+        counted_quantity: Number(value),
+      });
+      setSavedItemId(itemId);
+      setTimeout(() => setSavedItemId(null), 1500);
+      setEditingItemId(null);
+      setEditQuantity('');
+      fetchItems(page, showDiscrepanciesOnly);
+      fetchCount();
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : 'Error al registrar conteo'
+      );
+    } finally {
+      setIsCounting(false);
+    }
+  };
+
   const columns: ColumnDef<CycleCountItem>[] = [
     {
       key: 'product',
@@ -250,64 +256,86 @@ export default function CycleCountDetailPage() {
       key: 'counted_quantity',
       header: 'Cantidad contada',
       render: (item) => {
-        if (
-          editingItemId === item.id &&
-          count?.status === 'in_progress'
-        ) {
+        // Inline editable input for in_progress counts
+        if (count?.status === 'in_progress' && item.counted_quantity === null) {
           return (
             <div className="flex items-center gap-2">
               <Input
                 type="number"
                 min={0}
                 step="any"
-                value={editQuantity}
-                onChange={(e) => setEditQuantity(e.target.value)}
-                className="w-24"
-                data-testid="count-quantity-input"
-                autoFocus
-              />
-              <Button
-                size="sm"
-                onClick={() => handleRecordCount(item.id)}
-                disabled={isCounting || !editQuantity}
-                data-testid="save-count-btn"
-              >
-                {isCounting ? '...' : 'Guardar'}
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => {
-                  setEditingItemId(null);
+                placeholder="0"
+                value={editingItemId === item.id ? editQuantity : ''}
+                onFocus={() => {
+                  setEditingItemId(item.id);
                   setEditQuantity('');
                 }}
-              >
-                X
-              </Button>
+                onChange={(e) => {
+                  setEditingItemId(item.id);
+                  setEditQuantity(e.target.value);
+                }}
+                onBlur={() => {
+                  if (editingItemId === item.id && editQuantity) {
+                    handleInlineCount(item.id, editQuantity);
+                  }
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && editQuantity) {
+                    handleInlineCount(item.id, editQuantity);
+                  }
+                }}
+                className="w-24"
+                data-testid="count-quantity-input"
+              />
+              {editingItemId === item.id && editQuantity && (
+                <Button
+                  size="sm"
+                  onClick={() => handleInlineCount(item.id, editQuantity)}
+                  disabled={isCounting}
+                  data-testid="save-count-btn"
+                >
+                  {isCounting ? '...' : 'Guardar'}
+                </Button>
+              )}
             </div>
           );
         }
         if (item.counted_quantity !== null) {
           return (
-            <span className="font-medium">{item.counted_quantity}</span>
-          );
-        }
-        if (count?.status === 'in_progress') {
-          return (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                setEditingItemId(item.id);
-                setEditQuantity('');
-              }}
-              data-testid="record-count-btn"
-            >
-              Registrar conteo
-            </Button>
+            <div className="flex items-center gap-2">
+              <span className="font-medium">{item.counted_quantity}</span>
+              {savedItemId === item.id && (
+                <span className="text-green-500 animate-pulse text-sm" data-testid="save-checkmark">&#10003;</span>
+              )}
+            </div>
           );
         }
         return <span className="text-muted-foreground">-</span>;
+      },
+    },
+    {
+      key: 'status',
+      header: 'Estado',
+      render: (item) => {
+        if (item.counted_quantity === null) {
+          return (
+            <Badge className="bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200" data-testid="item-status-badge">
+              Pendiente
+            </Badge>
+          );
+        }
+        if (item.difference !== null && item.difference !== 0) {
+          return (
+            <Badge className="bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200" data-testid="item-status-badge">
+              Diferencia: {item.difference > 0 ? `+${item.difference}` : item.difference}
+            </Badge>
+          );
+        }
+        return (
+          <Badge className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200" data-testid="item-status-badge">
+            Contado
+          </Badge>
+        );
       },
     },
     {
@@ -414,7 +442,7 @@ export default function CycleCountDetailPage() {
                 onClick={() => setShowApplyConfirm(true)}
                 data-testid="apply-adjustments-btn"
               >
-                Aplicar ajustes
+                Aplicar ajustes al inventario
               </Button>
               <Button
                 variant="destructive"
@@ -427,6 +455,23 @@ export default function CycleCountDetailPage() {
           )}
         </div>
       </div>
+
+      {/* Progress indicator */}
+      {count.summary && count.summary.total_items > 0 && (
+        <div data-testid="count-progress">
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-sm font-medium">
+              {count.summary.counted} de {count.summary.total_items} contados ({Math.round((count.summary.counted / count.summary.total_items) * 100)}%)
+            </p>
+          </div>
+          <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
+            <div
+              className="h-full rounded-full bg-primary transition-all duration-500 ease-out"
+              style={{ width: `${(count.summary.counted / count.summary.total_items) * 100}%` }}
+            />
+          </div>
+        </div>
+      )}
 
       {/* Summary cards */}
       {count.summary && (
@@ -474,17 +519,22 @@ export default function CycleCountDetailPage() {
             ? 'No hay diferencias encontradas'
             : 'No hay items en este conteo'
         }
+        rowClassName={(item) =>
+          item.counted_quantity === null
+            ? 'opacity-60 bg-muted/30'
+            : ''
+        }
       />
 
       {/* Apply confirmation */}
       <ConfirmDialog
         open={showApplyConfirm}
         onOpenChange={setShowApplyConfirm}
-        title="Aplicar ajustes de inventario"
-        description="Se aplicaran todos los ajustes de las diferencias encontradas al inventario. Esta accion no se puede deshacer."
+        title="Aplicar ajustes al inventario"
+        description="Esto ajustara las cantidades en el inventario segun los conteos registrados. Se aplicaran todos los ajustes de las diferencias encontradas. Esta accion no se puede deshacer."
         onConfirm={handleApply}
         isLoading={isApplying}
-        confirmLabel="Aplicar ajustes"
+        confirmLabel="Aplicar ajustes al inventario"
       />
 
       {/* Cancel confirmation */}

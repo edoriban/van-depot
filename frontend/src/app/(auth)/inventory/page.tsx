@@ -1,11 +1,13 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import Link from 'next/link';
 import { api } from '@/lib/api-mutations';
 import type { InventoryItem, Warehouse, Location, PaginatedResponse } from '@/types';
 import { DataTable, type ColumnDef } from '@/components/shared/data-table';
 import { EmptyState } from '@/components/shared/empty-state';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { ClipboardIcon } from '@hugeicons/core-free-icons';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -23,20 +25,20 @@ function StockBadge({ quantity, minStock }: { quantity: number; minStock: number
   if (quantity === 0) {
     return (
       <Badge className="bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200" data-testid="stock-badge-critical">
-        Critico
+        Critico ({quantity}/{minStock})
       </Badge>
     );
   }
   if (quantity <= minStock) {
     return (
       <Badge className="bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200" data-testid="stock-badge-low">
-        Bajo
+        Bajo ({quantity}/{minStock})
       </Badge>
     );
   }
   return (
     <Badge className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200" data-testid="stock-badge-ok">
-      OK
+      OK ({quantity}/{minStock})
     </Badge>
   );
 }
@@ -196,6 +198,16 @@ export default function InventoryPage() {
         <StockBadge quantity={item.quantity} minStock={item.min_stock} />
       ),
     },
+    {
+      key: 'actions',
+      header: '',
+      render: (item) =>
+        item.quantity <= item.min_stock ? (
+          <Button variant="outline" size="sm" asChild>
+            <Link href="/movements">Registrar entrada</Link>
+          </Button>
+        ) : null,
+    },
   ];
 
   return (
@@ -298,6 +310,13 @@ export default function InventoryPage() {
         perPage={PER_PAGE}
         onPageChange={setPage}
         isLoading={isLoading}
+        rowClassName={(item) =>
+          item.quantity === 0
+            ? 'border-l-4 border-l-red-500'
+            : item.quantity <= item.min_stock
+              ? 'border-l-4 border-l-amber-500'
+              : ''
+        }
         emptyMessage="No hay registros de inventario"
         emptyState={
           <EmptyState

@@ -90,11 +90,11 @@ interface KpiConfig {
 }
 
 const kpiCards: KpiConfig[] = [
-  { key: 'total_products', label: 'Total Productos', description: 'Productos registrados', icon: Package01Icon, href: '/productos' },
-  { key: 'total_warehouses', label: 'Total Almacenes', description: 'Almacenes activos', icon: Store01Icon, href: '/almacenes' },
-  { key: 'total_stock_items', label: 'Items en Stock', description: 'Items con existencia', icon: ClipboardIcon, href: '/inventory' },
-  { key: 'low_stock_count', label: 'Stock Bajo', description: 'Debajo del minimo', icon: Alert02Icon, isWarning: true, href: '/alertas' },
-  { key: 'movements_today', label: 'Movimientos Hoy', description: 'En las ultimas 24h', icon: ArrowDataTransferHorizontalIcon, href: '/movements' },
+  { key: 'total_products', label: 'Total Productos', description: 'Productos activos en tu catalogo', icon: Package01Icon, href: '/productos' },
+  { key: 'total_warehouses', label: 'Total Almacenes', description: 'Almacenes registrados', icon: Store01Icon, href: '/almacenes' },
+  { key: 'total_stock_items', label: 'Items en Stock', description: 'Productos con existencias', icon: ClipboardIcon, href: '/inventory' },
+  { key: 'low_stock_count', label: 'Stock Bajo', description: 'Requieren atencion', icon: Alert02Icon, isWarning: true, href: '/alertas' },
+  { key: 'movements_today', label: 'Movimientos Hoy', description: 'Entradas, salidas y transferencias', icon: ArrowDataTransferHorizontalIcon, href: '/movements' },
   { key: 'movements_this_week', label: 'Movimientos Semana', description: 'Ultimos 7 dias', icon: Calendar01Icon, href: '/movements' },
 ];
 

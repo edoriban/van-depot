@@ -20,10 +20,10 @@ const PERIOD_OPTIONS = [
   { value: '180', label: '180 dias' },
 ];
 
-const CLASSIFICATION_STYLES: Record<string, { badge: 'default' | 'secondary' | 'outline'; bg: string; text: string; bar: string }> = {
-  A: { badge: 'default', bg: 'bg-green-50 dark:bg-green-950/30', text: 'text-green-700 dark:text-green-400', bar: 'bg-green-500' },
-  B: { badge: 'secondary', bg: 'bg-blue-50 dark:bg-blue-950/30', text: 'text-blue-700 dark:text-blue-400', bar: 'bg-blue-500' },
-  C: { badge: 'outline', bg: 'bg-amber-50 dark:bg-amber-950/30', text: 'text-amber-700 dark:text-amber-400', bar: 'bg-amber-500' },
+const CLASSIFICATION_STYLES: Record<string, { badge: 'default' | 'secondary' | 'outline'; bg: string; text: string; bar: string; label: string }> = {
+  A: { badge: 'default', bg: 'bg-green-50 dark:bg-green-950/30', text: 'text-green-700 dark:text-green-400', bar: 'bg-green-500', label: 'Alta prioridad' },
+  B: { badge: 'secondary', bg: 'bg-blue-50 dark:bg-blue-950/30', text: 'text-blue-700 dark:text-blue-400', bar: 'bg-blue-500', label: 'Media prioridad' },
+  C: { badge: 'outline', bg: 'bg-amber-50 dark:bg-amber-950/30', text: 'text-amber-700 dark:text-amber-400', bar: 'bg-amber-500', label: 'Baja prioridad' },
 };
 
 export default function ClasificacionAbcPage() {
@@ -59,8 +59,8 @@ export default function ClasificacionAbcPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">Clasificacion ABC</h1>
-          <p className="text-muted-foreground mt-1">
-            Analisis de Pareto basado en frecuencia de movimientos
+          <p className="text-muted-foreground mt-1 max-w-xl">
+            La clasificacion ABC identifica tus productos mas importantes basandose en la frecuencia de movimientos. Los productos &apos;A&apos; son los que mas se mueven y merecen mayor atencion.
           </p>
         </div>
         <Select
@@ -93,7 +93,7 @@ export default function ClasificacionAbcPage() {
           <Card className={CLASSIFICATION_STYLES.A.bg}>
             <CardHeader>
               <CardTitle className={CLASSIFICATION_STYLES.A.text}>
-                Clase A - Alta prioridad
+                Alta prioridad
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -106,6 +106,9 @@ export default function ClasificacionAbcPage() {
               <p className="text-muted-foreground mt-1 text-sm">
                 {report.summary.a_movement_percentage.toFixed(1)}% de movimientos
               </p>
+              <p className="text-muted-foreground mt-2 text-xs">
+                Tus productos estrella — controla su stock de cerca
+              </p>
             </CardContent>
           </Card>
 
@@ -113,7 +116,7 @@ export default function ClasificacionAbcPage() {
           <Card className={CLASSIFICATION_STYLES.B.bg}>
             <CardHeader>
               <CardTitle className={CLASSIFICATION_STYLES.B.text}>
-                Clase B - Media prioridad
+                Media prioridad
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -126,6 +129,9 @@ export default function ClasificacionAbcPage() {
               <p className="text-muted-foreground mt-1 text-sm">
                 {report.summary.b_movement_percentage.toFixed(1)}% de movimientos
               </p>
+              <p className="text-muted-foreground mt-2 text-xs">
+                Productos de uso regular
+              </p>
             </CardContent>
           </Card>
 
@@ -133,7 +139,7 @@ export default function ClasificacionAbcPage() {
           <Card className={CLASSIFICATION_STYLES.C.bg}>
             <CardHeader>
               <CardTitle className={CLASSIFICATION_STYLES.C.text}>
-                Clase C - Baja prioridad
+                Baja prioridad
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -145,6 +151,9 @@ export default function ClasificacionAbcPage() {
               </div>
               <p className="text-muted-foreground mt-1 text-sm">
                 {report.summary.c_movement_percentage.toFixed(1)}% de movimientos
+              </p>
+              <p className="text-muted-foreground mt-2 text-xs">
+                Productos de bajo movimiento — revisa si siguen siendo necesarios
               </p>
             </CardContent>
           </Card>
@@ -226,7 +235,7 @@ export default function ClasificacionAbcPage() {
                         <td className="py-3 pr-4 text-right tabular-nums">{item.total_quantity.toFixed(1)}</td>
                         <td className="py-3 pr-4 text-center">
                           <Badge variant={style.badge} className={style.text}>
-                            {item.classification}
+                            {style.label}
                           </Badge>
                         </td>
                         <td className="py-3 text-right tabular-nums">{item.cumulative_percentage.toFixed(1)}%</td>

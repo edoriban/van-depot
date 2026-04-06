@@ -24,10 +24,17 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { toast } from 'sonner';
 
 const ROLE_LABELS: Record<UserRole, string> = {
-  superadmin: 'Superadmin',
+  superadmin: 'Super Admin',
   owner: 'Propietario',
   warehouse_manager: 'Jefe de almacen',
   operator: 'Operador',
@@ -36,7 +43,7 @@ const ROLE_LABELS: Record<UserRole, string> = {
 const ROLE_COLORS: Record<UserRole, string> = {
   superadmin: 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200',
   owner: 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200',
-  warehouse_manager: 'bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200',
+  warehouse_manager: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200',
   operator: 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200',
 };
 
@@ -317,44 +324,50 @@ export default function UsersPage() {
       key: 'actions',
       header: 'Acciones',
       render: (u) => (
-        <div className="flex items-center gap-1 flex-wrap">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => openEditDialog(u)}
-            data-testid="edit-user-btn"
-          >
-            Editar
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => {
-              setPasswordTarget(u);
-              setNewPassword('');
-            }}
-            data-testid="change-password-btn"
-          >
-            Contrasena
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => openWarehouseDialog(u)}
-            data-testid="assign-warehouse-btn"
-          >
-            Almacenes
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="text-destructive"
-            onClick={() => setDeleteTarget(u)}
-            data-testid="delete-user-btn"
-          >
-            Eliminar
-          </Button>
-        </div>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="ghost"
+              size="sm"
+              data-testid="user-actions-btn"
+              className="h-8 w-8 p-0"
+            >
+              <span className="sr-only">Abrir menu</span>
+              <span className="text-lg leading-none">...</span>
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem
+              onClick={() => openEditDialog(u)}
+              data-testid="edit-user-btn"
+            >
+              Editar
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => {
+                setPasswordTarget(u);
+                setNewPassword('');
+              }}
+              data-testid="change-password-btn"
+            >
+              Cambiar contrasena
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => openWarehouseDialog(u)}
+              data-testid="assign-warehouse-btn"
+            >
+              Asignar almacenes
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onClick={() => setDeleteTarget(u)}
+              className="text-destructive focus:text-destructive"
+              data-testid="delete-user-btn"
+            >
+              Eliminar
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       ),
     },
   ];

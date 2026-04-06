@@ -41,6 +41,7 @@ import {
 } from '@hugeicons/core-free-icons';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import Link from 'next/link';
 
 // --- Types ---
 
@@ -925,6 +926,20 @@ function StepDone({
         <Button size="lg" data-testid="btn-go-dashboard" onClick={onGo}>
           Ir al dashboard
         </Button>
+        <div className="space-y-2 mt-4">
+          <p className="text-sm text-muted-foreground">¿Que sigue?</p>
+          <div className="flex flex-col gap-2">
+            <Link href="/movements" className="text-primary text-sm hover:underline">
+              → Registrar tu primera entrada de material
+            </Link>
+            <Link href="/inventory" className="text-primary text-sm hover:underline">
+              → Ver tu inventario
+            </Link>
+            <Link href="/almacenes" className="text-primary text-sm hover:underline">
+              → Administrar tu almacen
+            </Link>
+          </div>
+        </div>
       </CardContent>
     </Card>
   );
