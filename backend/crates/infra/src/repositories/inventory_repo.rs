@@ -46,6 +46,7 @@ impl From<MovementRow> for Movement {
             notes: row.notes,
             supplier_id: row.supplier_id,
             movement_reason: row.movement_reason,
+            purchase_order_id: None,
             created_at: row.created_at,
         }
     }

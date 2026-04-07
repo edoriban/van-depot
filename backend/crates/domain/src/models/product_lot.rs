@@ -15,6 +15,7 @@ pub struct ProductLot {
     pub received_quantity: f64,
     pub quality_status: QualityStatus,
     pub notes: Option<String>,
+    pub purchase_order_line_id: Option<Uuid>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }

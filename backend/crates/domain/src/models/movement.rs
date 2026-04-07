@@ -17,5 +17,6 @@ pub struct Movement {
     pub notes: Option<String>,
     pub supplier_id: Option<Uuid>,
     pub movement_reason: Option<String>,
+    pub purchase_order_id: Option<Uuid>,
     pub created_at: DateTime<Utc>,
 }

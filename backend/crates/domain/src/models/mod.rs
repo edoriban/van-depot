@@ -13,3 +13,5 @@ pub mod supplier_product;
 pub mod product_lot;
 pub mod inventory_lot;
 pub mod stock_configuration;
+pub mod purchase_order;
+pub mod purchase_order_line;

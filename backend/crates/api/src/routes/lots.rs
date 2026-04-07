@@ -28,6 +28,9 @@ pub struct ReceiveLotRequest {
     pub batch_date: Option<NaiveDate>,
     pub expiration_date: Option<NaiveDate>,
     pub notes: Option<String>,
+    // Optional PO linking fields (backward-compatible)
+    pub purchase_order_line_id: Option<Uuid>,
+    pub purchase_order_id: Option<Uuid>,
 }
 
 #[derive(Serialize)]
@@ -41,6 +44,7 @@ pub struct ProductLotResponse {
     pub received_quantity: f64,
     pub quality_status: QualityStatus,
     pub notes: Option<String>,
+    pub purchase_order_line_id: Option<Uuid>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -129,6 +133,7 @@ async fn get_lot(
         received_quantity: row.received_quantity,
         quality_status: row.quality_status,
         notes: row.notes,
+        purchase_order_line_id: row.purchase_order_line_id,
         created_at: row.created_at,
         updated_at: row.updated_at,
     }))
@@ -195,6 +200,8 @@ async fn receive_lot(
         payload.expiration_date,
         claims.sub,
         payload.notes.as_deref(),
+        payload.purchase_order_line_id,
+        payload.purchase_order_id,
     )
     .await?;
 
@@ -210,6 +217,7 @@ async fn receive_lot(
             received_quantity: row.received_quantity,
             quality_status: row.quality_status,
             notes: row.notes,
+            purchase_order_line_id: row.purchase_order_line_id,
             created_at: row.created_at,
             updated_at: row.updated_at,
         }),

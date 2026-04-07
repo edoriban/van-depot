@@ -5,6 +5,7 @@ use uuid::Uuid;
 use vandepot_domain::error::DomainError;
 use vandepot_domain::models::enums::QualityStatus;
 
+use super::purchase_order_repo::recalculate_po_status_in_tx;
 use super::shared::map_sqlx_error;
 
 // ── Row structs ─────────────────────────────────────────────────────
@@ -20,6 +21,7 @@ pub struct ProductLotRow {
     pub received_quantity: f64,
     pub quality_status: QualityStatus,
     pub notes: Option<String>,
+    pub purchase_order_line_id: Option<Uuid>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -69,7 +71,7 @@ pub async fn create_lot(
         VALUES ($1, $2, $3, $4, $5, $6)
         RETURNING id, product_id, lot_number, batch_date, expiration_date,
                   supplier_id, received_quantity::float8, quality_status,
-                  notes, created_at, updated_at
+                  notes, purchase_order_line_id, created_at, updated_at
         "#,
     )
     .bind(product_id)
@@ -119,7 +121,7 @@ pub async fn get_lot(
         r#"
         SELECT id, product_id, lot_number, batch_date, expiration_date,
                supplier_id, received_quantity::float8, quality_status,
-               notes, created_at, updated_at
+               notes, purchase_order_line_id, created_at, updated_at
         FROM product_lots
         WHERE id = $1
         "#,
@@ -162,9 +164,12 @@ pub async fn get_lot_inventory(
 /// 3. UPSERT inventory_lots for good quantity
 /// 4. If defect_qty > 0, UPSERT inventory_lots with separate tracking
 /// 5. UPSERT main inventory table (good_qty only goes to usable stock)
-/// 6. INSERT movement for good qty (reason = 'purchase_receive')
+/// 6. INSERT movement for good qty (reason = 'purchase_receive'), with purchase_order_id if provided
 /// 7. If defect_qty > 0, INSERT movement for defect qty (reason = 'quality_reject')
-/// 8. Return the lot
+/// 8. If purchase_order_line_id provided: verify PO status, increment quantity_received, recalculate PO status
+/// 9. Link lot to PO line if provided
+/// 10. Return the lot
+#[allow(clippy::too_many_arguments)]
 pub async fn receive_lot(
     pool: &PgPool,
     product_id: Uuid,
@@ -177,6 +182,8 @@ pub async fn receive_lot(
     expiration_date: Option<NaiveDate>,
     user_id: Uuid,
     notes: Option<&str>,
+    purchase_order_line_id: Option<Uuid>,
+    purchase_order_id: Option<Uuid>,
 ) -> Result<ProductLotRow, DomainError> {
     let mut tx = pool.begin().await.map_err(map_sqlx_error)?;
 
@@ -252,13 +259,14 @@ pub async fn receive_lot(
         .await
         .map_err(map_sqlx_error)?;
 
-        // 6. INSERT movement for good qty
+        // 6. INSERT movement for good qty (with purchase_order_id if provided)
         sqlx::query(
             r#"
             INSERT INTO movements
                 (product_id, from_location_id, to_location_id, quantity,
-                 movement_type, user_id, supplier_id, reference, notes, movement_reason)
-            VALUES ($1, NULL, $2, $3, 'entry', $4, $5, $6, $7, 'purchase_receive')
+                 movement_type, user_id, supplier_id, reference, notes, movement_reason,
+                 purchase_order_id)
+            VALUES ($1, NULL, $2, $3, 'entry', $4, $5, $6, $7, 'purchase_receive', $8)
             "#,
         )
         .bind(product_id)
@@ -268,6 +276,7 @@ pub async fn receive_lot(
         .bind(supplier_id)
         .bind(lot_number)
         .bind(notes)
+        .bind(purchase_order_id)
         .execute(&mut *tx)
         .await
         .map_err(map_sqlx_error)?;
@@ -279,8 +288,9 @@ pub async fn receive_lot(
             r#"
             INSERT INTO movements
                 (product_id, from_location_id, to_location_id, quantity,
-                 movement_type, user_id, supplier_id, reference, notes, movement_reason)
-            VALUES ($1, NULL, $2, $3, 'entry', $4, $5, $6, $7, 'quality_reject')
+                 movement_type, user_id, supplier_id, reference, notes, movement_reason,
+                 purchase_order_id)
+            VALUES ($1, NULL, $2, $3, 'entry', $4, $5, $6, $7, 'quality_reject', $8)
             "#,
         )
         .bind(product_id)
@@ -290,17 +300,74 @@ pub async fn receive_lot(
         .bind(supplier_id)
         .bind(lot_number)
         .bind(notes)
+        .bind(purchase_order_id)
         .execute(&mut *tx)
         .await
         .map_err(map_sqlx_error)?;
     }
 
-    // 8. Return the lot
+    // 8. If linked to a PO line: verify status, update quantity_received, recalculate PO status
+    if let (Some(line_id), Some(po_id)) = (purchase_order_line_id, purchase_order_id) {
+        // Verify the PO is in a receivable status
+        let po_status: Option<(String,)> = sqlx::query_as(
+            "SELECT status::text FROM purchase_orders WHERE id = $1",
+        )
+        .bind(po_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(map_sqlx_error)?;
+
+        match po_status {
+            None => {
+                return Err(DomainError::NotFound(
+                    "Purchase order not found".to_string(),
+                ))
+            }
+            Some((status,)) if status != "sent" && status != "partially_received" => {
+                return Err(DomainError::Validation(format!(
+                    "Cannot receive against a purchase order in status '{}'",
+                    status
+                )))
+            }
+            _ => {}
+        }
+
+        // Update quantity_received on the line
+        sqlx::query(
+            r#"
+            UPDATE purchase_order_lines
+            SET quantity_received = quantity_received + $2
+            WHERE id = $1
+            "#,
+        )
+        .bind(line_id)
+        .bind(good_qty)
+        .execute(&mut *tx)
+        .await
+        .map_err(map_sqlx_error)?;
+
+        // Recalculate PO status
+        recalculate_po_status_in_tx(&mut tx, po_id)
+            .await
+            .map_err(map_sqlx_error)?;
+
+        // 9. Link the lot to the PO line
+        sqlx::query(
+            "UPDATE product_lots SET purchase_order_line_id = $2 WHERE id = $1",
+        )
+        .bind(lot_id)
+        .bind(line_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(map_sqlx_error)?;
+    }
+
+    // 10. Return the lot
     let lot = sqlx::query_as::<_, ProductLotRow>(
         r#"
         SELECT id, product_id, lot_number, batch_date, expiration_date,
                supplier_id, received_quantity::float8, quality_status,
-               notes, created_at, updated_at
+               notes, purchase_order_line_id, created_at, updated_at
         FROM product_lots
         WHERE id = $1
         "#,
