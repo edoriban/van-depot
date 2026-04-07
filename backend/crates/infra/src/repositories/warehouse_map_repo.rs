@@ -5,6 +5,19 @@ use vandepot_domain::error::DomainError;
 
 use super::shared::map_sqlx_error;
 
+// ── Search result row (T21) ────────────────────────────────────────
+
+#[derive(sqlx::FromRow)]
+pub struct MapSearchResultRow {
+    pub zone_id: Uuid,
+    pub zone_name: String,
+    pub product_id: Uuid,
+    pub product_name: String,
+    pub product_sku: String,
+    pub quantity: f64,
+    pub location_name: String,
+}
+
 // ── Row structs ─────────────────────────────────────────────────────
 
 #[derive(sqlx::FromRow)]
@@ -176,4 +189,59 @@ pub async fn update_layout(
     tx.commit().await.map_err(map_sqlx_error)?;
 
     Ok(updated)
+}
+
+// ── Map search (T21) ──────────────────────────────────────────────
+
+pub async fn search_map(
+    pool: &PgPool,
+    warehouse_id: Uuid,
+    query: &str,
+) -> Result<Vec<MapSearchResultRow>, DomainError> {
+    let pattern = format!("%{}%", query.replace('%', "\\%").replace('_', "\\_"));
+
+    let rows = sqlx::query_as::<_, MapSearchResultRow>(
+        r#"
+        WITH RECURSIVE zone_tree AS (
+            -- Start from all active locations in this warehouse
+            SELECT l.id, l.parent_id,
+                CASE WHEN l.parent_id IS NULL THEN l.id ELSE l.parent_id END AS root_zone_id
+            FROM locations l
+            WHERE l.warehouse_id = $1 AND l.is_active = true
+            UNION ALL
+            SELECT child.id, child.parent_id, parent.root_zone_id
+            FROM locations child
+            INNER JOIN zone_tree parent ON child.parent_id = parent.id
+            WHERE child.warehouse_id = $1 AND child.is_active = true
+        ),
+        location_zones AS (
+            SELECT DISTINCT ON (id) id AS location_id, root_zone_id
+            FROM zone_tree ORDER BY id, root_zone_id
+        )
+        SELECT DISTINCT ON (p.id, lz.root_zone_id)
+            lz.root_zone_id AS zone_id,
+            rz.name AS zone_name,
+            p.id AS product_id,
+            p.name AS product_name,
+            p.sku AS product_sku,
+            i.quantity::float8 AS quantity,
+            l.name AS location_name
+        FROM inventory i
+        JOIN products p ON p.id = i.product_id AND p.deleted_at IS NULL
+        JOIN locations l ON l.id = i.location_id
+        JOIN location_zones lz ON lz.location_id = l.id
+        JOIN locations rz ON rz.id = lz.root_zone_id
+        WHERE l.warehouse_id = $1
+          AND (p.name ILIKE $2 OR p.sku ILIKE $2)
+        ORDER BY p.id, lz.root_zone_id, i.quantity DESC
+        LIMIT 20
+        "#,
+    )
+    .bind(warehouse_id)
+    .bind(&pattern)
+    .fetch_all(pool)
+    .await
+    .map_err(map_sqlx_error)?;
+
+    Ok(rows)
 }

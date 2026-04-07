@@ -1,4 +1,4 @@
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::routing::{get, put};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
@@ -72,6 +72,24 @@ pub struct UpdateLayoutResponse {
     pub updated: u64,
 }
 
+// ── Search DTOs (T21) ─────────────────────────────────────────────
+
+#[derive(Deserialize)]
+pub struct MapSearchParams {
+    pub q: String,
+}
+
+#[derive(Serialize)]
+pub struct MapSearchResult {
+    pub zone_id: Uuid,
+    pub zone_name: String,
+    pub product_id: Uuid,
+    pub product_name: String,
+    pub product_sku: String,
+    pub quantity: f64,
+    pub location_name: String,
+}
+
 // ── Routes ──────────────────────────────────────────────────────────
 
 pub fn warehouse_map_routes() -> Router<AppState> {
@@ -79,6 +97,10 @@ pub fn warehouse_map_routes() -> Router<AppState> {
         .route(
             "/warehouses/{warehouse_id}/map",
             get(get_warehouse_map),
+        )
+        .route(
+            "/warehouses/{warehouse_id}/map/search",
+            get(search_map),
         )
         .route(
             "/warehouses/{warehouse_id}/layout",
@@ -164,4 +186,39 @@ async fn update_layout(
     .await?;
 
     Ok(Json(UpdateLayoutResponse { updated }))
+}
+
+// ── T21: Map search handler ────────────────────────────────────────
+
+async fn search_map(
+    State(state): State<AppState>,
+    claims: Claims,
+    Path(warehouse_id): Path<Uuid>,
+    Query(params): Query<MapSearchParams>,
+) -> Result<Json<Vec<MapSearchResult>>, ApiError> {
+    ensure_warehouse_access(&claims, &warehouse_id)?;
+
+    let q = params.q.trim();
+    if q.len() < 2 {
+        return Ok(Json(vec![]));
+    }
+
+    let rows =
+        warehouse_map_repo::search_map(&state.pool, warehouse_id, q)
+            .await?;
+
+    let results = rows
+        .into_iter()
+        .map(|r| MapSearchResult {
+            zone_id: r.zone_id,
+            zone_name: r.zone_name,
+            product_id: r.product_id,
+            product_name: r.product_name,
+            product_sku: r.product_sku,
+            quantity: r.quantity,
+            location_name: r.location_name,
+        })
+        .collect();
+
+    Ok(Json(results))
 }
