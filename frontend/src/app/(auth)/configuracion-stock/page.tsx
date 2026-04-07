@@ -9,13 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
+import { SearchableSelect } from '@/components/ui/searchable-select';
 import {
   Dialog,
   DialogContent,
@@ -376,18 +370,13 @@ export default function ConfiguracionStockPage() {
           <form onSubmit={handleAddOverride} className="space-y-4">
             <div className="space-y-2">
               <Label>Producto</Label>
-              <Select value={overrideProductId || undefined} onValueChange={setOverrideProductId}>
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Seleccionar producto" />
-                </SelectTrigger>
-                <SelectContent>
-                  {products.map((p) => (
-                    <SelectItem key={p.id} value={p.id}>
-                      {p.name} ({p.sku})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <SearchableSelect
+                value={overrideProductId || undefined}
+                onValueChange={setOverrideProductId}
+                options={products.map((p) => ({ value: p.id, label: `${p.name} (${p.sku})` }))}
+                placeholder="Seleccionar producto"
+                searchPlaceholder="Buscar producto..."
+              />
             </div>
             <div className="space-y-2">
               <Label>Stock minimo</Label>
