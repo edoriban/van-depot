@@ -3,6 +3,7 @@
 import { useRef, useCallback, useEffect, useMemo, useState } from 'react'
 import { Stage, Layer, Line } from 'react-konva'
 import useSWR from 'swr'
+import KonvaLib from 'konva'
 import type Konva from 'konva'
 import { useMapStore } from '@/stores/map-store'
 import { autoLayout } from '@/lib/auto-layout'
@@ -47,6 +48,7 @@ export default function MapCanvas({
   const containerRef = useRef<HTMLDivElement>(null)
   const [containerWidth, setContainerWidth] = useState(DEFAULT_CANVAS_W)
   const [isSaving, setIsSaving] = useState(false)
+  const lastDistRef = useRef<number | null>(null) // T26: pinch-to-zoom
 
   const canvasW = propCanvasW || DEFAULT_CANVAS_W
   const canvasH = propCanvasH || DEFAULT_CANVAS_H
@@ -109,6 +111,31 @@ export default function MapCanvas({
     setContainerWidth(container.clientWidth)
     return () => ro.disconnect()
   }, [])
+
+  // --- T25: Animate smooth transitions for zoom/pan ---
+  const animateToView = useCallback(
+    (newZoom: number, newPos: { x: number; y: number }) => {
+      const stage = stageRef.current
+      if (!stage) {
+        setZoom(newZoom)
+        setPosition(newPos)
+        return
+      }
+      stage.to({
+        scaleX: newZoom,
+        scaleY: newZoom,
+        x: newPos.x,
+        y: newPos.y,
+        duration: 0.25,
+        easing: KonvaLib.Easings.EaseInOut,
+        onFinish: () => {
+          setZoom(newZoom)
+          setPosition(newPos)
+        },
+      })
+    },
+    [setZoom, setPosition],
+  )
 
   // Compute zones with layout positions
   const zonesWithLayout: ZoneHealthWithLayout[] = useMemo(() => {
@@ -189,14 +216,18 @@ export default function MapCanvas({
     [zoom, position, setZoom, setPosition],
   )
 
+  // T25: Animated zoom in/out
   const handleZoomIn = useCallback(() => {
-    setZoom(zoom * 1.2)
-  }, [zoom, setZoom])
+    const newZoom = Math.max(0.1, Math.min(5, zoom * 1.2))
+    animateToView(newZoom, position)
+  }, [zoom, position, animateToView])
 
   const handleZoomOut = useCallback(() => {
-    setZoom(zoom / 1.2)
-  }, [zoom, setZoom])
+    const newZoom = Math.max(0.1, Math.min(5, zoom / 1.2))
+    animateToView(newZoom, position)
+  }, [zoom, position, animateToView])
 
+  // T25: Animated fit-to-screen
   const handleFitToScreen = useCallback(() => {
     if (zonesWithLayout.length === 0) return
 
@@ -214,12 +245,12 @@ export default function MapCanvas({
     const scaleY = STAGE_HEIGHT / (contentH + 40)
     const newZoom = Math.min(scaleX, scaleY, 2)
 
-    setZoom(newZoom)
-    setPosition({
+    const newPos = {
       x: (containerWidth - contentW * newZoom) / 2 - minX * newZoom,
       y: (STAGE_HEIGHT - contentH * newZoom) / 2 - minY * newZoom,
-    })
-  }, [zonesWithLayout, containerWidth, setZoom, setPosition])
+    }
+    animateToView(newZoom, newPos)
+  }, [zonesWithLayout, containerWidth, animateToView])
 
   const handleResetLayout = useCallback(() => {
     clearPendingPositions()
@@ -286,7 +317,7 @@ export default function MapCanvas({
     [setPosition],
   )
 
-  // --- T22: Navigate to zone (from search) ---
+  // --- T22: Navigate to zone (from search) — T25: animated ---
   const handleNavigateToZone = useCallback(
     (zoneId: string) => {
       const zone = zonesWithLayout.find((z) => z.zone_id === zoneId)
@@ -297,16 +328,16 @@ export default function MapCanvas({
       const cx = zone.pos_x + zone.width / 2
       const cy = zone.pos_y + zone.height / 2
 
-      setZoom(targetZoom)
-      setPosition({
+      const newPos = {
         x: containerWidth / 2 - cx * targetZoom,
         y: STAGE_HEIGHT / 2 - cy * targetZoom,
-      })
+      }
+      animateToView(targetZoom, newPos)
       selectZone(zoneId)
       onZoneSelect(zoneId)
       setHighlight(zoneId)
     },
-    [zonesWithLayout, zoom, containerWidth, setZoom, setPosition, selectZone, onZoneSelect, setHighlight],
+    [zonesWithLayout, zoom, containerWidth, animateToView, selectZone, onZoneSelect, setHighlight],
   )
 
   // --- T24: Auto-clear highlight after 3 seconds ---
@@ -317,6 +348,107 @@ export default function MapCanvas({
     }, 3000)
     return () => clearTimeout(timer)
   }, [highlightedLocationId, setHighlight])
+
+  // --- T26: Pinch-to-zoom touch handlers ---
+  const handleTouchMove = useCallback(
+    (e: Konva.KonvaEventObject<TouchEvent>) => {
+      const touch1 = e.evt.touches[0]
+      const touch2 = e.evt.touches[1]
+      if (touch1 && touch2) {
+        e.evt.preventDefault()
+        const dist = Math.hypot(
+          touch2.clientX - touch1.clientX,
+          touch2.clientY - touch1.clientY,
+        )
+        if (lastDistRef.current) {
+          const scale = dist / lastDistRef.current
+          const newZoom = Math.max(0.1, Math.min(5, zoom * scale))
+          setZoom(newZoom)
+        }
+        lastDistRef.current = dist
+      }
+    },
+    [zoom, setZoom],
+  )
+
+  const handleTouchEnd = useCallback(() => {
+    lastDistRef.current = null
+  }, [])
+
+  // --- T27: Keyboard navigation ---
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container) return
+
+    // Make container focusable
+    if (!container.hasAttribute('tabindex')) {
+      container.tabIndex = 0
+    }
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const PAN_STEP = 50
+      switch (e.key) {
+        case 'ArrowLeft':
+          e.preventDefault()
+          setPosition({ x: position.x + PAN_STEP, y: position.y })
+          break
+        case 'ArrowRight':
+          e.preventDefault()
+          setPosition({ x: position.x - PAN_STEP, y: position.y })
+          break
+        case 'ArrowUp':
+          e.preventDefault()
+          setPosition({ x: position.x, y: position.y + PAN_STEP })
+          break
+        case 'ArrowDown':
+          e.preventDefault()
+          setPosition({ x: position.x, y: position.y - PAN_STEP })
+          break
+        case '+':
+        case '=':
+          e.preventDefault()
+          handleZoomIn()
+          break
+        case '-':
+          e.preventDefault()
+          handleZoomOut()
+          break
+        case '0':
+          e.preventDefault()
+          handleFitToScreen()
+          break
+        case 'Escape':
+          selectZone(null)
+          onZoneSelect(null)
+          break
+      }
+    }
+
+    container.addEventListener('keydown', handleKeyDown)
+    return () => container.removeEventListener('keydown', handleKeyDown)
+  }, [position, setPosition, handleZoomIn, handleZoomOut, handleFitToScreen, selectZone, onZoneSelect])
+
+  // --- T28: Viewport virtualization for large warehouses ---
+  const visibleZones = useMemo(() => {
+    // For small sets, skip culling overhead
+    if (zonesWithLayout.length <= 50) return zonesWithLayout
+
+    const viewLeft = -position.x / zoom
+    const viewTop = -position.y / zoom
+    const viewRight = viewLeft + containerWidth / zoom
+    const viewBottom = viewTop + STAGE_HEIGHT / zoom
+
+    // Render margin for smooth scrolling
+    const margin = 100
+
+    return zonesWithLayout.filter(
+      (z) =>
+        z.pos_x + z.width > viewLeft - margin &&
+        z.pos_x < viewRight + margin &&
+        z.pos_y + z.height > viewTop - margin &&
+        z.pos_y < viewBottom + margin,
+    )
+  }, [zonesWithLayout, position, zoom, containerWidth])
 
   // Grid lines
   const gridLines = useMemo(() => {
@@ -368,10 +500,11 @@ export default function MapCanvas({
         isSaving={isSaving}
       />
 
+      {/* T26: touch-action: none prevents browser scroll conflicts */}
       <div
         ref={containerRef}
-        className="relative overflow-hidden rounded-xl border bg-muted/30"
-        style={{ height: STAGE_HEIGHT }}
+        className="relative overflow-hidden rounded-xl border bg-muted/30 outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        style={{ height: STAGE_HEIGHT, touchAction: 'none' }}
         data-testid="map-canvas-container"
       >
         <Stage
@@ -386,6 +519,8 @@ export default function MapCanvas({
           onWheel={handleWheel}
           onClick={handleStageClick}
           onTap={handleStageClick}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
           onDragEnd={(e) => {
             if (e.target === stageRef.current) {
               setPosition({ x: e.target.x(), y: e.target.y() })
@@ -404,9 +539,9 @@ export default function MapCanvas({
             ))}
           </Layer>
 
-          {/* Zones layer */}
+          {/* Zones layer — T28: uses visibleZones for viewport culling */}
           <Layer>
-            {zonesWithLayout.map((zone) => {
+            {visibleZones.map((zone) => {
               const isMatch = matchesSearch(zone)
               const searchDimmed = !!searchQuery && !isMatch
               const severityDimmed =
