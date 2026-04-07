@@ -95,6 +95,7 @@ export interface Movement {
   reference?: string;
   notes?: string;
   supplier_id?: string;
+  purchase_order_id?: string | null;
   created_at: string;
 }
 
@@ -338,6 +339,7 @@ export interface ProductLot {
   quality_status: QualityStatus;
   notes: string | null;
   total_quantity: number;
+  purchase_order_line_id?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -362,6 +364,43 @@ export interface ReceiveLotRequest {
   batch_date?: string;
   expiration_date?: string;
   notes?: string;
+  purchase_order_line_id?: string;
+  purchase_order_id?: string;
+}
+
+// Purchase Orders
+export type PurchaseOrderStatus =
+  | 'draft'
+  | 'sent'
+  | 'partially_received'
+  | 'completed'
+  | 'cancelled';
+
+export interface PurchaseOrderLine {
+  id: string;
+  purchase_order_id: string;
+  product_id: string;
+  product_name?: string;
+  product_sku?: string;
+  quantity_ordered: number;
+  quantity_received: number;
+  unit_price: number;
+  notes?: string | null;
+}
+
+export interface PurchaseOrder {
+  id: string;
+  supplier_id: string;
+  supplier_name?: string;
+  order_number: string;
+  status: PurchaseOrderStatus;
+  total_amount?: number | null;
+  expected_delivery_date?: string | null;
+  notes?: string | null;
+  lines?: PurchaseOrderLine[];
+  created_by: string;
+  created_at: string;
+  updated_at: string;
 }
 
 // Stock Configuration

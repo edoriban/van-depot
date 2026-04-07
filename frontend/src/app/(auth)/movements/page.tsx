@@ -11,7 +11,11 @@ import type {
   Location,
   Supplier,
   PaginatedResponse,
+  PurchaseOrder,
+  PurchaseOrderLine,
+  ProductLot,
 } from '@/types';
+import { Textarea } from '@/components/ui/textarea';
 import { DataTable, type ColumnDef } from '@/components/shared/data-table';
 import { EmptyState } from '@/components/shared/empty-state';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
@@ -209,7 +213,48 @@ function WarehouseLocationSelector({
   );
 }
 
-// --- Entry Form ---
+// --- Entry Mode ---
+
+type EntryMode = 'simple' | 'with_lot' | 'with_po';
+
+function EntryModeSelector({
+  mode,
+  onChange,
+}: {
+  mode: EntryMode;
+  onChange: (mode: EntryMode) => void;
+}) {
+  return (
+    <div className="flex gap-2 mb-4 flex-wrap">
+      <Button
+        type="button"
+        variant={mode === 'simple' ? 'default' : 'outline'}
+        size="sm"
+        onClick={() => onChange('simple')}
+      >
+        Entrada simple
+      </Button>
+      <Button
+        type="button"
+        variant={mode === 'with_lot' ? 'default' : 'outline'}
+        size="sm"
+        onClick={() => onChange('with_lot')}
+      >
+        Con lote
+      </Button>
+      <Button
+        type="button"
+        variant={mode === 'with_po' ? 'default' : 'outline'}
+        size="sm"
+        onClick={() => onChange('with_po')}
+      >
+        Con orden de compra
+      </Button>
+    </div>
+  );
+}
+
+// --- Entry Simple Form (original EntryForm renamed) ---
 
 function EntryForm({ products, warehouses, suppliers, onSuccess }: {
   products: Product[];
@@ -326,6 +371,575 @@ function EntryForm({ products, warehouses, suppliers, onSuccess }: {
         {saving ? 'Registrando...' : 'Registrar entrada'}
       </Button>
     </form>
+  );
+}
+
+// --- Entry With Lot Form ---
+
+function EntryWithLotForm({ onSuccess }: { onSuccess: () => void }) {
+  const products = useProducts();
+  const warehouses = useWarehouses();
+  const suppliers = useSuppliers();
+
+  const [productId, setProductId] = useState('');
+  const [warehouseId, setWarehouseId] = useState('');
+  const [locationId, setLocationId] = useState('');
+  const [lotNumber, setLotNumber] = useState('');
+  const [goodQuantity, setGoodQuantity] = useState('');
+  const [defectQuantity, setDefectQuantity] = useState('');
+  const [supplierId, setSupplierId] = useState('');
+  const [batchDate, setBatchDate] = useState('');
+  const [expirationDate, setExpirationDate] = useState('');
+  const [notes, setNotes] = useState('');
+  const [saving, setSaving] = useState(false);
+  const locations = useLocations(warehouseId);
+
+  const resetForm = () => {
+    setProductId('');
+    setWarehouseId('');
+    setLocationId('');
+    setLotNumber('');
+    setGoodQuantity('');
+    setDefectQuantity('');
+    setSupplierId('');
+    setBatchDate('');
+    setExpirationDate('');
+    setNotes('');
+  };
+
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      const lot = await api.post<ProductLot>('/lots/receive', {
+        product_id: productId,
+        lot_number: lotNumber,
+        location_id: locationId,
+        good_quantity: Number(goodQuantity),
+        defect_quantity: defectQuantity ? Number(defectQuantity) : undefined,
+        supplier_id: supplierId || undefined,
+        batch_date: batchDate || undefined,
+        expiration_date: expirationDate || undefined,
+        notes: notes || undefined,
+      });
+      toast.success(`Lote ${lot.lot_number} recibido correctamente`);
+      resetForm();
+      onSuccess();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Error al recibir lote');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-4" data-testid="entry-lot-form">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <Label>Producto</Label>
+          <Select value={productId || undefined} onValueChange={setProductId}>
+            <SelectTrigger data-testid="lot-product" className="w-full">
+              <SelectValue placeholder="Seleccionar producto" />
+            </SelectTrigger>
+            <SelectContent>
+              {products.map((p) => (
+                <SelectItem key={p.id} value={p.id}>
+                  {p.name} ({p.sku})
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-2">
+          <Label>Numero de lote</Label>
+          <Input
+            value={lotNumber}
+            onChange={(e) => setLotNumber(e.target.value)}
+            placeholder="Ej: LOT-2026-001"
+            required
+            data-testid="lot-number"
+          />
+        </div>
+      </div>
+
+      <WarehouseLocationSelector
+        warehouses={warehouses}
+        warehouseId={warehouseId}
+        onWarehouseChange={setWarehouseId}
+        locationId={locationId}
+        onLocationChange={setLocationId}
+        locations={locations}
+        label="Ubicacion destino"
+        locationTestId="lot-location"
+        warehouseTestId="lot-warehouse"
+      />
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <Label>Cantidad buena</Label>
+          <Input
+            type="number"
+            min={0.01}
+            step="any"
+            value={goodQuantity}
+            onChange={(e) => setGoodQuantity(e.target.value)}
+            required
+            placeholder="Cantidad en buen estado"
+            data-testid="lot-good-qty"
+          />
+        </div>
+        <div className="space-y-2">
+          <Label>Cantidad defectuosa (opcional)</Label>
+          <Input
+            type="number"
+            min={0}
+            step="any"
+            value={defectQuantity}
+            onChange={(e) => setDefectQuantity(e.target.value)}
+            placeholder="0"
+            data-testid="lot-defect-qty"
+          />
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <Label>Proveedor (opcional)</Label>
+        <Select
+          value={supplierId || 'none'}
+          onValueChange={(val) => setSupplierId(val === 'none' ? '' : val)}
+        >
+          <SelectTrigger data-testid="lot-supplier" className="w-full">
+            <SelectValue placeholder="Sin proveedor" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="none">Sin proveedor</SelectItem>
+            {suppliers.map((s) => (
+              <SelectItem key={s.id} value={s.id}>
+                {s.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <Label>Fecha de lote (opcional)</Label>
+          <Input
+            type="date"
+            value={batchDate}
+            onChange={(e) => setBatchDate(e.target.value)}
+            data-testid="lot-batch-date"
+          />
+        </div>
+        <div className="space-y-2">
+          <Label>Fecha de vencimiento (opcional)</Label>
+          <Input
+            type="date"
+            value={expirationDate}
+            onChange={(e) => setExpirationDate(e.target.value)}
+            data-testid="lot-expiration-date"
+          />
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <Label>Notas (opcional)</Label>
+        <Textarea
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          placeholder="Observaciones sobre la recepcion"
+          rows={3}
+          data-testid="lot-notes"
+        />
+      </div>
+
+      <Button
+        type="submit"
+        disabled={saving || !productId || !lotNumber || !locationId || !goodQuantity}
+        className="w-full"
+        data-testid="lot-submit"
+      >
+        {saving ? 'Recibiendo...' : 'Recibir lote'}
+      </Button>
+    </form>
+  );
+}
+
+// --- Entry With PO Form ---
+
+function EntryWithPOForm({ onSuccess }: { onSuccess: () => void }) {
+  const warehouses = useWarehouses();
+
+  // Step 1: PO search
+  const [poSearch, setPoSearch] = useState('');
+  const [poResults, setPoResults] = useState<PurchaseOrder[]>([]);
+  const [isLoadingPOs, setIsLoadingPOs] = useState(false);
+  const [selectedPO, setSelectedPO] = useState<PurchaseOrder | null>(null);
+
+  // Step 2: Line selection
+  const [poLines, setPoLines] = useState<PurchaseOrderLine[]>([]);
+  const [selectedLineId, setSelectedLineId] = useState('');
+
+  // Step 3: Receipt details
+  const [warehouseId, setWarehouseId] = useState('');
+  const [locationId, setLocationId] = useState('');
+  const [lotNumber, setLotNumber] = useState('');
+  const [goodQuantity, setGoodQuantity] = useState('');
+  const [defectQuantity, setDefectQuantity] = useState('');
+  const [batchDate, setBatchDate] = useState('');
+  const [expirationDate, setExpirationDate] = useState('');
+  const [notes, setNotes] = useState('');
+  const [saving, setSaving] = useState(false);
+  const locations = useLocations(warehouseId);
+
+  // Debounced PO search
+  useEffect(() => {
+    if (poSearch.length < 2) {
+      setPoResults([]);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      setIsLoadingPOs(true);
+      try {
+        const params = new URLSearchParams();
+        params.set('order_number', poSearch);
+        params.set('per_page', '10');
+        const res = await api.get<PaginatedResponse<PurchaseOrder>>(
+          `/purchase-orders?${params}`
+        );
+        setPoResults(res.data ?? []);
+      } catch {
+        setPoResults([]);
+      } finally {
+        setIsLoadingPOs(false);
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [poSearch]);
+
+  const handleSelectPO = async (po: PurchaseOrder) => {
+    setSelectedPO(po);
+    setPoSearch('');
+    setPoResults([]);
+    setSelectedLineId('');
+    try {
+      const lines = await api.get<PurchaseOrderLine[]>(
+        `/purchase-orders/${po.id}/lines`
+      );
+      setPoLines(Array.isArray(lines) ? lines : []);
+    } catch {
+      toast.error('Error al cargar lineas de la orden');
+      setPoLines([]);
+    }
+  };
+
+  const resetStep2 = () => {
+    setSelectedLineId('');
+    setWarehouseId('');
+    setLocationId('');
+    setLotNumber('');
+    setGoodQuantity('');
+    setDefectQuantity('');
+    setBatchDate('');
+    setExpirationDate('');
+    setNotes('');
+  };
+
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!selectedPO || !selectedLineId) return;
+    const selectedLine = poLines.find((l) => l.id === selectedLineId);
+    if (!selectedLine) return;
+
+    setSaving(true);
+    try {
+      const lot = await api.post<ProductLot>('/lots/receive', {
+        product_id: selectedLine.product_id,
+        lot_number: lotNumber,
+        location_id: locationId,
+        good_quantity: Number(goodQuantity),
+        defect_quantity: defectQuantity ? Number(defectQuantity) : undefined,
+        supplier_id: selectedPO.supplier_id,
+        batch_date: batchDate || undefined,
+        expiration_date: expirationDate || undefined,
+        notes: notes || undefined,
+        purchase_order_line_id: selectedLineId,
+        purchase_order_id: selectedPO.id,
+      });
+      toast.success(`Material recibido — OC ${selectedPO.order_number} actualizada (Lote: ${lot.lot_number})`);
+      resetStep2();
+      // Refresh PO lines
+      const updatedLines = await api.get<PurchaseOrderLine[]>(
+        `/purchase-orders/${selectedPO.id}/lines`
+      );
+      setPoLines(Array.isArray(updatedLines) ? updatedLines : []);
+      onSuccess();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Error al registrar recepcion');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const selectedLine = poLines.find((l) => l.id === selectedLineId);
+  const pendingQty = selectedLine
+    ? selectedLine.quantity_ordered - selectedLine.quantity_received
+    : undefined;
+
+  // Status labels
+  const PO_STATUS_LABELS: Record<string, string> = {
+    draft: 'Borrador',
+    sent: 'Enviada',
+    partially_received: 'Parcial',
+    completed: 'Completada',
+    cancelled: 'Cancelada',
+  };
+
+  return (
+    <div className="space-y-4" data-testid="entry-po-form">
+      {/* Step 1: Search PO */}
+      {!selectedPO && (
+        <div className="space-y-3">
+          <Label>Buscar orden de compra</Label>
+          <Input
+            value={poSearch}
+            onChange={(e) => setPoSearch(e.target.value)}
+            placeholder="Escribe el numero de orden..."
+            data-testid="po-search"
+          />
+          {isLoadingPOs && (
+            <p className="text-sm text-muted-foreground">Buscando...</p>
+          )}
+          {poResults.length > 0 && (
+            <div className="rounded-lg border divide-y">
+              {poResults.map((po) => (
+                <button
+                  key={po.id}
+                  type="button"
+                  className="w-full flex items-center justify-between px-4 py-3 hover:bg-muted/50 text-left"
+                  onClick={() => handleSelectPO(po)}
+                >
+                  <div>
+                    <span className="font-mono font-medium">{po.order_number}</span>
+                    <span className="ml-2 text-sm text-muted-foreground">
+                      {po.supplier_name}
+                    </span>
+                  </div>
+                  <span className="text-xs text-muted-foreground">
+                    {PO_STATUS_LABELS[po.status] ?? po.status}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+          {poSearch.length >= 2 && !isLoadingPOs && poResults.length === 0 && (
+            <p className="text-sm text-muted-foreground">No se encontraron ordenes</p>
+          )}
+        </div>
+      )}
+
+      {/* Step 2 & 3: PO selected */}
+      {selectedPO && (
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {/* PO Header */}
+          <div className="rounded-lg border p-4 bg-muted/30">
+            <div className="flex items-center justify-between">
+              <div>
+                <span className="font-mono font-semibold">{selectedPO.order_number}</span>
+                <span className="ml-2 text-sm text-muted-foreground">{selectedPO.supplier_name}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground">
+                  {PO_STATUS_LABELS[selectedPO.status] ?? selectedPO.status}
+                </span>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setSelectedPO(null);
+                    setPoLines([]);
+                    resetStep2();
+                  }}
+                >
+                  Cambiar
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          {/* Step 2: Line selection */}
+          {poLines.length === 0 && (
+            <p className="text-sm text-muted-foreground">
+              Esta orden no tiene lineas o ya fue completada.
+            </p>
+          )}
+          {poLines.length > 0 && (
+            <div className="space-y-2">
+              <Label>Selecciona la linea a recibir</Label>
+              <div className="rounded-lg border divide-y">
+                {poLines.map((line) => {
+                  const pending = line.quantity_ordered - line.quantity_received;
+                  const pct = line.quantity_ordered > 0
+                    ? (line.quantity_received / line.quantity_ordered) * 100
+                    : 0;
+                  return (
+                    <label
+                      key={line.id}
+                      className="flex items-start gap-3 px-4 py-3 cursor-pointer hover:bg-muted/50"
+                    >
+                      <input
+                        type="radio"
+                        name="po-line"
+                        value={line.id}
+                        checked={selectedLineId === line.id}
+                        onChange={() => setSelectedLineId(line.id)}
+                        className="mt-1"
+                        data-testid={`po-line-${line.id}`}
+                      />
+                      <div className="flex-1 space-y-1">
+                        <div className="flex items-center justify-between">
+                          <span className="font-medium text-sm">
+                            {line.product_name ?? line.product_id.slice(0, 8) + '...'}
+                          </span>
+                          <span className="text-xs text-muted-foreground">
+                            Pendiente: {pending.toFixed(2)}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                          <span>{line.quantity_received.toFixed(2)} / {line.quantity_ordered.toFixed(2)} recibido</span>
+                        </div>
+                        <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                          <div
+                            className="h-full rounded-full bg-green-500"
+                            style={{ width: `${Math.min(pct, 100)}%` }}
+                          />
+                        </div>
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Step 3: Receipt details */}
+          {selectedLineId && (
+            <>
+              <WarehouseLocationSelector
+                warehouses={warehouses}
+                warehouseId={warehouseId}
+                onWarehouseChange={setWarehouseId}
+                locationId={locationId}
+                onLocationChange={setLocationId}
+                locations={locations}
+                label="Ubicacion destino"
+                locationTestId="po-location"
+                warehouseTestId="po-warehouse"
+              />
+
+              <div className="space-y-2">
+                <Label>Numero de lote</Label>
+                <Input
+                  value={lotNumber}
+                  onChange={(e) => setLotNumber(e.target.value)}
+                  placeholder="Ej: LOT-2026-001"
+                  required
+                  data-testid="po-lot-number"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>
+                    Cantidad a recibir
+                    {pendingQty !== undefined && (
+                      <span className="ml-1 text-xs text-muted-foreground">
+                        (max sugerido: {pendingQty.toFixed(2)})
+                      </span>
+                    )}
+                  </Label>
+                  <Input
+                    type="number"
+                    min={0.01}
+                    max={pendingQty}
+                    step="any"
+                    value={goodQuantity}
+                    onChange={(e) => setGoodQuantity(e.target.value)}
+                    required
+                    placeholder="Cantidad en buen estado"
+                    data-testid="po-good-qty"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Cantidad defectuosa (opcional)</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    step="any"
+                    value={defectQuantity}
+                    onChange={(e) => setDefectQuantity(e.target.value)}
+                    placeholder="0"
+                    data-testid="po-defect-qty"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Fecha de lote (opcional)</Label>
+                  <Input
+                    type="date"
+                    value={batchDate}
+                    onChange={(e) => setBatchDate(e.target.value)}
+                    data-testid="po-batch-date"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Fecha de vencimiento (opcional)</Label>
+                  <Input
+                    type="date"
+                    value={expirationDate}
+                    onChange={(e) => setExpirationDate(e.target.value)}
+                    data-testid="po-expiration-date"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Notas (opcional)</Label>
+                <Textarea
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  placeholder="Observaciones sobre la recepcion"
+                  rows={2}
+                  data-testid="po-notes"
+                />
+              </div>
+
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={resetStep2}
+                >
+                  Atras
+                </Button>
+                <Button
+                  type="submit"
+                  disabled={saving || !locationId || !lotNumber || !goodQuantity}
+                  className="flex-1"
+                  data-testid="po-submit"
+                >
+                  {saving ? 'Registrando...' : 'Registrar recepcion'}
+                </Button>
+              </div>
+            </>
+          )}
+        </form>
+      )}
+    </div>
   );
 }
 
@@ -664,6 +1278,42 @@ function AdjustmentForm({ products, warehouses, onSuccess }: {
   );
 }
 
+// --- Entry Tab Content (mode selector + sub-forms) ---
+
+function EntryTabContent({
+  products,
+  warehouses,
+  suppliers,
+  onSuccess,
+}: {
+  products: Product[];
+  warehouses: Warehouse[];
+  suppliers: Supplier[];
+  onSuccess: () => void;
+}) {
+  const [entryMode, setEntryMode] = useState<EntryMode>('simple');
+
+  return (
+    <>
+      <EntryModeSelector mode={entryMode} onChange={setEntryMode} />
+      {entryMode === 'simple' && (
+        <EntryForm
+          products={products}
+          warehouses={warehouses}
+          suppliers={suppliers}
+          onSuccess={onSuccess}
+        />
+      )}
+      {entryMode === 'with_lot' && (
+        <EntryWithLotForm onSuccess={onSuccess} />
+      )}
+      {entryMode === 'with_po' && (
+        <EntryWithPOForm onSuccess={onSuccess} />
+      )}
+    </>
+  );
+}
+
 // --- Movement History with expanded product/location info ---
 
 interface MovementWithDetails extends Movement {
@@ -812,7 +1462,7 @@ export default function MovementsPage() {
 
           <TabsContent value="entry" className="pt-6">
             <p className="text-sm text-muted-foreground mb-4">Registra material que llega al almacen</p>
-            <EntryForm
+            <EntryTabContent
               products={products}
               warehouses={warehouses}
               suppliers={suppliers}

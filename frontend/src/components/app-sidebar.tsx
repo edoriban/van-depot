@@ -29,7 +29,6 @@ import {
   Analytics01Icon,
   UserGroupIcon,
   Logout01Icon,
-  PackageReceiveIcon,
   Layers01Icon,
   Settings01Icon,
 } from '@hugeicons/core-free-icons';
@@ -77,7 +76,6 @@ const navGroups: NavGroup[] = [
     label: 'Operaciones',
     items: [
       { title: 'Movimientos', href: '/movements', icon: ArrowDataTransferHorizontalIcon },
-      { title: 'Recibir Material', href: '/lotes/recibir', icon: PackageReceiveIcon },
       { title: 'Conteos', href: '/cycle-counts', icon: CheckListIcon },
       { title: 'Recetas', href: '/recetas', icon: TaskDaily01Icon },
     ],
