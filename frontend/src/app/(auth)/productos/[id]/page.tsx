@@ -24,6 +24,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { SearchableSelect } from '@/components/ui/searchable-select';
 import {
   Table,
   TableBody,
@@ -257,44 +258,30 @@ export default function ProductDetailPage() {
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="detail-category">Categoria</Label>
-                <Select
+                <SearchableSelect
                   value={formCategoryId || 'none'}
                   onValueChange={(val) =>
                     setFormCategoryId(val === 'none' ? '' : val)
                   }
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Sin categoria" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">Sin categoria</SelectItem>
-                    {categories.map((cat) => (
-                      <SelectItem key={cat.id} value={cat.id}>
-                        {cat.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  options={[
+                    { value: 'none', label: 'Sin categoria' },
+                    ...categories.map((cat) => ({ value: cat.id, label: cat.name })),
+                  ]}
+                  placeholder="Sin categoria"
+                  searchPlaceholder="Buscar categoria..."
+                />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="detail-unit">Unidad de medida</Label>
-                <Select
+                <SearchableSelect
                   value={formUnit}
                   onValueChange={(val) => setFormUnit(val as UnitType)}
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Seleccionar unidad" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(Object.entries(UNIT_LABELS) as [UnitType, string][]).map(
-                      ([value, label]) => (
-                        <SelectItem key={value} value={value}>
-                          {label}
-                        </SelectItem>
-                      )
-                    )}
-                  </SelectContent>
-                </Select>
+                  options={(Object.entries(UNIT_LABELS) as [UnitType, string][]).map(
+                    ([value, label]) => ({ value, label })
+                  )}
+                  placeholder="Seleccionar unidad"
+                  searchPlaceholder="Buscar unidad..."
+                />
               </div>
             </div>
 

@@ -13,13 +13,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Package01Icon, Tag01Icon } from '@hugeicons/core-free-icons';
 import Link from 'next/link';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
+import { SearchableSelect } from '@/components/ui/searchable-select';
 import { Textarea } from '@/components/ui/textarea';
 import {
   Dialog,
@@ -265,22 +259,17 @@ function ProductsTab({
             className="max-w-sm"
             data-testid="search-input"
           />
-          <Select
+          <SearchableSelect
             value={filterCategoryId || 'all'}
             onValueChange={(val) => handleCategoryFilterChange(val === 'all' ? '' : val)}
-          >
-            <SelectTrigger data-testid="category-filter" className="max-w-xs">
-              <SelectValue placeholder="Todas las categorias" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todas las categorias</SelectItem>
-              {categories.map((cat) => (
-                <SelectItem key={cat.id} value={cat.id}>
-                  {cat.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+            options={[
+              { value: 'all', label: 'Todas las categorias' },
+              ...categories.map((cat) => ({ value: cat.id, label: cat.name })),
+            ]}
+            placeholder="Todas las categorias"
+            searchPlaceholder="Buscar categoria..."
+            className="max-w-xs"
+          />
         </div>
         <Button onClick={openCreateDialog} data-testid="new-product-btn">
           Nuevo producto
@@ -363,42 +352,28 @@ function ProductsTab({
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="product-category">Categoria</Label>
-                <Select
+                <SearchableSelect
                   value={formCategoryId || 'none'}
                   onValueChange={(val) => setFormCategoryId(val === 'none' ? '' : val)}
-                >
-                  <SelectTrigger data-testid="product-category-select" className="w-full">
-                    <SelectValue placeholder="Sin categoria" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">Sin categoria</SelectItem>
-                    {categories.map((cat) => (
-                      <SelectItem key={cat.id} value={cat.id}>
-                        {cat.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  options={[
+                    { value: 'none', label: 'Sin categoria' },
+                    ...categories.map((cat) => ({ value: cat.id, label: cat.name })),
+                  ]}
+                  placeholder="Sin categoria"
+                  searchPlaceholder="Buscar categoria..."
+                />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="product-unit">Unidad de medida</Label>
-                <Select
+                <SearchableSelect
                   value={formUnit}
                   onValueChange={(val) => setFormUnit(val as UnitType)}
-                >
-                  <SelectTrigger data-testid="product-unit-select" className="w-full">
-                    <SelectValue placeholder="Seleccionar unidad" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(Object.entries(UNIT_LABELS) as [UnitType, string][]).map(
-                      ([value, label]) => (
-                        <SelectItem key={value} value={value}>
-                          {label}
-                        </SelectItem>
-                      )
-                    )}
-                  </SelectContent>
-                </Select>
+                  options={(Object.entries(UNIT_LABELS) as [UnitType, string][]).map(
+                    ([value, label]) => ({ value, label })
+                  )}
+                  placeholder="Seleccionar unidad"
+                  searchPlaceholder="Buscar unidad..."
+                />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-4">
@@ -668,22 +643,16 @@ function CategoriesTab({
             </div>
             <div className="space-y-2">
               <Label htmlFor="category-parent">Categoria padre</Label>
-              <Select
+              <SearchableSelect
                 value={formParentId || 'none'}
                 onValueChange={(val) => setFormParentId(val === 'none' ? '' : val)}
-              >
-                <SelectTrigger data-testid="category-parent-select" className="w-full">
-                  <SelectValue placeholder="Sin categoria padre" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">Sin categoria padre</SelectItem>
-                  {parentOptions.map((cat) => (
-                    <SelectItem key={cat.id} value={cat.id}>
-                      {cat.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                options={[
+                  { value: 'none', label: 'Sin categoria padre' },
+                  ...parentOptions.map((cat) => ({ value: cat.id, label: cat.name })),
+                ]}
+                placeholder="Sin categoria padre"
+                searchPlaceholder="Buscar categoria..."
+              />
             </div>
             <DialogFooter>
               <Button

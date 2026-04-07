@@ -24,6 +24,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { SearchableSelect } from '@/components/ui/searchable-select';
 import {
   Dialog,
   DialogContent,
@@ -181,18 +182,13 @@ function CreatePurchaseOrderDialog({
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>Proveedor</Label>
-              <Select value={supplierId || undefined} onValueChange={setSupplierId}>
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Seleccionar proveedor" />
-                </SelectTrigger>
-                <SelectContent>
-                  {suppliers.map((s) => (
-                    <SelectItem key={s.id} value={s.id}>
-                      {s.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <SearchableSelect
+                value={supplierId || undefined}
+                onValueChange={setSupplierId}
+                options={suppliers.map((s) => ({ value: s.id, label: s.name }))}
+                placeholder="Seleccionar proveedor"
+                searchPlaceholder="Buscar proveedor..."
+              />
             </div>
             <div className="space-y-2">
               <Label>Fecha esperada de entrega (opcional)</Label>
@@ -229,21 +225,13 @@ function CreatePurchaseOrderDialog({
                 <div key={idx} className="grid grid-cols-12 gap-2 items-end rounded-lg border p-3">
                   <div className="col-span-5 space-y-1">
                     <Label className="text-xs">Producto</Label>
-                    <Select
+                    <SearchableSelect
                       value={line.product_id || undefined}
                       onValueChange={(val) => updateLine(idx, 'product_id', val)}
-                    >
-                      <SelectTrigger className="w-full">
-                        <SelectValue placeholder="Seleccionar" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {products.map((p) => (
-                          <SelectItem key={p.id} value={p.id}>
-                            {p.name} ({p.sku})
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                      options={products.map((p) => ({ value: p.id, label: `${p.name} (${p.sku})` }))}
+                      placeholder="Seleccionar"
+                      searchPlaceholder="Buscar producto..."
+                    />
                   </div>
                   <div className="col-span-2 space-y-1">
                     <Label className="text-xs">Cantidad</Label>
@@ -504,25 +492,20 @@ export default function OrdenesPage() {
         </div>
         <div className="flex items-center gap-2">
           <Label className="text-sm whitespace-nowrap">Proveedor:</Label>
-          <Select
+          <SearchableSelect
             value={supplierFilter || 'all'}
             onValueChange={(val) => {
               setSupplierFilter(val === 'all' ? '' : val);
               setPage(1);
             }}
-          >
-            <SelectTrigger className="w-52">
-              <SelectValue placeholder="Todos los proveedores" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todos los proveedores</SelectItem>
-              {suppliers.map((s) => (
-                <SelectItem key={s.id} value={s.id}>
-                  {s.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+            options={[
+              { value: 'all', label: 'Todos los proveedores' },
+              ...suppliers.map((s) => ({ value: s.id, label: s.name })),
+            ]}
+            placeholder="Todos los proveedores"
+            searchPlaceholder="Buscar proveedor..."
+            className="w-52"
+          />
         </div>
       </div>
 

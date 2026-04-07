@@ -32,6 +32,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { SearchableSelect } from '@/components/ui/searchable-select';
 import { toast } from 'sonner';
 
 // --- Constants ---
@@ -175,39 +176,27 @@ function WarehouseLocationSelector({
     <>
       <div className="space-y-2">
         <Label>Almacen</Label>
-        <Select
+        <SearchableSelect
           value={warehouseId || undefined}
           onValueChange={(val) => {
             onWarehouseChange(val);
             onLocationChange('');
           }}
-        >
-          <SelectTrigger data-testid={warehouseTestId} className="w-full">
-            <SelectValue placeholder="Seleccionar almacen" />
-          </SelectTrigger>
-          <SelectContent>
-            {warehouses.map((w) => (
-              <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+          options={warehouses.map((w) => ({ value: w.id, label: w.name }))}
+          placeholder="Seleccionar almacen"
+          searchPlaceholder="Buscar almacen..."
+        />
       </div>
       <div className="space-y-2">
         <Label>{label}</Label>
-        <Select
+        <SearchableSelect
           value={locationId || undefined}
           onValueChange={onLocationChange}
           disabled={!warehouseId}
-        >
-          <SelectTrigger data-testid={locationTestId} className="w-full">
-            <SelectValue placeholder={warehouseId ? "Seleccionar ubicacion" : "Selecciona un almacen primero"} />
-          </SelectTrigger>
-          <SelectContent>
-            {filteredLocations.map((l) => (
-              <SelectItem key={l.id} value={l.id}>{l.name}{l.label ? ` (${l.label})` : ''}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+          options={filteredLocations.map((l) => ({ value: l.id, label: `${l.name}${l.label ? ` (${l.label})` : ''}` }))}
+          placeholder={warehouseId ? "Seleccionar ubicacion" : "Selecciona un almacen primero"}
+          searchPlaceholder="Buscar ubicacion..."
+        />
       </div>
     </>
   );
@@ -304,16 +293,13 @@ function EntryForm({ products, warehouses, suppliers, onSuccess }: {
     <form onSubmit={handleSubmit} className="space-y-4" data-testid="entry-form">
       <div className="space-y-2">
         <Label>Producto</Label>
-        <Select value={productId || undefined} onValueChange={setProductId}>
-          <SelectTrigger data-testid="entry-product" className="w-full">
-            <SelectValue placeholder="Seleccionar producto" />
-          </SelectTrigger>
-          <SelectContent>
-            {products.map((p) => (
-              <SelectItem key={p.id} value={p.id}>{p.name} ({p.sku})</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <SearchableSelect
+          value={productId || undefined}
+          onValueChange={setProductId}
+          options={products.map((p) => ({ value: p.id, label: `${p.name} (${p.sku})` }))}
+          placeholder="Seleccionar producto"
+          searchPlaceholder="Buscar producto..."
+        />
       </div>
 
       <WarehouseLocationSelector
@@ -344,17 +330,16 @@ function EntryForm({ products, warehouses, suppliers, onSuccess }: {
 
       <div className="space-y-2">
         <Label>Proveedor (opcional)</Label>
-        <Select value={supplierId || 'none'} onValueChange={(val) => setSupplierId(val === 'none' ? '' : val)}>
-          <SelectTrigger data-testid="entry-supplier" className="w-full">
-            <SelectValue placeholder="Sin proveedor" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="none">Sin proveedor</SelectItem>
-            {suppliers.map((s) => (
-              <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <SearchableSelect
+          value={supplierId || 'none'}
+          onValueChange={(val) => setSupplierId(val === 'none' ? '' : val)}
+          options={[
+            { value: 'none', label: 'Sin proveedor' },
+            ...suppliers.map((s) => ({ value: s.id, label: s.name })),
+          ]}
+          placeholder="Sin proveedor"
+          searchPlaceholder="Buscar proveedor..."
+        />
       </div>
 
       <div className="space-y-2">
@@ -437,18 +422,13 @@ function EntryWithLotForm({ onSuccess }: { onSuccess: () => void }) {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="space-y-2">
           <Label>Producto</Label>
-          <Select value={productId || undefined} onValueChange={setProductId}>
-            <SelectTrigger data-testid="lot-product" className="w-full">
-              <SelectValue placeholder="Seleccionar producto" />
-            </SelectTrigger>
-            <SelectContent>
-              {products.map((p) => (
-                <SelectItem key={p.id} value={p.id}>
-                  {p.name} ({p.sku})
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <SearchableSelect
+            value={productId || undefined}
+            onValueChange={setProductId}
+            options={products.map((p) => ({ value: p.id, label: `${p.name} (${p.sku})` }))}
+            placeholder="Seleccionar producto"
+            searchPlaceholder="Buscar producto..."
+          />
         </div>
         <div className="space-y-2">
           <Label>Numero de lote</Label>
@@ -504,22 +484,16 @@ function EntryWithLotForm({ onSuccess }: { onSuccess: () => void }) {
 
       <div className="space-y-2">
         <Label>Proveedor (opcional)</Label>
-        <Select
+        <SearchableSelect
           value={supplierId || 'none'}
           onValueChange={(val) => setSupplierId(val === 'none' ? '' : val)}
-        >
-          <SelectTrigger data-testid="lot-supplier" className="w-full">
-            <SelectValue placeholder="Sin proveedor" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="none">Sin proveedor</SelectItem>
-            {suppliers.map((s) => (
-              <SelectItem key={s.id} value={s.id}>
-                {s.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+          options={[
+            { value: 'none', label: 'Sin proveedor' },
+            ...suppliers.map((s) => ({ value: s.id, label: s.name })),
+          ]}
+          placeholder="Sin proveedor"
+          searchPlaceholder="Buscar proveedor..."
+        />
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -989,16 +963,13 @@ function ExitForm({ products, warehouses, onSuccess }: {
     <form onSubmit={handleSubmit} className="space-y-4" data-testid="exit-form">
       <div className="space-y-2">
         <Label>Producto</Label>
-        <Select value={productId || undefined} onValueChange={setProductId}>
-          <SelectTrigger data-testid="exit-product" className="w-full">
-            <SelectValue placeholder="Seleccionar producto" />
-          </SelectTrigger>
-          <SelectContent>
-            {products.map((p) => (
-              <SelectItem key={p.id} value={p.id}>{p.name} ({p.sku})</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <SearchableSelect
+          value={productId || undefined}
+          onValueChange={setProductId}
+          options={products.map((p) => ({ value: p.id, label: `${p.name} (${p.sku})` }))}
+          placeholder="Seleccionar producto"
+          searchPlaceholder="Buscar producto..."
+        />
       </div>
 
       <WarehouseLocationSelector
@@ -1096,16 +1067,13 @@ function TransferForm({ products, warehouses, onSuccess }: {
     <form onSubmit={handleSubmit} className="space-y-4" data-testid="transfer-form">
       <div className="space-y-2">
         <Label>Producto</Label>
-        <Select value={productId || undefined} onValueChange={setProductId}>
-          <SelectTrigger data-testid="transfer-product" className="w-full">
-            <SelectValue placeholder="Seleccionar producto" />
-          </SelectTrigger>
-          <SelectContent>
-            {products.map((p) => (
-              <SelectItem key={p.id} value={p.id}>{p.name} ({p.sku})</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <SearchableSelect
+          value={productId || undefined}
+          onValueChange={setProductId}
+          options={products.map((p) => ({ value: p.id, label: `${p.name} (${p.sku})` }))}
+          placeholder="Seleccionar producto"
+          searchPlaceholder="Buscar producto..."
+        />
       </div>
 
       <fieldset className="space-y-4 rounded-2xl border border-red-500/20 bg-red-500/5 p-4">
@@ -1223,16 +1191,13 @@ function AdjustmentForm({ products, warehouses, onSuccess }: {
     <form onSubmit={handleSubmit} className="space-y-4" data-testid="adjustment-form">
       <div className="space-y-2">
         <Label>Producto</Label>
-        <Select value={productId || undefined} onValueChange={setProductId}>
-          <SelectTrigger data-testid="adjustment-product" className="w-full">
-            <SelectValue placeholder="Seleccionar producto" />
-          </SelectTrigger>
-          <SelectContent>
-            {products.map((p) => (
-              <SelectItem key={p.id} value={p.id}>{p.name} ({p.sku})</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <SearchableSelect
+          value={productId || undefined}
+          onValueChange={setProductId}
+          options={products.map((p) => ({ value: p.id, label: `${p.name} (${p.sku})` }))}
+          placeholder="Seleccionar producto"
+          searchPlaceholder="Buscar producto..."
+        />
       </div>
 
       <WarehouseLocationSelector
