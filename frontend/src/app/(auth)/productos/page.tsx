@@ -190,7 +190,7 @@ function ProductsTab({
       render: (p) => (
         <Link
           href={`/productos/${p.id}`}
-          className="font-medium text-primary hover:underline"
+          className="font-medium text-[var(--link)] hover:underline"
           data-testid="product-detail-link"
         >
           {p.name}

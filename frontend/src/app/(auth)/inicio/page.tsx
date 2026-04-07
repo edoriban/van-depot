@@ -91,6 +91,7 @@ function isTrendPositive(key: keyof DashboardStats, direction: TrendDirection): 
 
 interface RecentMovement {
   id: string;
+  product_id: string;
   movement_type: MovementType;
   quantity: number;
   product_name: string;
@@ -371,7 +372,9 @@ export default function DashboardPage() {
                             </Badge>
                           </TableCell>
                           <TableCell>
-                            <div className="font-medium">{mov.product_name}</div>
+                            <Link href={`/productos/${mov.product_id}`} className="font-medium hover:underline">
+                              {mov.product_name}
+                            </Link>
                             <div className="text-muted-foreground text-xs">{mov.product_sku}</div>
                           </TableCell>
                           <TableCell>
@@ -405,7 +408,7 @@ export default function DashboardPage() {
                 </CardTitle>
                 <Link
                   href="/alertas"
-                  className="text-sm text-primary hover:underline"
+                  className="text-sm text-[var(--link)] hover:underline"
                   data-testid="link-alertas"
                 >
                   Ver todas
@@ -577,7 +580,7 @@ function KpiCard({
             )}
           </div>
           <p className="text-muted-foreground text-xs mt-1">{description}</p>
-          <p className="text-xs text-primary/60 group-hover:text-primary mt-2 transition-colors">
+          <p className="text-xs text-[var(--link)]/60 group-hover:text-[var(--link)] mt-2 transition-colors">
             Ver detalles &rarr;
           </p>
         </CardContent>
