@@ -118,6 +118,114 @@ pub async fn resolve_config(
     })
 }
 
+/// List product-level overrides (configs where product_id IS NOT NULL) with pagination.
+pub async fn list_overrides(
+    pool: &PgPool,
+    limit: i64,
+    offset: i64,
+) -> Result<(Vec<StockConfigRow>, i64), DomainError> {
+    let total: (i64,) = sqlx::query_as(
+        r#"
+        SELECT COUNT(*) FROM stock_configuration
+        WHERE product_id IS NOT NULL
+        "#,
+    )
+    .fetch_one(pool)
+    .await
+    .map_err(map_sqlx_error)?;
+
+    let rows = sqlx::query_as::<_, StockConfigRow>(
+        r#"
+        SELECT id, warehouse_id, product_id,
+               default_min_stock::float8, critical_stock_multiplier::float8,
+               low_stock_multiplier::float8, created_at, updated_at
+        FROM stock_configuration
+        WHERE product_id IS NOT NULL
+        ORDER BY created_at DESC
+        LIMIT $1 OFFSET $2
+        "#,
+    )
+    .bind(limit)
+    .bind(offset)
+    .fetch_all(pool)
+    .await
+    .map_err(map_sqlx_error)?;
+
+    Ok((rows, total.0))
+}
+
+/// Get a single stock config by ID.
+pub async fn get_by_id(
+    pool: &PgPool,
+    id: Uuid,
+) -> Result<Option<StockConfigRow>, DomainError> {
+    let row = sqlx::query_as::<_, StockConfigRow>(
+        r#"
+        SELECT id, warehouse_id, product_id,
+               default_min_stock::float8, critical_stock_multiplier::float8,
+               low_stock_multiplier::float8, created_at, updated_at
+        FROM stock_configuration
+        WHERE id = $1
+        "#,
+    )
+    .bind(id)
+    .fetch_optional(pool)
+    .await
+    .map_err(map_sqlx_error)?;
+
+    Ok(row)
+}
+
+/// Update a stock config by its primary key ID.
+pub async fn update_by_id(
+    pool: &PgPool,
+    id: Uuid,
+    default_min_stock: f64,
+    critical_stock_multiplier: f64,
+    low_stock_multiplier: f64,
+) -> Result<StockConfigRow, DomainError> {
+    let row = sqlx::query_as::<_, StockConfigRow>(
+        r#"
+        UPDATE stock_configuration
+        SET default_min_stock = $2,
+            critical_stock_multiplier = $3,
+            low_stock_multiplier = $4
+        WHERE id = $1
+        RETURNING id, warehouse_id, product_id,
+                  default_min_stock::float8, critical_stock_multiplier::float8,
+                  low_stock_multiplier::float8, created_at, updated_at
+        "#,
+    )
+    .bind(id)
+    .bind(default_min_stock)
+    .bind(critical_stock_multiplier)
+    .bind(low_stock_multiplier)
+    .fetch_optional(pool)
+    .await
+    .map_err(map_sqlx_error)?
+    .ok_or_else(|| DomainError::NotFound("Stock config not found".to_string()))?;
+
+    Ok(row)
+}
+
+/// Delete a stock config by its primary key ID.
+pub async fn delete_by_id(
+    pool: &PgPool,
+    id: Uuid,
+) -> Result<(), DomainError> {
+    let result = sqlx::query("DELETE FROM stock_configuration WHERE id = $1")
+        .bind(id)
+        .execute(pool)
+        .await
+        .map_err(map_sqlx_error)?;
+
+    if result.rows_affected() == 0 {
+        return Err(DomainError::NotFound("Stock config not found".to_string()));
+    }
+
+    Ok(())
+}
+
 pub async fn upsert_config(
     pool: &PgPool,
     warehouse_id: Option<Uuid>,
