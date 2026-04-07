@@ -39,16 +39,16 @@ interface NavResult {
 }
 
 const NAV_ITEMS: NavResult[] = [
-  { id: 'nav-dashboard', title: 'Dashboard', href: '/dashboard', icon: DashboardSquare01Icon },
+  { id: 'nav-inicio', title: 'Inicio', href: '/inicio', icon: DashboardSquare01Icon },
   { id: 'nav-productos', title: 'Productos', href: '/productos', icon: Package01Icon },
   { id: 'nav-proveedores', title: 'Proveedores', href: '/proveedores', icon: DeliveryTruck01Icon },
   { id: 'nav-almacenes', title: 'Almacenes', href: '/almacenes', icon: Store01Icon },
-  { id: 'nav-inventario', title: 'Inventario', href: '/inventory', icon: ClipboardIcon },
-  { id: 'nav-movimientos', title: 'Movimientos', href: '/movements', icon: ArrowDataTransferHorizontalIcon },
+  { id: 'nav-inventario', title: 'Inventario', href: '/inventario', icon: ClipboardIcon },
+  { id: 'nav-movimientos', title: 'Movimientos', href: '/movimientos', icon: ArrowDataTransferHorizontalIcon },
   { id: 'nav-alertas', title: 'Alertas', href: '/alertas', icon: Alert02Icon },
-  { id: 'nav-conteos', title: 'Conteos', href: '/cycle-counts', icon: CheckListIcon },
+  { id: 'nav-conteos', title: 'Conteos Ciclicos', href: '/conteos-ciclicos', icon: CheckListIcon },
   { id: 'nav-clasificacion', title: 'Clasificacion ABC', href: '/clasificacion-abc', icon: Analytics01Icon },
-  { id: 'nav-usuarios', title: 'Usuarios', href: '/users', icon: UserGroupIcon },
+  { id: 'nav-usuarios', title: 'Usuarios', href: '/usuarios', icon: UserGroupIcon },
   { id: 'nav-notificaciones', title: 'Notificaciones', href: '/notificaciones', icon: Notification03Icon },
   { id: 'nav-recetas', title: 'Recetas', href: '/recetas', icon: TaskDaily01Icon },
 ];

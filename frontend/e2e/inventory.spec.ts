@@ -4,7 +4,7 @@ import { login } from './helpers';
 test.describe('Inventory page', () => {
   test.beforeEach(async ({ page }) => {
     await login(page);
-    await page.goto('/inventory');
+    await page.goto('/inventario');
   });
 
   test('should display page title and filters', async ({ page }) => {

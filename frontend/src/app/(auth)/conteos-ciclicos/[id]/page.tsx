@@ -371,7 +371,7 @@ export default function CycleCountDetailPage() {
         <div className="rounded-4xl border border-destructive/50 bg-destructive/10 p-4 text-sm text-destructive">
           {error}
         </div>
-        <Button variant="outline" onClick={() => router.push('/cycle-counts')}>
+        <Button variant="outline" onClick={() => router.push('/conteos-ciclicos')}>
           Volver a conteos
         </Button>
       </div>
@@ -400,7 +400,7 @@ export default function CycleCountDetailPage() {
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => router.push('/cycle-counts')}
+            onClick={() => router.push('/conteos-ciclicos')}
           >
             &larr; Volver
           </Button>

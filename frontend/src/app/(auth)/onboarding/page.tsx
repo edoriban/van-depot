@@ -343,7 +343,7 @@ export default function OnboardingPage() {
   }, [inviteEmail, inviteName, inviteRole]);
 
   const handleFinish = () => {
-    router.push('/dashboard');
+    router.push('/inicio');
   };
 
   // --- Render ---
@@ -929,10 +929,10 @@ function StepDone({
         <div className="space-y-2 mt-4">
           <p className="text-sm text-muted-foreground">¿Que sigue?</p>
           <div className="flex flex-col gap-2">
-            <Link href="/movements" className="text-primary text-sm hover:underline">
+            <Link href="/movimientos" className="text-primary text-sm hover:underline">
               → Registrar tu primera entrada de material
             </Link>
-            <Link href="/inventory" className="text-primary text-sm hover:underline">
+            <Link href="/inventario" className="text-primary text-sm hover:underline">
               → Ver tu inventario
             </Link>
             <Link href="/almacenes" className="text-primary text-sm hover:underline">

@@ -20,7 +20,7 @@ export default function LoginPage() {
 
   // Redirect if already logged in
   useEffect(() => {
-    if (user) router.replace('/dashboard');
+    if (user) router.replace('/inicio');
   }, [user, router]);
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -30,7 +30,7 @@ export default function LoginPage() {
 
     try {
       await login(email, password);
-      router.replace('/dashboard');
+      router.replace('/inicio');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error al iniciar sesion');
     } finally {

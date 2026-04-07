@@ -4,7 +4,7 @@ import { login } from './helpers';
 test.describe('Users page', () => {
   test.beforeEach(async ({ page }) => {
     await login(page);
-    await page.goto('/users');
+    await page.goto('/usuarios');
   });
 
   test('should display page title and new user button', async ({ page }) => {

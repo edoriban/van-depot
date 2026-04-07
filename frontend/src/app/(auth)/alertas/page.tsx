@@ -232,7 +232,7 @@ export default function AlertasPage() {
                       </TableCell>
                       <TableCell>
                         <Button variant="outline" size="sm" asChild>
-                          <Link href="/movements">Registrar entrada</Link>
+                          <Link href="/movimientos">Registrar entrada</Link>
                         </Button>
                       </TableCell>
                     </TableRow>

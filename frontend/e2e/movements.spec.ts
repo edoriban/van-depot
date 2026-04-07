@@ -4,7 +4,7 @@ import { login } from './helpers';
 test.describe('Movements page', () => {
   test.beforeEach(async ({ page }) => {
     await login(page);
-    await page.goto('/movements');
+    await page.goto('/movimientos');
   });
 
   test('should display page title and tabs', async ({ page }) => {

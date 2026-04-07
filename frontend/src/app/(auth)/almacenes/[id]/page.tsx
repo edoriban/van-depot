@@ -517,7 +517,7 @@ function InventoryTab({ warehouseId }: { warehouseId: string }) {
             title="No hay inventario en este almacen"
             description="Registra una entrada de material para ver el stock aqui."
             actionLabel="Ir a movimientos"
-            actionHref="/movements"
+            actionHref="/movimientos"
           />
         }
       />

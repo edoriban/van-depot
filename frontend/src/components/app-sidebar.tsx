@@ -52,7 +52,7 @@ const navGroups: NavGroup[] = [
   {
     label: null,
     items: [
-      { title: 'Dashboard', href: '/dashboard', icon: DashboardSquare01Icon },
+      { title: 'Inicio', href: '/inicio', icon: DashboardSquare01Icon },
     ],
   },
   {
@@ -67,7 +67,7 @@ const navGroups: NavGroup[] = [
     label: 'Almacen',
     items: [
       { title: 'Almacenes', href: '/almacenes', icon: Store01Icon },
-      { title: 'Inventario', href: '/inventory', icon: ClipboardIcon },
+      { title: 'Inventario', href: '/inventario', icon: ClipboardIcon },
       { title: 'Alertas', href: '/alertas', icon: Alert02Icon },
       { title: 'Notificaciones', href: '/notificaciones', icon: Notification03Icon },
     ],
@@ -75,8 +75,8 @@ const navGroups: NavGroup[] = [
   {
     label: 'Operaciones',
     items: [
-      { title: 'Movimientos', href: '/movements', icon: ArrowDataTransferHorizontalIcon },
-      { title: 'Conteos', href: '/cycle-counts', icon: CheckListIcon },
+      { title: 'Movimientos', href: '/movimientos', icon: ArrowDataTransferHorizontalIcon },
+      { title: 'Conteos Ciclicos', href: '/conteos-ciclicos', icon: CheckListIcon },
       { title: 'Recetas', href: '/recetas', icon: TaskDaily01Icon },
     ],
   },
@@ -91,13 +91,13 @@ const navGroups: NavGroup[] = [
 const adminGroup: NavGroup = {
   label: 'Administracion',
   items: [
-    { title: 'Usuarios', href: '/users', icon: UserGroupIcon },
+    { title: 'Usuarios', href: '/usuarios', icon: UserGroupIcon },
     { title: 'Config. Stock', href: '/configuracion-stock', icon: Settings01Icon },
   ],
 };
 
 function isActive(pathname: string, href: string): boolean {
-  if (href === '/dashboard') return pathname === href;
+  if (href === '/inicio') return pathname === href;
   return pathname === href || pathname.startsWith(href + '/');
 }
 
@@ -113,7 +113,7 @@ export function AppSidebar() {
   // On mobile: first item is "Inicio" → /piso. On desktop: "Dashboard" → /dashboard
   const homeItem: NavItem = isMobile
     ? { title: 'Inicio', href: '/piso', icon: DashboardSquare01Icon }
-    : { title: 'Dashboard', href: '/dashboard', icon: DashboardSquare01Icon };
+    : { title: 'Inicio', href: '/inicio', icon: DashboardSquare01Icon };
 
   const dynamicNavGroups: NavGroup[] = [
     { label: null, items: [homeItem] },

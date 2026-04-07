@@ -95,7 +95,7 @@ export function ZoneDetail({ zone, warehouseId, onClose }: ZoneDetailProps) {
             </Link>
           </Button>
           <Button variant="outline" size="sm" asChild>
-            <Link href="/movements">
+            <Link href="/movimientos">
               <HugeiconsIcon icon={ArrowDataTransferHorizontalIcon} size={14} className="mr-1.5" />
               Registrar movimiento
             </Link>

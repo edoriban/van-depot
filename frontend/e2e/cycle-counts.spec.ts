@@ -4,7 +4,7 @@ import { login } from './helpers';
 test.describe('Cycle Counts page', () => {
   test.beforeEach(async ({ page }) => {
     await login(page);
-    await page.goto('/cycle-counts');
+    await page.goto('/conteos-ciclicos');
   });
 
   test('should display page title and new count button', async ({ page }) => {
