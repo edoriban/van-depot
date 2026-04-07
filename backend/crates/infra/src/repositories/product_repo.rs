@@ -21,9 +21,32 @@ struct ProductRow {
     min_stock: f64,
     max_stock: Option<f64>,
     is_active: bool,
+    created_by: Option<Uuid>,
+    updated_by: Option<Uuid>,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
     deleted_at: Option<DateTime<Utc>>,
+}
+
+/// Extended row that includes the email of the user who last updated the product.
+#[derive(sqlx::FromRow)]
+struct ProductWithAuditRow {
+    id: Uuid,
+    name: String,
+    sku: String,
+    description: Option<String>,
+    category_id: Option<Uuid>,
+    unit_of_measure: UnitType,
+    min_stock: f64,
+    max_stock: Option<f64>,
+    is_active: bool,
+    created_by: Option<Uuid>,
+    updated_by: Option<Uuid>,
+    created_at: DateTime<Utc>,
+    updated_at: DateTime<Utc>,
+    deleted_at: Option<DateTime<Utc>>,
+    updated_by_email: Option<String>,
+    created_by_email: Option<String>,
 }
 
 impl From<ProductRow> for Product {
@@ -38,6 +61,29 @@ impl From<ProductRow> for Product {
             min_stock: row.min_stock,
             max_stock: row.max_stock,
             is_active: row.is_active,
+            created_by: row.created_by,
+            updated_by: row.updated_by,
+            created_at: row.created_at,
+            updated_at: row.updated_at,
+            deleted_at: row.deleted_at,
+        }
+    }
+}
+
+impl From<ProductWithAuditRow> for Product {
+    fn from(row: ProductWithAuditRow) -> Self {
+        Product {
+            id: row.id,
+            name: row.name,
+            sku: row.sku,
+            description: row.description,
+            category_id: row.category_id,
+            unit_of_measure: row.unit_of_measure,
+            min_stock: row.min_stock,
+            max_stock: row.max_stock,
+            is_active: row.is_active,
+            created_by: row.created_by,
+            updated_by: row.updated_by,
             created_at: row.created_at,
             updated_at: row.updated_at,
             deleted_at: row.deleted_at,
@@ -49,14 +95,52 @@ pub struct PgProductRepository {
     pool: PgPool,
 }
 
+/// DTO returned by `find_by_id_with_audit` that includes resolved email addresses.
+pub struct ProductWithAudit {
+    pub product: Product,
+    pub updated_by_email: Option<String>,
+    pub created_by_email: Option<String>,
+}
+
 impl PgProductRepository {
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
     }
+
+    /// Like `find_by_id` but JOINs users to resolve audit emails.
+    pub async fn find_by_id_with_audit(
+        &self,
+        id: Uuid,
+    ) -> Result<Option<ProductWithAudit>, DomainError> {
+        let sql = "\
+            SELECT p.id, p.name, p.sku, p.description, p.category_id, p.unit_of_measure, \
+                   p.min_stock::float8, p.max_stock::float8, p.is_active, \
+                   p.created_by, p.updated_by, \
+                   p.created_at, p.updated_at, p.deleted_at, \
+                   uu.email AS updated_by_email, \
+                   uc.email AS created_by_email \
+            FROM products p \
+            LEFT JOIN users uu ON uu.id = p.updated_by \
+            LEFT JOIN users uc ON uc.id = p.created_by \
+            WHERE p.id = $1 AND p.deleted_at IS NULL";
+
+        let row = sqlx::query_as::<_, ProductWithAuditRow>(sql)
+            .bind(id)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(map_sqlx_error)?;
+
+        Ok(row.map(|r| ProductWithAudit {
+            updated_by_email: r.updated_by_email.clone(),
+            created_by_email: r.created_by_email.clone(),
+            product: Product::from(r),
+        }))
+    }
 }
 
 const PRODUCT_COLUMNS: &str = "id, name, sku, description, category_id, unit_of_measure, \
-                                min_stock::float8, max_stock::float8, is_active, created_at, updated_at, deleted_at";
+                                min_stock::float8, max_stock::float8, is_active, created_by, updated_by, \
+                                created_at, updated_at, deleted_at";
 
 #[async_trait]
 impl ProductRepository for PgProductRepository {
@@ -147,10 +231,11 @@ impl ProductRepository for PgProductRepository {
         unit_of_measure: UnitType,
         min_stock: f64,
         max_stock: Option<f64>,
+        created_by: Option<Uuid>,
     ) -> Result<Product, DomainError> {
         let sql = format!(
-            "INSERT INTO products (name, sku, description, category_id, unit_of_measure, min_stock, max_stock) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7) \
+            "INSERT INTO products (name, sku, description, category_id, unit_of_measure, min_stock, max_stock, created_by) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8) \
              RETURNING {}",
             PRODUCT_COLUMNS
         );
@@ -162,6 +247,7 @@ impl ProductRepository for PgProductRepository {
             .bind(&unit_of_measure)
             .bind(min_stock)
             .bind(max_stock)
+            .bind(created_by)
             .fetch_one(&self.pool)
             .await
             .map_err(map_sqlx_error)?;
@@ -179,6 +265,7 @@ impl ProductRepository for PgProductRepository {
         unit_of_measure: Option<UnitType>,
         min_stock: Option<f64>,
         max_stock: Option<Option<f64>>,
+        updated_by: Option<Uuid>,
     ) -> Result<Product, DomainError> {
         let sql = format!(
             "UPDATE products SET \
@@ -189,6 +276,7 @@ impl ProductRepository for PgProductRepository {
                 unit_of_measure = COALESCE($8, unit_of_measure), \
                 min_stock = COALESCE($9, min_stock), \
                 max_stock = CASE WHEN $10 THEN $11 ELSE max_stock END, \
+                updated_by = COALESCE($12, updated_by), \
                 updated_at = NOW() \
              WHERE id = $1 AND deleted_at IS NULL \
              RETURNING {}",
@@ -206,6 +294,7 @@ impl ProductRepository for PgProductRepository {
             .bind(min_stock)
             .bind(max_stock.is_some())
             .bind(max_stock.flatten())
+            .bind(updated_by)
             .fetch_one(&self.pool)
             .await
             .map_err(map_sqlx_error)?;

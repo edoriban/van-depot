@@ -66,6 +66,10 @@ export interface Product {
   min_stock: number;
   max_stock?: number;
   is_active: boolean;
+  created_by?: string | null;
+  updated_by?: string | null;
+  updated_by_email?: string | null;
+  created_by_email?: string | null;
   created_at: string;
   updated_at: string;
 }

@@ -1,9 +1,9 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { api } from '@/lib/api-mutations';
-import type { Product, Category, PaginatedResponse, UnitType } from '@/types';
+import type { Product, Category, PaginatedResponse, UnitType, MovementType } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
@@ -24,7 +24,40 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
+
+// ── Movement types for history ─────────────────────────────────────────
+
+interface MovementRecord {
+  id: string;
+  product_id: string;
+  from_location_id?: string | null;
+  to_location_id?: string | null;
+  quantity: number;
+  movement_type: MovementType;
+  user_id: string;
+  reference?: string | null;
+  notes?: string | null;
+  supplier_id?: string | null;
+  movement_reason?: string | null;
+  created_at: string;
+}
+
+const movementTypeConfig: Record<MovementType, { label: string; className: string }> = {
+  entry: { label: 'Entrada', className: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400' },
+  exit: { label: 'Salida', className: 'bg-red-500/15 text-red-700 dark:text-red-400' },
+  transfer: { label: 'Transferencia', className: 'bg-blue-500/15 text-blue-700 dark:text-blue-400' },
+  adjustment: { label: 'Ajuste', className: 'bg-amber-500/15 text-amber-700 dark:text-amber-400' },
+};
 
 const UNIT_LABELS: Record<UnitType, string> = {
   piece: 'Pieza',
@@ -330,9 +363,151 @@ export default function ProductDetailPage() {
               <span className="text-muted-foreground">Actualizado el:</span>{' '}
               <span className="font-medium">{formatDate(product.updated_at)}</span>
             </div>
+            {product.created_by_email && (
+              <div>
+                <span className="text-muted-foreground">Creado por:</span>{' '}
+                <span className="font-medium">{product.created_by_email}</span>
+              </div>
+            )}
+            {product.updated_by_email && (
+              <div>
+                <span className="text-muted-foreground">Ultima modificacion por:</span>{' '}
+                <span className="font-medium">{product.updated_by_email}</span>
+              </div>
+            )}
           </div>
         </CardContent>
       </Card>
+
+      {/* Movement history */}
+      <MovementHistory productId={params.id} />
     </div>
+  );
+}
+
+// ── Movement History Component ─────────────────────────────────────────
+
+function MovementHistory({ productId }: { productId: string }) {
+  const [movements, setMovements] = useState<MovementRecord[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const perPage = 20;
+
+  const sixMonthsAgo = useMemo(() => {
+    const d = new Date();
+    d.setMonth(d.getMonth() - 6);
+    return d.toISOString();
+  }, []);
+
+  const fetchMovements = useCallback(
+    async (pageNum: number, append: boolean) => {
+      setIsLoading(true);
+      try {
+        const res = await api.get<PaginatedResponse<MovementRecord>>(
+          `/movements?product_id=${productId}&per_page=${perPage}&page=${pageNum}&start_date=${encodeURIComponent(sixMonthsAgo)}`
+        );
+        setMovements((prev) => (append ? [...prev, ...res.data] : res.data));
+        setTotal(res.total);
+      } catch {
+        // silently fail — section is non-critical
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [productId, sixMonthsAgo]
+  );
+
+  useEffect(() => {
+    fetchMovements(1, false);
+  }, [fetchMovements]);
+
+  const handleLoadMore = () => {
+    const next = page + 1;
+    setPage(next);
+    fetchMovements(next, true);
+  };
+
+  const hasMore = movements.length < total;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Historial de movimientos</CardTitle>
+        <CardDescription>
+          Movimientos de los ultimos 6 meses
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {isLoading && movements.length === 0 ? (
+          <div className="space-y-3">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <div key={i} className="flex items-center gap-4">
+                <Skeleton className="h-5 w-20" />
+                <Skeleton className="h-4 w-32" />
+                <Skeleton className="h-4 w-24" />
+                <Skeleton className="h-4 w-12 ml-auto" />
+              </div>
+            ))}
+          </div>
+        ) : movements.length === 0 ? (
+          <p className="text-muted-foreground text-sm text-center py-8">
+            No hay movimientos registrados en los ultimos 6 meses
+          </p>
+        ) : (
+          <>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Tipo</TableHead>
+                  <TableHead>Origen / Destino</TableHead>
+                  <TableHead className="text-right">Cantidad</TableHead>
+                  <TableHead>Referencia</TableHead>
+                  <TableHead className="text-right">Fecha</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {movements.map((mov) => {
+                  const config = movementTypeConfig[mov.movement_type];
+                  return (
+                    <TableRow key={mov.id}>
+                      <TableCell>
+                        <Badge variant="outline" className={cn('border-0', config.className)}>
+                          {config.label}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <span className="text-muted-foreground text-xs">
+                          {mov.from_location_id ?? '—'} → {mov.to_location_id ?? '—'}
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-right font-medium">{mov.quantity}</TableCell>
+                      <TableCell className="text-muted-foreground text-sm">
+                        {mov.reference ?? '—'}
+                      </TableCell>
+                      <TableCell className="text-right text-muted-foreground text-sm">
+                        {formatDate(mov.created_at)}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+            {hasMore && (
+              <div className="flex justify-center pt-4">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleLoadMore}
+                  disabled={isLoading}
+                >
+                  {isLoading ? 'Cargando...' : 'Cargar mas'}
+                </Button>
+              </div>
+            )}
+          </>
+        )}
+      </CardContent>
+    </Card>
   );
 }

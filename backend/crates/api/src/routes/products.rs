@@ -61,6 +61,10 @@ pub struct ProductResponse {
     pub min_stock: f64,
     pub max_stock: Option<f64>,
     pub is_active: bool,
+    pub created_by: Option<Uuid>,
+    pub updated_by: Option<Uuid>,
+    pub updated_by_email: Option<String>,
+    pub created_by_email: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -77,6 +81,10 @@ impl From<Product> for ProductResponse {
             min_stock: p.min_stock,
             max_stock: p.max_stock,
             is_active: p.is_active,
+            created_by: p.created_by,
+            updated_by: p.updated_by,
+            updated_by_email: None,
+            created_by_email: None,
             created_at: p.created_at,
             updated_at: p.updated_at,
         }
@@ -115,6 +123,7 @@ async fn create_product(
             payload.unit_of_measure,
             payload.min_stock,
             payload.max_stock,
+            Some(claims.sub),
         )
         .await?;
 
@@ -155,12 +164,15 @@ async fn get_product(
     Path(id): Path<Uuid>,
 ) -> Result<Json<ProductResponse>, ApiError> {
     let repo = PgProductRepository::new(state.pool.clone());
-    let product = repo
-        .find_by_id(id)
+    let result = repo
+        .find_by_id_with_audit(id)
         .await?
         .ok_or_else(|| ApiError(DomainError::NotFound("Product not found".to_string())))?;
 
-    Ok(Json(ProductResponse::from(product)))
+    let mut resp = ProductResponse::from(result.product);
+    resp.updated_by_email = result.updated_by_email;
+    resp.created_by_email = result.created_by_email;
+    Ok(Json(resp))
 }
 
 async fn update_product(
@@ -182,6 +194,7 @@ async fn update_product(
             payload.unit_of_measure,
             payload.min_stock,
             payload.max_stock,
+            Some(claims.sub),
         )
         .await?;
 

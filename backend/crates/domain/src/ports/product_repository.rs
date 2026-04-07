@@ -24,6 +24,7 @@ pub trait ProductRepository: Send + Sync {
         unit_of_measure: UnitType,
         min_stock: f64,
         max_stock: Option<f64>,
+        created_by: Option<Uuid>,
     ) -> Result<Product, DomainError>;
     async fn update(
         &self,
@@ -35,6 +36,7 @@ pub trait ProductRepository: Send + Sync {
         unit_of_measure: Option<UnitType>,
         min_stock: Option<f64>,
         max_stock: Option<Option<f64>>,
+        updated_by: Option<Uuid>,
     ) -> Result<Product, DomainError>;
     async fn soft_delete(&self, id: Uuid) -> Result<(), DomainError>;
 }

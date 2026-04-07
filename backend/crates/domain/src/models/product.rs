@@ -15,6 +15,8 @@ pub struct Product {
     pub min_stock: f64,
     pub max_stock: Option<f64>,
     pub is_active: bool,
+    pub created_by: Option<Uuid>,
+    pub updated_by: Option<Uuid>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub deleted_at: Option<DateTime<Utc>>,
