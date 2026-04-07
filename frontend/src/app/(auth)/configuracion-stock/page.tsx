@@ -103,12 +103,12 @@ export default function ConfiguracionStockPage() {
   const openEditGlobal = () => {
     if (globalConfig) {
       setEditMinStock(String(globalConfig.default_min_stock));
-      setEditCriticalMultiplier(String(globalConfig.critical_stock_multiplier));
-      setEditLowMultiplier(String(globalConfig.low_stock_multiplier));
+      setEditCriticalMultiplier(String(Math.round(globalConfig.critical_stock_multiplier * 100)));
+      setEditLowMultiplier(String(Math.round(globalConfig.low_stock_multiplier * 100)));
     } else {
       setEditMinStock('10');
-      setEditCriticalMultiplier('0.25');
-      setEditLowMultiplier('0.5');
+      setEditCriticalMultiplier('25');
+      setEditLowMultiplier('50');
     }
     setEditGlobalOpen(true);
   };
@@ -119,8 +119,8 @@ export default function ConfiguracionStockPage() {
     try {
       const body = {
         default_min_stock: Number(editMinStock),
-        critical_stock_multiplier: Number(editCriticalMultiplier),
-        low_stock_multiplier: Number(editLowMultiplier),
+        critical_stock_multiplier: Number(editCriticalMultiplier) / 100,
+        low_stock_multiplier: Number(editLowMultiplier) / 100,
       };
       if (globalConfig) {
         await api.put(`/stock-config/${globalConfig.id}`, body);
@@ -144,8 +144,8 @@ export default function ConfiguracionStockPage() {
       await api.post('/stock-config', {
         product_id: overrideProductId,
         default_min_stock: Number(overrideMinStock),
-        critical_stock_multiplier: Number(overrideCriticalMultiplier),
-        low_stock_multiplier: Number(overrideLowMultiplier),
+        critical_stock_multiplier: Number(overrideCriticalMultiplier) / 100,
+        low_stock_multiplier: Number(overrideLowMultiplier) / 100,
       });
       toast.success('Configuracion de producto creada');
       setAddOverrideOpen(false);
@@ -196,13 +196,13 @@ export default function ConfiguracionStockPage() {
     },
     {
       key: 'critical',
-      header: 'Multiplicador critico',
-      render: (c) => c.critical_stock_multiplier,
+      header: 'Nivel critico (%)',
+      render: (c) => `${Math.round(c.critical_stock_multiplier * 100)}%`,
     },
     {
       key: 'low',
-      header: 'Multiplicador bajo',
-      render: (c) => c.low_stock_multiplier,
+      header: 'Nivel alerta baja (%)',
+      render: (c) => `${Math.round(c.low_stock_multiplier * 100)}%`,
     },
     {
       key: 'actions',
@@ -251,12 +251,12 @@ export default function ConfiguracionStockPage() {
                 <p className="text-2xl font-semibold">{globalConfig.default_min_stock}</p>
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">Multiplicador critico</p>
-                <p className="text-2xl font-semibold">{globalConfig.critical_stock_multiplier}</p>
+                <p className="text-sm text-muted-foreground">Nivel critico (% del stock minimo)</p>
+                <p className="text-2xl font-semibold">{Math.round(globalConfig.critical_stock_multiplier * 100)}%</p>
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">Multiplicador stock bajo</p>
-                <p className="text-2xl font-semibold">{globalConfig.low_stock_multiplier}</p>
+                <p className="text-sm text-muted-foreground">Nivel de alerta baja (% del stock minimo)</p>
+                <p className="text-2xl font-semibold">{Math.round(globalConfig.low_stock_multiplier * 100)}%</p>
               </div>
             </div>
           ) : (
@@ -318,35 +318,35 @@ export default function ConfiguracionStockPage() {
               />
             </div>
             <div className="space-y-2">
-              <Label>Multiplicador critico</Label>
+              <Label>Nivel critico (% del stock minimo)</Label>
               <Input
                 type="number"
                 min={0}
-                max={1}
-                step="0.01"
+                max={100}
+                step="1"
                 value={editCriticalMultiplier}
                 onChange={(e) => setEditCriticalMultiplier(e.target.value)}
                 required
-                placeholder="0.25"
+                placeholder="25"
               />
               <p className="text-xs text-muted-foreground">
-                Porcentaje del stock minimo para alerta critica (ej: 0.25 = 25%)
+                Ej: 25 = alerta critica cuando quede el 25% del stock minimo
               </p>
             </div>
             <div className="space-y-2">
-              <Label>Multiplicador stock bajo</Label>
+              <Label>Nivel de alerta baja (% del stock minimo)</Label>
               <Input
                 type="number"
                 min={0}
-                max={2}
-                step="0.01"
+                max={100}
+                step="1"
                 value={editLowMultiplier}
                 onChange={(e) => setEditLowMultiplier(e.target.value)}
                 required
-                placeholder="0.5"
+                placeholder="50"
               />
               <p className="text-xs text-muted-foreground">
-                Porcentaje del stock minimo para alerta de stock bajo (ej: 0.5 = 50%)
+                Ej: 50 = alerta cuando quede la mitad del stock minimo
               </p>
             </div>
             <DialogFooter>
@@ -392,30 +392,32 @@ export default function ConfiguracionStockPage() {
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label>Multiplicador critico</Label>
+                <Label>Nivel critico (%)</Label>
                 <Input
                   type="number"
                   min={0}
-                  max={1}
-                  step="0.01"
+                  max={100}
+                  step="1"
                   value={overrideCriticalMultiplier}
                   onChange={(e) => setOverrideCriticalMultiplier(e.target.value)}
                   required
-                  placeholder="0.25"
+                  placeholder="25"
                 />
+                <p className="text-xs text-muted-foreground">Ej: 25 = alerta critica al 25%</p>
               </div>
               <div className="space-y-2">
-                <Label>Multiplicador bajo</Label>
+                <Label>Nivel alerta baja (%)</Label>
                 <Input
                   type="number"
                   min={0}
-                  max={2}
-                  step="0.01"
+                  max={100}
+                  step="1"
                   value={overrideLowMultiplier}
                   onChange={(e) => setOverrideLowMultiplier(e.target.value)}
                   required
-                  placeholder="0.5"
+                  placeholder="50"
                 />
+                <p className="text-xs text-muted-foreground">Ej: 50 = alerta cuando quede la mitad</p>
               </div>
             </div>
             <DialogFooter>
