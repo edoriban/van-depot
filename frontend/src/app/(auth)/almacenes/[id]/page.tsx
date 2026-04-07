@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams } from 'next/navigation';
 import useSWR from 'swr';
+import dynamic from 'next/dynamic';
 import { api } from '@/lib/api-mutations';
 import type {
   Warehouse,
@@ -15,7 +16,6 @@ import type {
   WarehouseMapResponse,
   ZoneHealth,
 } from '@/types';
-import { ZoneCard } from '@/components/warehouse/zone-card';
 import { ZoneDetail } from '@/components/warehouse/zone-detail';
 import { MapSummaryBar } from '@/components/warehouse/map-summary-bar';
 import { DataTable, type ColumnDef } from '@/components/shared/data-table';
@@ -49,6 +49,16 @@ import {
   MapsLocation01Icon,
 } from '@hugeicons/core-free-icons';
 import Link from 'next/link';
+
+const MapCanvas = dynamic(
+  () => import('@/components/warehouse/map-canvas'),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="h-[600px] animate-pulse bg-muted rounded-xl" />
+    ),
+  },
+);
 
 // --- Constants ---
 
@@ -733,29 +743,25 @@ export default function WarehouseDetailPage() {
 
         <TabsContent value="mapa" className="animate-in fade-in-0 duration-200 space-y-4">
           {mapLoading ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-              {Array.from({ length: 6 }).map((_, i) => (
-                <div key={i} className="h-28 rounded-lg skeleton-shimmer" />
-              ))}
-            </div>
+            <div className="h-[600px] animate-pulse bg-muted rounded-xl" />
           ) : mapData && mapData.zones.length > 0 ? (
             <>
               <MapSummaryBar summary={mapData.summary} />
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                {mapData.zones.map((zone, i) => (
-                  <div key={zone.zone_id} className="animate-fade-in-up" style={{ animationDelay: `${i * 50}ms` }}>
-                    <ZoneCard
-                      zone={zone}
-                      selected={selectedZone?.zone_id === zone.zone_id}
-                      onClick={(z) =>
-                        setSelectedZone((prev) =>
-                          prev?.zone_id === z.zone_id ? null : z
-                        )
-                      }
-                    />
-                  </div>
-                ))}
-              </div>
+
+              <MapCanvas
+                zones={mapData.zones}
+                canvasWidth={mapData.canvas_width ?? 1200}
+                canvasHeight={mapData.canvas_height ?? 700}
+                warehouseId={warehouseId}
+                onZoneSelect={(zoneId) => {
+                  if (zoneId) {
+                    const zone = mapData.zones.find((z) => z.zone_id === zoneId) ?? null;
+                    setSelectedZone(zone);
+                  } else {
+                    setSelectedZone(null);
+                  }
+                }}
+              />
 
               {/* Zone detail panel */}
               {selectedZone && (

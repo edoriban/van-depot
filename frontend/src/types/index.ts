@@ -32,6 +32,8 @@ export interface Warehouse {
   name: string;
   address?: string;
   is_active: boolean;
+  canvas_width?: number | null;
+  canvas_height?: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -195,10 +197,23 @@ export interface ZoneHealth {
   ok_count: number;
   total_items: number;
   child_location_count: number;
+  pos_x?: number | null;
+  pos_y?: number | null;
+  width?: number | null;
+  height?: number | null;
+}
+
+export interface ZoneHealthWithLayout extends ZoneHealth {
+  pos_x: number;
+  pos_y: number;
+  width: number;
+  height: number;
 }
 
 export interface WarehouseMapResponse {
   zones: ZoneHealth[];
+  canvas_width?: number;
+  canvas_height?: number;
   summary: {
     total_zones: number;
     critical_zones: number;
@@ -207,6 +222,14 @@ export interface WarehouseMapResponse {
     ok_zones: number;
     empty_zones: number;
   };
+}
+
+export interface LocationPosition {
+  id: string;
+  pos_x: number;
+  pos_y: number;
+  width: number;
+  height: number;
 }
 
 // Notifications
