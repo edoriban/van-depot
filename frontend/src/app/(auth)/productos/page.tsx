@@ -12,6 +12,7 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Package01Icon, Tag01Icon } from '@hugeicons/core-free-icons';
+import Link from 'next/link';
 import {
   Select,
   SelectContent,
@@ -186,7 +187,15 @@ function ProductsTab({
     {
       key: 'name',
       header: 'Nombre',
-      render: (p) => <span className="font-medium">{p.name}</span>,
+      render: (p) => (
+        <Link
+          href={`/productos/${p.id}`}
+          className="font-medium text-primary hover:underline"
+          data-testid="product-detail-link"
+        >
+          {p.name}
+        </Link>
+      ),
     },
     {
       key: 'sku',
