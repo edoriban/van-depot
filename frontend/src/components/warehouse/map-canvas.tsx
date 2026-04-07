@@ -2,12 +2,23 @@
 
 import { useRef, useCallback, useEffect, useMemo, useState } from 'react'
 import { Stage, Layer, Line } from 'react-konva'
+import useSWR from 'swr'
 import type Konva from 'konva'
 import { useMapStore } from '@/stores/map-store'
 import { autoLayout } from '@/lib/auto-layout'
 import { ZoneRect } from '@/components/warehouse/zone-rect'
+import { RackRect, computeRackGrid } from '@/components/warehouse/rack-rect'
 import { MapToolbar } from '@/components/warehouse/map-toolbar'
-import type { ZoneHealth, ZoneHealthWithLayout, LocationPosition } from '@/types'
+import { MiniMap } from '@/components/warehouse/mini-map'
+import { MapTooltip } from '@/components/warehouse/map-tooltip'
+import { HeatLegend } from '@/components/warehouse/heat-legend'
+import type {
+  ZoneHealth,
+  ZoneHealthWithLayout,
+  LocationPosition,
+  Location,
+  PaginatedResponse,
+} from '@/types'
 import { toast } from 'sonner'
 import { api } from '@/lib/api-mutations'
 
@@ -22,6 +33,8 @@ interface MapCanvasProps {
 const GRID_SPACING = 100
 const DEFAULT_CANVAS_W = 1200
 const DEFAULT_CANVAS_H = 700
+const STAGE_HEIGHT = 600
+const SEMANTIC_ZOOM_THRESHOLD = 2
 
 export default function MapCanvas({
   zones,
@@ -45,6 +58,7 @@ export default function MapCanvas({
     editMode,
     heatMap,
     searchQuery,
+    hoveredZone,
     pendingPositions,
     setZoom,
     setPosition,
@@ -52,6 +66,32 @@ export default function MapCanvas({
     setPendingPosition,
     clearPendingPositions,
   } = useMapStore()
+
+  // --- T17: Semantic zoom - fetch racks when zoom > 2x ---
+  // Collect zone IDs that are visible (simplified: all zones when zoomed in)
+  const shouldFetchRacks = zoom > SEMANTIC_ZOOM_THRESHOLD
+
+  // Fetch all child locations for the warehouse when zoom is high enough
+  // SWR conditional key: only fetch when zoom crosses threshold
+  const { data: racksData } = useSWR<PaginatedResponse<Location>>(
+    shouldFetchRacks
+      ? `/warehouses/${warehouseId}/locations?per_page=500&page=1`
+      : null,
+  )
+
+  // Group racks by parent zone ID
+  const racksByZone = useMemo(() => {
+    const map = new Map<string, Location[]>()
+    if (!racksData?.data) return map
+    for (const loc of racksData.data) {
+      if (loc.parent_id && loc.location_type !== 'zone') {
+        const existing = map.get(loc.parent_id) ?? []
+        existing.push(loc)
+        map.set(loc.parent_id, existing)
+      }
+    }
+    return map
+  }, [racksData])
 
   // Observe container width for responsive Stage
   useEffect(() => {
@@ -168,13 +208,13 @@ export default function MapCanvas({
     if (contentW === 0 || contentH === 0) return
 
     const scaleX = containerWidth / (contentW + 40)
-    const scaleY = 600 / (contentH + 40)
+    const scaleY = STAGE_HEIGHT / (contentH + 40)
     const newZoom = Math.min(scaleX, scaleY, 2)
 
     setZoom(newZoom)
     setPosition({
       x: (containerWidth - contentW * newZoom) / 2 - minX * newZoom,
-      y: (600 - contentH * newZoom) / 2 - minY * newZoom,
+      y: (STAGE_HEIGHT - contentH * newZoom) / 2 - minY * newZoom,
     })
   }, [zonesWithLayout, containerWidth, setZoom, setPosition])
 
@@ -235,6 +275,14 @@ export default function MapCanvas({
     [selectZone, onZoneSelect],
   )
 
+  // --- T19: Mini-map navigation handler ---
+  const handleMiniMapNavigate = useCallback(
+    (x: number, y: number) => {
+      setPosition({ x, y })
+    },
+    [setPosition],
+  )
+
   // Grid lines
   const gridLines = useMemo(() => {
     const lines: { points: number[]; key: string }[] = []
@@ -246,6 +294,28 @@ export default function MapCanvas({
     }
     return lines
   }, [canvasW, canvasH])
+
+  // --- T17: Compute rack positions for semantic zoom ---
+  const rackElements = useMemo(() => {
+    if (!shouldFetchRacks) return []
+
+    const elements: Array<{
+      rack: Location
+      x: number
+      y: number
+      w: number
+      h: number
+    }> = []
+
+    for (const zone of zonesWithLayout) {
+      const zoneRacks = racksByZone.get(zone.zone_id)
+      if (!zoneRacks || zoneRacks.length === 0) continue
+      const grid = computeRackGrid(zoneRacks, zone)
+      elements.push(...grid)
+    }
+
+    return elements
+  }, [shouldFetchRacks, zonesWithLayout, racksByZone])
 
   const hasPendingChanges = pendingPositions.size > 0
 
@@ -264,13 +334,13 @@ export default function MapCanvas({
       <div
         ref={containerRef}
         className="relative overflow-hidden rounded-xl border bg-muted/30"
-        style={{ height: 600 }}
+        style={{ height: STAGE_HEIGHT }}
         data-testid="map-canvas-container"
       >
         <Stage
           ref={stageRef}
           width={containerWidth}
-          height={600}
+          height={STAGE_HEIGHT}
           scaleX={zoom}
           scaleY={zoom}
           x={position.x}
@@ -318,8 +388,53 @@ export default function MapCanvas({
               )
             })}
           </Layer>
+
+          {/* T17: Racks layer (only visible at zoom > 2x) */}
+          {shouldFetchRacks && rackElements.length > 0 && (
+            <Layer listening={false}>
+              {rackElements.map((item) => (
+                <RackRect
+                  key={item.rack.id}
+                  rack={item.rack}
+                  gridX={item.x}
+                  gridY={item.y}
+                  rackWidth={item.w}
+                  rackHeight={item.h}
+                />
+              ))}
+            </Layer>
+          )}
+
+          {/* T18: Tooltip layer */}
+          {hoveredZone && !editMode && (
+            <Layer listening={false}>
+              <MapTooltip
+                zone={hoveredZone.zone}
+                x={hoveredZone.x}
+                y={hoveredZone.y}
+                stageWidth={containerWidth}
+                stageHeight={STAGE_HEIGHT}
+              />
+            </Layer>
+          )}
         </Stage>
+
+        {/* T19: Mini-map overlay */}
+        <MiniMap
+          zones={zonesWithLayout}
+          canvasWidth={canvasW}
+          canvasHeight={canvasH}
+          viewportX={position.x}
+          viewportY={position.y}
+          viewportWidth={containerWidth / zoom}
+          viewportHeight={STAGE_HEIGHT / zoom}
+          zoom={zoom}
+          onNavigate={handleMiniMapNavigate}
+        />
       </div>
+
+      {/* T20: Heat map legend */}
+      {heatMap && <HeatLegend />}
     </div>
   )
 }

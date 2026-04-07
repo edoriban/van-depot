@@ -1,10 +1,17 @@
 import { create } from 'zustand'
+import type { ZoneHealthWithLayout } from '@/types'
 
 interface PendingPosition {
   x: number
   y: number
   w: number
   h: number
+}
+
+interface HoverInfo {
+  zone: ZoneHealthWithLayout
+  x: number
+  y: number
 }
 
 interface MapState {
@@ -15,6 +22,7 @@ interface MapState {
   heatMap: boolean
   searchQuery: string
   highlightedLocationId: string | null
+  hoveredZone: HoverInfo | null
   pendingPositions: Map<string, PendingPosition>
 
   setZoom: (zoom: number) => void
@@ -24,6 +32,7 @@ interface MapState {
   toggleHeatMap: () => void
   setSearchQuery: (q: string) => void
   setHighlight: (id: string | null) => void
+  setHoveredZone: (info: HoverInfo | null) => void
   setPendingPosition: (id: string, pos: PendingPosition) => void
   clearPendingPositions: () => void
   resetView: () => void
@@ -37,6 +46,7 @@ export const useMapStore = create<MapState>((set) => ({
   heatMap: false,
   searchQuery: '',
   highlightedLocationId: null,
+  hoveredZone: null,
   pendingPositions: new Map(),
 
   setZoom: (zoom) => set({ zoom: Math.max(0.1, Math.min(5, zoom)) }),
@@ -48,6 +58,7 @@ export const useMapStore = create<MapState>((set) => ({
     set((s) => ({ heatMap: !s.heatMap })),
   setSearchQuery: (searchQuery) => set({ searchQuery }),
   setHighlight: (highlightedLocationId) => set({ highlightedLocationId }),
+  setHoveredZone: (hoveredZone) => set({ hoveredZone }),
   setPendingPosition: (id, pos) =>
     set((s) => {
       const next = new Map(s.pendingPositions)

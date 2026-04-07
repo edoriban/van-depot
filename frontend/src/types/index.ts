@@ -232,6 +232,15 @@ export interface LocationPosition {
   height: number;
 }
 
+// Sub-location data for semantic zoom (racks inside zones)
+export interface SubLocation {
+  id: string;
+  name: string;
+  location_type: LocationType;
+  parent_id: string;
+  is_active: boolean;
+}
+
 // Notifications
 export type NotificationType = 'stock_critical' | 'stock_low' | 'stock_warning' | 'cycle_count_due' | 'system';
 
