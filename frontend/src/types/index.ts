@@ -232,6 +232,17 @@ export interface LocationPosition {
   height: number;
 }
 
+// Map search result (T21)
+export interface MapSearchResult {
+  zone_id: string;
+  zone_name: string;
+  product_id: string;
+  product_name: string;
+  product_sku: string;
+  quantity: number;
+  location_name: string;
+}
+
 // Sub-location data for semantic zoom (racks inside zones)
 export interface SubLocation {
   id: string;

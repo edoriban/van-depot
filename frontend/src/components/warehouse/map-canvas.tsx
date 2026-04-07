@@ -58,11 +58,14 @@ export default function MapCanvas({
     editMode,
     heatMap,
     searchQuery,
+    highlightedLocationId,
     hoveredZone,
+    severityFilters,
     pendingPositions,
     setZoom,
     setPosition,
     selectZone,
+    setHighlight,
     setPendingPosition,
     clearPendingPositions,
   } = useMapStore()
@@ -283,6 +286,38 @@ export default function MapCanvas({
     [setPosition],
   )
 
+  // --- T22: Navigate to zone (from search) ---
+  const handleNavigateToZone = useCallback(
+    (zoneId: string) => {
+      const zone = zonesWithLayout.find((z) => z.zone_id === zoneId)
+      if (!zone) return
+
+      // Center the zone in the viewport with zoom ~1.5x
+      const targetZoom = Math.max(zoom, 1.5)
+      const cx = zone.pos_x + zone.width / 2
+      const cy = zone.pos_y + zone.height / 2
+
+      setZoom(targetZoom)
+      setPosition({
+        x: containerWidth / 2 - cx * targetZoom,
+        y: STAGE_HEIGHT / 2 - cy * targetZoom,
+      })
+      selectZone(zoneId)
+      onZoneSelect(zoneId)
+      setHighlight(zoneId)
+    },
+    [zonesWithLayout, zoom, containerWidth, setZoom, setPosition, selectZone, onZoneSelect, setHighlight],
+  )
+
+  // --- T24: Auto-clear highlight after 3 seconds ---
+  useEffect(() => {
+    if (!highlightedLocationId) return
+    const timer = setTimeout(() => {
+      setHighlight(null)
+    }, 3000)
+    return () => clearTimeout(timer)
+  }, [highlightedLocationId, setHighlight])
+
   // Grid lines
   const gridLines = useMemo(() => {
     const lines: { points: number[]; key: string }[] = []
@@ -322,11 +357,13 @@ export default function MapCanvas({
   return (
     <div className="space-y-3">
       <MapToolbar
+        warehouseId={warehouseId}
         onZoomIn={handleZoomIn}
         onZoomOut={handleZoomOut}
         onFitToScreen={handleFitToScreen}
         onResetLayout={handleResetLayout}
         onSaveLayout={handleSaveLayout}
+        onNavigateToZone={handleNavigateToZone}
         hasPendingChanges={hasPendingChanges}
         isSaving={isSaving}
       />
@@ -371,13 +408,17 @@ export default function MapCanvas({
           <Layer>
             {zonesWithLayout.map((zone) => {
               const isMatch = matchesSearch(zone)
+              const searchDimmed = !!searchQuery && !isMatch
+              const severityDimmed =
+                severityFilters.size > 0 && !severityFilters.has(zone.severity)
               return (
                 <ZoneRect
                   key={zone.zone_id}
                   zone={zone}
                   isSelected={selectedZoneId === zone.zone_id}
                   editMode={editMode}
-                  dimmed={!!searchQuery && !isMatch}
+                  dimmed={searchDimmed || severityDimmed}
+                  highlighted={highlightedLocationId === zone.zone_id}
                   heatMap={heatMap}
                   onSelect={() => {
                     selectZone(zone.zone_id)

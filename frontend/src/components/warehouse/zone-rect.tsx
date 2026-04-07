@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Group, Rect, Text } from 'react-konva'
 import { SEVERITY_HEX } from '@/lib/severity-colors'
 import { SEVERITY_CONFIG } from '@/lib/severity'
@@ -13,6 +13,7 @@ interface ZoneRectProps {
   isSelected: boolean
   editMode: boolean
   dimmed: boolean
+  highlighted: boolean
   heatMap: boolean
   onSelect: () => void
   onDragEnd: (x: number, y: number) => void
@@ -55,6 +56,7 @@ export function ZoneRect({
   isSelected,
   editMode,
   dimmed,
+  highlighted,
   heatMap,
   onSelect,
   onDragEnd,
@@ -65,8 +67,34 @@ export function ZoneRect({
   const fill = heatMap ? computeHeatFill(zone) : colors.fill
   const opacity = dimmed ? 0.2 : 1
 
-  const strokeColor = isSelected ? '#2563eb' : colors.stroke
-  const strokeWidth = isSelected ? 3 : 1.5
+  // T24: Highlight pulse animation
+  const [pulseOn, setPulseOn] = useState(false)
+  const intervalRef = useRef<ReturnType<typeof setInterval>>(null)
+
+  useEffect(() => {
+    if (!highlighted) {
+      setPulseOn(false)
+      if (intervalRef.current) clearInterval(intervalRef.current)
+      return
+    }
+    // Blink every 300ms for 3 seconds
+    setPulseOn(true)
+    intervalRef.current = setInterval(() => {
+      setPulseOn((prev) => !prev)
+    }, 300)
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current)
+    }
+  }, [highlighted])
+
+  const strokeColor = highlighted
+    ? pulseOn
+      ? '#facc15' // yellow-400 pulse
+      : '#2563eb' // blue-600
+    : isSelected
+      ? '#2563eb'
+      : colors.stroke
+  const strokeWidth = highlighted ? (pulseOn ? 5 : 3) : isSelected ? 3 : 1.5
 
   // Calculate font sizes based on rect dimensions
   const nameFontSize = Math.min(14, Math.max(10, zone.width / 10))

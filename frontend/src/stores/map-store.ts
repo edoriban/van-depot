@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { ZoneHealthWithLayout } from '@/types'
+import type { ZoneHealthWithLayout, ZoneSeverity } from '@/types'
 
 interface PendingPosition {
   x: number
@@ -23,6 +23,7 @@ interface MapState {
   searchQuery: string
   highlightedLocationId: string | null
   hoveredZone: HoverInfo | null
+  severityFilters: Set<ZoneSeverity>
   pendingPositions: Map<string, PendingPosition>
 
   setZoom: (zoom: number) => void
@@ -33,6 +34,8 @@ interface MapState {
   setSearchQuery: (q: string) => void
   setHighlight: (id: string | null) => void
   setHoveredZone: (info: HoverInfo | null) => void
+  toggleSeverityFilter: (severity: ZoneSeverity) => void
+  resetSeverityFilters: () => void
   setPendingPosition: (id: string, pos: PendingPosition) => void
   clearPendingPositions: () => void
   resetView: () => void
@@ -47,6 +50,7 @@ export const useMapStore = create<MapState>((set) => ({
   searchQuery: '',
   highlightedLocationId: null,
   hoveredZone: null,
+  severityFilters: new Set<ZoneSeverity>(),
   pendingPositions: new Map(),
 
   setZoom: (zoom) => set({ zoom: Math.max(0.1, Math.min(5, zoom)) }),
@@ -59,6 +63,17 @@ export const useMapStore = create<MapState>((set) => ({
   setSearchQuery: (searchQuery) => set({ searchQuery }),
   setHighlight: (highlightedLocationId) => set({ highlightedLocationId }),
   setHoveredZone: (hoveredZone) => set({ hoveredZone }),
+  toggleSeverityFilter: (severity) =>
+    set((s) => {
+      const next = new Set(s.severityFilters)
+      if (next.has(severity)) {
+        next.delete(severity)
+      } else {
+        next.add(severity)
+      }
+      return { severityFilters: next }
+    }),
+  resetSeverityFilters: () => set({ severityFilters: new Set<ZoneSeverity>() }),
   setPendingPosition: (id, pos) =>
     set((s) => {
       const next = new Map(s.pendingPositions)
