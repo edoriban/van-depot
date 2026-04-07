@@ -1,13 +1,14 @@
 use axum::extract::{Path, State};
-use axum::routing::get;
+use axum::routing::{get, put};
 use axum::{Json, Router};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use vandepot_infra::auth::jwt::Claims;
 use vandepot_infra::repositories::warehouse_map_repo;
 
 use crate::error::ApiError;
+use crate::extractors::role_guard::require_role;
 use crate::extractors::warehouse_access::ensure_warehouse_access;
 use crate::state::AppState;
 
@@ -24,6 +25,10 @@ pub struct ZoneHealthResponse {
     pub ok_count: i64,
     pub total_items: i64,
     pub child_location_count: i64,
+    pub pos_x: Option<f32>,
+    pub pos_y: Option<f32>,
+    pub width: Option<f32>,
+    pub height: Option<f32>,
 }
 
 #[derive(Serialize)]
@@ -38,17 +43,47 @@ pub struct MapSummaryResponse {
 
 #[derive(Serialize)]
 pub struct WarehouseMapResponse {
+    pub canvas_width: Option<f32>,
+    pub canvas_height: Option<f32>,
     pub summary: MapSummaryResponse,
     pub zones: Vec<ZoneHealthResponse>,
+}
+
+// ── Layout DTOs (T05) ──────────────────────────────────────────────
+
+#[derive(Deserialize)]
+pub struct UpdateLayoutRequest {
+    pub canvas_width: Option<f32>,
+    pub canvas_height: Option<f32>,
+    pub locations: Vec<LocationPosition>,
+}
+
+#[derive(Deserialize)]
+pub struct LocationPosition {
+    pub id: Uuid,
+    pub pos_x: f32,
+    pub pos_y: f32,
+    pub width: f32,
+    pub height: f32,
+}
+
+#[derive(Serialize)]
+pub struct UpdateLayoutResponse {
+    pub updated: u64,
 }
 
 // ── Routes ──────────────────────────────────────────────────────────
 
 pub fn warehouse_map_routes() -> Router<AppState> {
-    Router::new().route(
-        "/warehouses/{warehouse_id}/map",
-        get(get_warehouse_map),
-    )
+    Router::new()
+        .route(
+            "/warehouses/{warehouse_id}/map",
+            get(get_warehouse_map),
+        )
+        .route(
+            "/warehouses/{warehouse_id}/layout",
+            put(update_layout),
+        )
 }
 
 // ── Handlers ────────────────────────────────────────────────────────
@@ -62,6 +97,10 @@ async fn get_warehouse_map(
 
     let rows =
         warehouse_map_repo::get_warehouse_map(&state.pool, warehouse_id)
+            .await?;
+
+    let canvas =
+        warehouse_map_repo::get_canvas_dimensions(&state.pool, warehouse_id)
             .await?;
 
     let summary = MapSummaryResponse {
@@ -85,8 +124,44 @@ async fn get_warehouse_map(
             ok_count: r.ok_count,
             total_items: r.total_items,
             child_location_count: r.child_location_count,
+            pos_x: r.pos_x,
+            pos_y: r.pos_y,
+            width: r.width,
+            height: r.height,
         })
         .collect();
 
-    Ok(Json(WarehouseMapResponse { summary, zones }))
+    Ok(Json(WarehouseMapResponse {
+        canvas_width: canvas.canvas_width,
+        canvas_height: canvas.canvas_height,
+        summary,
+        zones,
+    }))
+}
+
+async fn update_layout(
+    State(state): State<AppState>,
+    claims: Claims,
+    Path(warehouse_id): Path<Uuid>,
+    Json(payload): Json<UpdateLayoutRequest>,
+) -> Result<Json<UpdateLayoutResponse>, ApiError> {
+    require_role(&claims, &["superadmin", "owner", "warehouse_manager"])?;
+    ensure_warehouse_access(&claims, &warehouse_id)?;
+
+    let locations: Vec<(Uuid, f32, f32, f32, f32)> = payload
+        .locations
+        .iter()
+        .map(|l| (l.id, l.pos_x, l.pos_y, l.width, l.height))
+        .collect();
+
+    let updated = warehouse_map_repo::update_layout(
+        &state.pool,
+        warehouse_id,
+        payload.canvas_width,
+        payload.canvas_height,
+        &locations,
+    )
+    .await?;
+
+    Ok(Json(UpdateLayoutResponse { updated }))
 }

@@ -18,6 +18,16 @@ pub struct ZoneHealthRow {
     pub ok_count: i64,
     pub total_items: i64,
     pub child_location_count: i64,
+    pub pos_x: Option<f32>,
+    pub pos_y: Option<f32>,
+    pub width: Option<f32>,
+    pub height: Option<f32>,
+}
+
+#[derive(sqlx::FromRow)]
+pub struct CanvasDimensionsRow {
+    pub canvas_width: Option<f32>,
+    pub canvas_height: Option<f32>,
 }
 
 // ── Queries ─────────────────────────────────────────────────────────
@@ -44,12 +54,13 @@ pub async fn get_warehouse_map(
             FROM zone_tree ORDER BY id, root_zone_id
         ),
         root_zones AS (
-            SELECT l.id, l.name FROM locations l
+            SELECT l.id, l.name, l.pos_x, l.pos_y, l.width, l.height FROM locations l
             WHERE l.warehouse_id = $1 AND l.parent_id IS NULL AND l.is_active = true
         ),
         zone_inventory AS (
             SELECT
                 rz.id AS zone_id, rz.name AS zone_name,
+                rz.pos_x, rz.pos_y, rz.width, rz.height,
                 COUNT(*) FILTER (WHERE p.min_stock > 0 AND i.quantity = 0) AS critical_count,
                 COUNT(*) FILTER (WHERE p.min_stock > 0 AND i.quantity > 0 AND i.quantity <= p.min_stock * 0.5) AS low_count,
                 COUNT(*) FILTER (WHERE p.min_stock > 0 AND i.quantity > p.min_stock * 0.5 AND i.quantity <= p.min_stock) AS warning_count,
@@ -59,7 +70,7 @@ pub async fn get_warehouse_map(
             LEFT JOIN location_zones lz ON lz.root_zone_id = rz.id
             LEFT JOIN inventory i ON i.location_id = lz.location_id
             LEFT JOIN products p ON i.product_id = p.id AND p.deleted_at IS NULL
-            GROUP BY rz.id, rz.name
+            GROUP BY rz.id, rz.name, rz.pos_x, rz.pos_y, rz.width, rz.height
         ),
         zone_children AS (
             SELECT l.parent_id AS zone_id, COUNT(*) AS child_count
@@ -77,7 +88,8 @@ pub async fn get_warehouse_map(
                 ELSE 'ok'
             END AS severity,
             zi.critical_count, zi.low_count, zi.warning_count, zi.ok_count,
-            zi.total_items, COALESCE(zc.child_count, 0)::int8 AS child_location_count
+            zi.total_items, COALESCE(zc.child_count, 0)::int8 AS child_location_count,
+            zi.pos_x, zi.pos_y, zi.width, zi.height
         FROM zone_inventory zi
         LEFT JOIN zone_children zc ON zc.zone_id = zi.zone_id
         ORDER BY
@@ -96,4 +108,72 @@ pub async fn get_warehouse_map(
     .map_err(map_sqlx_error)?;
 
     Ok(rows)
+}
+
+pub async fn get_canvas_dimensions(
+    pool: &PgPool,
+    warehouse_id: Uuid,
+) -> Result<CanvasDimensionsRow, DomainError> {
+    let row = sqlx::query_as::<_, CanvasDimensionsRow>(
+        "SELECT canvas_width, canvas_height FROM warehouses WHERE id = $1 AND deleted_at IS NULL",
+    )
+    .bind(warehouse_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(map_sqlx_error)?;
+
+    row.ok_or_else(|| DomainError::NotFound("Warehouse not found".to_string()))
+}
+
+// ── Layout update (T05) ────────────────────────────────────────────
+
+pub async fn update_layout(
+    pool: &PgPool,
+    warehouse_id: Uuid,
+    canvas_width: Option<f32>,
+    canvas_height: Option<f32>,
+    locations: &[(Uuid, f32, f32, f32, f32)],
+) -> Result<u64, DomainError> {
+    let mut tx = pool.begin().await.map_err(map_sqlx_error)?;
+
+    // Update canvas dimensions if provided
+    if canvas_width.is_some() || canvas_height.is_some() {
+        sqlx::query(
+            "UPDATE warehouses SET \
+                canvas_width = COALESCE($2, canvas_width), \
+                canvas_height = COALESCE($3, canvas_height), \
+                updated_at = NOW() \
+             WHERE id = $1 AND deleted_at IS NULL",
+        )
+        .bind(warehouse_id)
+        .bind(canvas_width)
+        .bind(canvas_height)
+        .execute(&mut *tx)
+        .await
+        .map_err(map_sqlx_error)?;
+    }
+
+    // Update each location's position
+    let mut updated: u64 = 0;
+    for &(loc_id, px, py, w, h) in locations {
+        let result = sqlx::query(
+            "UPDATE locations SET pos_x = $2, pos_y = $3, width = $4, height = $5, updated_at = NOW() \
+             WHERE id = $1 AND warehouse_id = $6",
+        )
+        .bind(loc_id)
+        .bind(px)
+        .bind(py)
+        .bind(w)
+        .bind(h)
+        .bind(warehouse_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(map_sqlx_error)?;
+
+        updated += result.rows_affected();
+    }
+
+    tx.commit().await.map_err(map_sqlx_error)?;
+
+    Ok(updated)
 }

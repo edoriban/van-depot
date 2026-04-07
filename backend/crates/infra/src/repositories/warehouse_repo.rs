@@ -15,6 +15,8 @@ struct WarehouseRow {
     name: String,
     address: Option<String>,
     is_active: bool,
+    canvas_width: Option<f32>,
+    canvas_height: Option<f32>,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
     deleted_at: Option<DateTime<Utc>>,
@@ -27,6 +29,8 @@ impl From<WarehouseRow> for Warehouse {
             name: row.name,
             address: row.address,
             is_active: row.is_active,
+            canvas_width: row.canvas_width,
+            canvas_height: row.canvas_height,
             created_at: row.created_at,
             updated_at: row.updated_at,
             deleted_at: row.deleted_at,
@@ -48,7 +52,7 @@ impl PgWarehouseRepository {
 impl WarehouseRepository for PgWarehouseRepository {
     async fn find_by_id(&self, id: Uuid) -> Result<Option<Warehouse>, DomainError> {
         let row = sqlx::query_as::<_, WarehouseRow>(
-            "SELECT id, name, address, is_active, created_at, updated_at, deleted_at \
+            "SELECT id, name, address, is_active, canvas_width, canvas_height, created_at, updated_at, deleted_at \
              FROM warehouses WHERE id = $1 AND deleted_at IS NULL",
         )
         .bind(id)
@@ -67,7 +71,7 @@ impl WarehouseRepository for PgWarehouseRepository {
                 .map_err(map_sqlx_error)?;
 
         let rows: Vec<WarehouseRow> = sqlx::query_as(
-            "SELECT id, name, address, is_active, created_at, updated_at, deleted_at \
+            "SELECT id, name, address, is_active, canvas_width, canvas_height, created_at, updated_at, deleted_at \
              FROM warehouses WHERE deleted_at IS NULL \
              ORDER BY created_at DESC LIMIT $1 OFFSET $2",
         )
@@ -84,7 +88,7 @@ impl WarehouseRepository for PgWarehouseRepository {
         let row = sqlx::query_as::<_, WarehouseRow>(
             "INSERT INTO warehouses (name, address) \
              VALUES ($1, $2) \
-             RETURNING id, name, address, is_active, created_at, updated_at, deleted_at",
+             RETURNING id, name, address, is_active, canvas_width, canvas_height, created_at, updated_at, deleted_at",
         )
         .bind(name)
         .bind(address)
@@ -107,7 +111,7 @@ impl WarehouseRepository for PgWarehouseRepository {
                 address = CASE WHEN $3 THEN $4 ELSE address END, \
                 updated_at = NOW() \
              WHERE id = $1 AND deleted_at IS NULL \
-             RETURNING id, name, address, is_active, created_at, updated_at, deleted_at",
+             RETURNING id, name, address, is_active, canvas_width, canvas_height, created_at, updated_at, deleted_at",
         )
         .bind(id)
         .bind(name)

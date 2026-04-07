@@ -19,6 +19,10 @@ struct LocationRow {
     name: String,
     label: Option<String>,
     is_active: bool,
+    pos_x: Option<f32>,
+    pos_y: Option<f32>,
+    width: Option<f32>,
+    height: Option<f32>,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
 }
@@ -33,6 +37,10 @@ impl From<LocationRow> for Location {
             name: row.name,
             label: row.label,
             is_active: row.is_active,
+            pos_x: row.pos_x,
+            pos_y: row.pos_y,
+            width: row.width,
+            height: row.height,
             created_at: row.created_at,
             updated_at: row.updated_at,
         }
@@ -53,7 +61,7 @@ impl PgLocationRepository {
 impl LocationRepository for PgLocationRepository {
     async fn find_by_id(&self, id: Uuid) -> Result<Option<Location>, DomainError> {
         let row = sqlx::query_as::<_, LocationRow>(
-            "SELECT id, warehouse_id, parent_id, location_type, name, label, is_active, created_at, updated_at \
+            "SELECT id, warehouse_id, parent_id, location_type, name, label, is_active, pos_x, pos_y, width, height, created_at, updated_at \
              FROM locations WHERE id = $1",
         )
         .bind(id)
@@ -74,14 +82,14 @@ impl LocationRepository for PgLocationRepository {
         let (count_sql, data_sql) = if parent_id.is_some() {
             (
                 "SELECT COUNT(*) FROM locations WHERE warehouse_id = $1 AND parent_id = $2",
-                "SELECT id, warehouse_id, parent_id, location_type, name, label, is_active, created_at, updated_at \
+                "SELECT id, warehouse_id, parent_id, location_type, name, label, is_active, pos_x, pos_y, width, height, created_at, updated_at \
                  FROM locations WHERE warehouse_id = $1 AND parent_id = $2 \
                  ORDER BY created_at DESC LIMIT $3 OFFSET $4",
             )
         } else {
             (
                 "SELECT COUNT(*) FROM locations WHERE warehouse_id = $1 AND parent_id IS NULL",
-                "SELECT id, warehouse_id, parent_id, location_type, name, label, is_active, created_at, updated_at \
+                "SELECT id, warehouse_id, parent_id, location_type, name, label, is_active, pos_x, pos_y, width, height, created_at, updated_at \
                  FROM locations WHERE warehouse_id = $1 AND parent_id IS NULL \
                  ORDER BY created_at DESC LIMIT $2 OFFSET $3",
             )
@@ -135,7 +143,7 @@ impl LocationRepository for PgLocationRepository {
         let row = sqlx::query_as::<_, LocationRow>(
             "INSERT INTO locations (warehouse_id, parent_id, location_type, name, label) \
              VALUES ($1, $2, $3, $4, $5) \
-             RETURNING id, warehouse_id, parent_id, location_type, name, label, is_active, created_at, updated_at",
+             RETURNING id, warehouse_id, parent_id, location_type, name, label, is_active, pos_x, pos_y, width, height, created_at, updated_at",
         )
         .bind(warehouse_id)
         .bind(parent_id)
@@ -163,7 +171,7 @@ impl LocationRepository for PgLocationRepository {
                 location_type = COALESCE($5, location_type), \
                 updated_at = NOW() \
              WHERE id = $1 \
-             RETURNING id, warehouse_id, parent_id, location_type, name, label, is_active, created_at, updated_at",
+             RETURNING id, warehouse_id, parent_id, location_type, name, label, is_active, pos_x, pos_y, width, height, created_at, updated_at",
         )
         .bind(id)
         .bind(name)
