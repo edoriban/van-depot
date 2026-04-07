@@ -20,6 +20,20 @@ pub struct StockConfigRow {
     pub updated_at: DateTime<Utc>,
 }
 
+#[derive(sqlx::FromRow)]
+pub struct StockConfigOverrideRow {
+    pub id: Uuid,
+    pub warehouse_id: Option<Uuid>,
+    pub product_id: Option<Uuid>,
+    pub default_min_stock: f64,
+    pub critical_stock_multiplier: f64,
+    pub low_stock_multiplier: f64,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub product_name: Option<String>,
+    pub product_sku: Option<String>,
+}
+
 // ── Queries ─────────────────────────────────────────────────────────
 
 pub async fn get_global_config(
@@ -119,11 +133,12 @@ pub async fn resolve_config(
 }
 
 /// List product-level overrides (configs where product_id IS NOT NULL) with pagination.
+/// Joins with products table to include product name and SKU.
 pub async fn list_overrides(
     pool: &PgPool,
     limit: i64,
     offset: i64,
-) -> Result<(Vec<StockConfigRow>, i64), DomainError> {
+) -> Result<(Vec<StockConfigOverrideRow>, i64), DomainError> {
     let total: (i64,) = sqlx::query_as(
         r#"
         SELECT COUNT(*) FROM stock_configuration
@@ -134,14 +149,16 @@ pub async fn list_overrides(
     .await
     .map_err(map_sqlx_error)?;
 
-    let rows = sqlx::query_as::<_, StockConfigRow>(
+    let rows = sqlx::query_as::<_, StockConfigOverrideRow>(
         r#"
-        SELECT id, warehouse_id, product_id,
-               default_min_stock::float8, critical_stock_multiplier::float8,
-               low_stock_multiplier::float8, created_at, updated_at
-        FROM stock_configuration
-        WHERE product_id IS NOT NULL
-        ORDER BY created_at DESC
+        SELECT sc.id, sc.warehouse_id, sc.product_id,
+               sc.default_min_stock::float8, sc.critical_stock_multiplier::float8,
+               sc.low_stock_multiplier::float8, sc.created_at, sc.updated_at,
+               p.name AS product_name, p.sku AS product_sku
+        FROM stock_configuration sc
+        LEFT JOIN products p ON p.id = sc.product_id
+        WHERE sc.product_id IS NOT NULL
+        ORDER BY sc.created_at DESC
         LIMIT $1 OFFSET $2
         "#,
     )

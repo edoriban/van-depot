@@ -50,6 +50,20 @@ pub struct StockConfigResponse {
     pub updated_at: DateTime<Utc>,
 }
 
+#[derive(Serialize)]
+pub struct StockConfigOverrideResponse {
+    pub id: Uuid,
+    pub warehouse_id: Option<Uuid>,
+    pub product_id: Option<Uuid>,
+    pub default_min_stock: f64,
+    pub critical_stock_multiplier: f64,
+    pub low_stock_multiplier: f64,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub product_name: Option<String>,
+    pub product_sku: Option<String>,
+}
+
 // ── Routes ────────────────────────────────────────────────────────────
 
 pub fn stock_config_routes() -> Router<AppState> {
@@ -110,7 +124,7 @@ async fn list_overrides(
     State(state): State<AppState>,
     _claims: Claims,
     Query(params): Query<PaginationParams>,
-) -> Result<Json<PaginatedResponse<StockConfigResponse>>, ApiError> {
+) -> Result<Json<PaginatedResponse<StockConfigOverrideResponse>>, ApiError> {
     let limit = params.limit();
     let offset = params.offset();
 
@@ -118,7 +132,7 @@ async fn list_overrides(
         stock_config_repo::list_overrides(&state.pool, limit, offset).await?;
 
     Ok(Json(PaginatedResponse {
-        data: rows.into_iter().map(row_to_response).collect(),
+        data: rows.into_iter().map(override_row_to_response).collect(),
         total,
         page: params.page(),
         per_page: limit,
@@ -203,6 +217,23 @@ fn row_to_response(row: stock_config_repo::StockConfigRow) -> StockConfigRespons
         low_stock_multiplier: row.low_stock_multiplier,
         created_at: row.created_at,
         updated_at: row.updated_at,
+    }
+}
+
+fn override_row_to_response(
+    row: stock_config_repo::StockConfigOverrideRow,
+) -> StockConfigOverrideResponse {
+    StockConfigOverrideResponse {
+        id: row.id,
+        warehouse_id: row.warehouse_id,
+        product_id: row.product_id,
+        default_min_stock: row.default_min_stock,
+        critical_stock_multiplier: row.critical_stock_multiplier,
+        low_stock_multiplier: row.low_stock_multiplier,
+        created_at: row.created_at,
+        updated_at: row.updated_at,
+        product_name: row.product_name,
+        product_sku: row.product_sku,
     }
 }
 
