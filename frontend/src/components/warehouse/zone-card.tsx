@@ -19,12 +19,21 @@ export function ZoneCard({ zone, selected, onClick }: ZoneCardProps) {
   // Proportional bar segments
   const pct = (n: number) => (total > 0 ? (n / total) * 100 : 0)
 
+  // Occupation: how many sub-locations have stock vs total
+  const occupiedCount = zone.ok_count + zone.critical_count + zone.low_count + zone.warning_count
+  const occupationPct =
+    zone.child_location_count > 0
+      ? Math.round((occupiedCount / zone.child_location_count) * 100)
+      : 0
+
   return (
     <Card
       className={cn(
-        'overflow-hidden transition-all hover:shadow-md',
+        'overflow-hidden transition-all duration-200 hover:shadow-md',
         onClick && 'cursor-pointer',
-        selected && 'ring-2 ring-primary shadow-md',
+        selected
+          ? 'ring-2 ring-primary shadow-md scale-[1.02]'
+          : 'ring-0 scale-100',
       )}
       onClick={() => onClick?.(zone)}
     >
@@ -61,8 +70,32 @@ export function ZoneCard({ zone, selected, onClick }: ZoneCardProps) {
 
         {/* Stats */}
         <p className="text-xs text-muted-foreground">
-          {zone.child_location_count} sub-ubicaciones · {total} productos
+          {total} producto{total !== 1 ? 's' : ''} en {zone.child_location_count} ubicacion
+          {zone.child_location_count !== 1 ? 'es' : ''}
         </p>
+
+        {/* Occupation bar */}
+        {zone.child_location_count > 0 && (
+          <div className="space-y-1">
+            <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+              <span>Ocupacion</span>
+              <span>{occupationPct}%</span>
+            </div>
+            <div className="h-1 w-full rounded-full bg-muted overflow-hidden">
+              <div
+                className={cn(
+                  'h-full rounded-full transition-all duration-500',
+                  occupationPct === 0
+                    ? 'bg-muted-foreground/30'
+                    : occupationPct < 50
+                      ? 'bg-amber-400'
+                      : 'bg-green-500',
+                )}
+                style={{ width: `${occupationPct}%` }}
+              />
+            </div>
+          </div>
+        )}
 
         {/* Breakdown counts */}
         {total > 0 && problemCount > 0 && (
