@@ -17,6 +17,7 @@ import {
 import { HugeiconsIcon } from '@hugeicons/react';
 import {
   DashboardSquare01Icon,
+  ContainerIcon,
   Store01Icon,
   Package01Icon,
   DeliveryTruck01Icon,
@@ -144,7 +145,7 @@ export function AppSidebar() {
     <Sidebar>
       <SidebarHeader className="border-b px-4 py-3">
         <div className="flex items-center gap-2">
-          <HugeiconsIcon icon={Store01Icon} size={24} className="text-primary" />
+          <HugeiconsIcon icon={ContainerIcon} size={24} className="text-primary" />
           <span className="text-lg font-semibold">VanFlux</span>
         </div>
       </SidebarHeader>
