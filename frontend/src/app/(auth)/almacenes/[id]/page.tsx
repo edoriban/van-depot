@@ -71,6 +71,14 @@ const LOCATION_TYPE_LABELS: Record<LocationType, string> = {
   bin: 'Contenedor',
 };
 
+const LOCATION_TYPE_STYLES: Record<LocationType, string> = {
+  zone: 'bg-teal-100 text-teal-800 border-teal-300 dark:bg-teal-900/30 dark:text-teal-300 dark:border-teal-700',
+  rack: 'bg-blue-100 text-blue-800 border-blue-300 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-700',
+  shelf: 'bg-indigo-100 text-indigo-800 border-indigo-300 dark:bg-indigo-900/30 dark:text-indigo-300 dark:border-indigo-700',
+  position: 'bg-purple-100 text-purple-800 border-purple-300 dark:bg-purple-900/30 dark:text-purple-300 dark:border-purple-700',
+  bin: 'bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-700',
+};
+
 const LOCATION_TYPES: LocationType[] = ['zone', 'rack', 'shelf', 'position', 'bin'];
 
 const MOVEMENT_LABELS: Record<MovementType, string> = {
@@ -205,12 +213,18 @@ function LocationTreeNode({
         </button>
 
         {/* Type badge */}
-        <Badge variant="outline" className="text-xs shrink-0">
+        <Badge variant="outline" className={cn('text-xs shrink-0', LOCATION_TYPE_STYLES[location.location_type])}>
           {LOCATION_TYPE_LABELS[location.location_type] ?? location.location_type}
         </Badge>
 
-        {/* Name */}
-        <span className="font-medium flex-1 truncate">{location.name}</span>
+        {/* Name — clickable to expand/collapse */}
+        <button
+          type="button"
+          className="font-medium flex-1 truncate text-left hover:underline"
+          onClick={() => (hasChildren || canHaveChildren) && onToggleExpand(location.id)}
+        >
+          {location.name}
+        </button>
 
         {/* Child count */}
         {hasChildren && (
