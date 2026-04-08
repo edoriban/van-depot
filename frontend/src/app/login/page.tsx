@@ -253,14 +253,14 @@ export default function LoginPage() {
           <div className="mt-12 flex flex-col items-center gap-2 text-xs text-muted-foreground">
             <div className="flex items-center gap-3">
               <a
-                href="#"
+                href="/terminos"
                 className="hover:text-foreground transition-colors"
               >
                 Terminos de servicio
               </a>
               <span aria-hidden="true">&middot;</span>
               <a
-                href="#"
+                href="/privacidad"
                 className="hover:text-foreground transition-colors"
               >
                 Politica de privacidad
