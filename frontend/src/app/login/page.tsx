@@ -53,7 +53,7 @@ export default function LoginPage() {
           <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-lg bg-primary/10">
             <HugeiconsIcon icon={Store01Icon} size={28} className="text-primary" />
           </div>
-          <CardTitle className="text-2xl">VanDepot</CardTitle>
+          <CardTitle className="text-2xl">VanFlux</CardTitle>
           <CardDescription>Ingresa tus credenciales para continuar</CardDescription>
         </CardHeader>
         <CardContent>

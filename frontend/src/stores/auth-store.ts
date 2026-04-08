@@ -59,7 +59,7 @@ export const useAuthStore = create<AuthState>()(
       setHydrated: () => set({ isHydrated: true }),
     }),
     {
-      name: 'vandepot-auth',
+      name: 'vanflux-auth',
       onRehydrateStorage: () => (state) => {
         state?.setHydrated();
       },

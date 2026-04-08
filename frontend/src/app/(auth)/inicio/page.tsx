@@ -34,7 +34,7 @@ import Link from 'next/link';
 
 // --- Trend helpers ---
 
-const STATS_STORAGE_KEY = 'vandepot_dashboard_prev_stats';
+const STATS_STORAGE_KEY = 'vanflux_dashboard_prev_stats';
 
 interface StoredStats {
   stats: DashboardStats;
@@ -226,7 +226,7 @@ export default function DashboardPage() {
       /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 
     if (isMobile) {
-      const cameFromPiso = sessionStorage.getItem('vandepot_prefer_desktop');
+      const cameFromPiso = sessionStorage.getItem('vanflux_prefer_desktop');
       if (!cameFromPiso) {
         window.location.href = '/piso';
       }
@@ -289,7 +289,7 @@ export default function DashboardPage() {
         <Card className="border-primary/30 bg-primary/5" data-testid="welcome-banner">
           <CardContent className="p-6 text-center">
             <HugeiconsIcon icon={Store01Icon} className="h-12 w-12 text-primary mx-auto mb-4" />
-            <h2 className="text-xl font-semibold mb-2">¡Bienvenido a VanDepot!</h2>
+            <h2 className="text-xl font-semibold mb-2">¡Bienvenido a VanFlux!</h2>
             <p className="text-muted-foreground mb-4">
               Configura tu almacen en unos minutos para empezar a controlar tu inventario.
             </p>

@@ -19,13 +19,13 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "VanDepot - Sistema de Inventario",
+  title: "VanFlux - Sistema de Inventario",
   description: "Sistema de gestión de almacén para PyMEs",
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
-    title: "VanDepot",
+    title: "VanFlux",
   },
   formatDetection: {
     telephone: false,

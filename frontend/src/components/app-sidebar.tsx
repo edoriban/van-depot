@@ -145,7 +145,7 @@ export function AppSidebar() {
       <SidebarHeader className="border-b px-4 py-3">
         <div className="flex items-center gap-2">
           <HugeiconsIcon icon={Store01Icon} size={24} className="text-primary" />
-          <span className="text-lg font-semibold">VanDepot</span>
+          <span className="text-lg font-semibold">VanFlux</span>
         </div>
       </SidebarHeader>
 
