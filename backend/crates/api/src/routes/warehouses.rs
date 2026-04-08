@@ -9,7 +9,7 @@ use uuid::Uuid;
 use vandepot_domain::models::warehouse::Warehouse;
 use vandepot_domain::ports::warehouse_repository::WarehouseRepository;
 use vandepot_infra::auth::jwt::Claims;
-use vandepot_infra::repositories::warehouse_repo::PgWarehouseRepository;
+use vandepot_infra::repositories::warehouse_repo::{PgWarehouseRepository, WarehouseWithStatsRow};
 
 use crate::error::ApiError;
 use crate::extractors::role_guard::require_role;
@@ -41,6 +41,45 @@ pub struct WarehouseResponse {
     pub updated_at: DateTime<Utc>,
 }
 
+#[derive(Serialize)]
+pub struct WarehouseWithStatsResponse {
+    pub id: Uuid,
+    pub name: String,
+    pub address: Option<String>,
+    pub is_active: bool,
+    pub canvas_width: Option<f32>,
+    pub canvas_height: Option<f32>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub locations_count: i64,
+    pub products_count: i64,
+    pub total_quantity: f64,
+    pub low_stock_count: i64,
+    pub critical_count: i64,
+    pub last_movement_at: Option<DateTime<Utc>>,
+}
+
+impl From<WarehouseWithStatsRow> for WarehouseWithStatsResponse {
+    fn from(r: WarehouseWithStatsRow) -> Self {
+        Self {
+            id: r.id,
+            name: r.name,
+            address: r.address,
+            is_active: r.is_active,
+            canvas_width: r.canvas_width,
+            canvas_height: r.canvas_height,
+            created_at: r.created_at,
+            updated_at: r.updated_at,
+            locations_count: r.locations_count,
+            products_count: r.products_count,
+            total_quantity: r.total_quantity,
+            low_stock_count: r.low_stock_count,
+            critical_count: r.critical_count,
+            last_movement_at: r.last_movement_at,
+        }
+    }
+}
+
 impl From<Warehouse> for WarehouseResponse {
     fn from(w: Warehouse) -> Self {
         Self {
@@ -59,6 +98,7 @@ impl From<Warehouse> for WarehouseResponse {
 pub fn warehouse_routes() -> Router<AppState> {
     Router::new()
         .route("/warehouses", post(create_warehouse).get(list_warehouses))
+        .route("/warehouses/with-stats", get(list_warehouses_with_stats))
         .route(
             "/warehouses/{id}",
             get(get_warehouse)
@@ -102,6 +142,40 @@ async fn list_warehouses(
             .map(WarehouseResponse::from)
             .collect()
     };
+
+    let filtered_total = if claims.role.eq_ignore_ascii_case("superadmin") {
+        total
+    } else {
+        filtered.len() as i64
+    };
+
+    Ok(Json(PaginatedResponse {
+        data: filtered,
+        total: filtered_total,
+        page: params.page(),
+        per_page: params.limit(),
+    }))
+}
+
+async fn list_warehouses_with_stats(
+    State(state): State<AppState>,
+    claims: Claims,
+    Query(params): Query<PaginationParams>,
+) -> Result<Json<PaginatedResponse<WarehouseWithStatsResponse>>, ApiError> {
+    let repo = PgWarehouseRepository::new(state.pool.clone());
+    let (rows, total) = repo.list_with_stats(params.limit(), params.offset()).await?;
+
+    let filtered: Vec<WarehouseWithStatsResponse> =
+        if claims.role.eq_ignore_ascii_case("superadmin") {
+            rows.into_iter()
+                .map(WarehouseWithStatsResponse::from)
+                .collect()
+        } else {
+            rows.into_iter()
+                .filter(|r| claims.warehouse_ids.contains(&r.id))
+                .map(WarehouseWithStatsResponse::from)
+                .collect()
+        };
 
     let filtered_total = if claims.role.eq_ignore_ascii_case("superadmin") {
         total

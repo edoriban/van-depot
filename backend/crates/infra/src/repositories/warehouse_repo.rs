@@ -10,6 +10,24 @@ use vandepot_domain::ports::warehouse_repository::WarehouseRepository;
 use super::shared::map_sqlx_error;
 
 #[derive(sqlx::FromRow)]
+pub struct WarehouseWithStatsRow {
+    pub id: Uuid,
+    pub name: String,
+    pub address: Option<String>,
+    pub is_active: bool,
+    pub canvas_width: Option<f32>,
+    pub canvas_height: Option<f32>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub locations_count: i64,
+    pub products_count: i64,
+    pub total_quantity: f64,
+    pub low_stock_count: i64,
+    pub critical_count: i64,
+    pub last_movement_at: Option<DateTime<Utc>>,
+}
+
+#[derive(sqlx::FromRow)]
 struct WarehouseRow {
     id: Uuid,
     name: String,
@@ -45,6 +63,68 @@ pub struct PgWarehouseRepository {
 impl PgWarehouseRepository {
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
+    }
+}
+
+impl PgWarehouseRepository {
+    pub async fn list_with_stats(
+        &self,
+        limit: i64,
+        offset: i64,
+    ) -> Result<(Vec<WarehouseWithStatsRow>, i64), DomainError> {
+        let total: (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM warehouses WHERE deleted_at IS NULL")
+                .fetch_one(&self.pool)
+                .await
+                .map_err(map_sqlx_error)?;
+
+        let rows: Vec<WarehouseWithStatsRow> = sqlx::query_as(
+            r#"
+            SELECT
+                w.id, w.name, w.address, w.is_active,
+                w.canvas_width, w.canvas_height,
+                w.created_at, w.updated_at,
+                COALESCE(loc.cnt, 0) AS locations_count,
+                COALESCE(inv.product_cnt, 0) AS products_count,
+                COALESCE(inv.total_qty, 0.0) AS total_quantity,
+                COALESCE(inv.low_cnt, 0) AS low_stock_count,
+                COALESCE(inv.critical_cnt, 0) AS critical_count,
+                mov.last_at AS last_movement_at
+            FROM warehouses w
+            LEFT JOIN (
+                SELECT warehouse_id, COUNT(*) AS cnt
+                FROM locations
+                GROUP BY warehouse_id
+            ) loc ON loc.warehouse_id = w.id
+            LEFT JOIN (
+                SELECT l.warehouse_id,
+                       COUNT(DISTINCT i.product_id) AS product_cnt,
+                       COALESCE(SUM(i.quantity), 0)::float8 AS total_qty,
+                       COUNT(*) FILTER (WHERE i.quantity <= p.min_stock AND i.quantity > 0 AND p.min_stock > 0) AS low_cnt,
+                       COUNT(*) FILTER (WHERE i.quantity <= 0) AS critical_cnt
+                FROM inventory i
+                JOIN locations l ON l.id = i.location_id
+                JOIN products p ON p.id = i.product_id
+                GROUP BY l.warehouse_id
+            ) inv ON inv.warehouse_id = w.id
+            LEFT JOIN (
+                SELECT l.warehouse_id, MAX(m.created_at) AS last_at
+                FROM movements m
+                JOIN locations l ON l.id = COALESCE(m.to_location_id, m.from_location_id)
+                GROUP BY l.warehouse_id
+            ) mov ON mov.warehouse_id = w.id
+            WHERE w.deleted_at IS NULL
+            ORDER BY w.name
+            LIMIT $1 OFFSET $2
+            "#,
+        )
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(map_sqlx_error)?;
+
+        Ok((rows, total.0))
     }
 }
 
