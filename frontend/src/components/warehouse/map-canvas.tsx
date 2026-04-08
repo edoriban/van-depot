@@ -253,6 +253,15 @@ export default function MapCanvas({
     animateToView(newZoom, newPos)
   }, [zonesWithLayout, containerWidth, animateToView])
 
+  // Fit to screen on first render when zones and container are ready
+  const didInitialFit = useRef(false)
+  useEffect(() => {
+    if (!didInitialFit.current && zonesWithLayout.length > 0 && containerWidth > 0) {
+      didInitialFit.current = true
+      handleFitToScreen()
+    }
+  }, [zonesWithLayout, containerWidth, handleFitToScreen])
+
   const handleResetLayout = useCallback(() => {
     clearPendingPositions()
   }, [clearPendingPositions])
