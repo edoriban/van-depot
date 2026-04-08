@@ -1,62 +1,86 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { useAuthStore } from '@/stores/auth-store';
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { toast } from 'sonner';
 import {
   Mail,
   Eye,
   EyeOff,
   Lock,
+  User,
   CheckCircle2,
   Loader2,
   AlertCircle,
 } from 'lucide-react';
 
-export default function LoginPage() {
-  const { login, isHydrated, user } = useAuthStore();
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3100';
+
+export default function RegistroPage() {
   const router = useRouter();
+  const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [acceptTerms, setAcceptTerms] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
 
-  useEffect(() => {
-    if (user) router.replace('/inicio');
-  }, [user, router]);
+  function validate(): string | null {
+    if (!name.trim()) return 'El nombre es requerido';
+    if (!email.trim()) return 'El correo es requerido';
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
+      return 'El correo no es valido';
+    if (password.length < 8)
+      return 'La contrasena debe tener al menos 8 caracteres';
+    if (password !== confirmPassword) return 'Las contrasenas no coinciden';
+    if (!acceptTerms) return 'Debes aceptar los terminos de servicio';
+    return null;
+  }
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError('');
+
+    const validationError = validate();
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+
     setIsSubmitting(true);
 
     try {
-      await login(email, password);
-      router.replace('/inicio');
+      const res = await fetch(`${API_URL}/auth/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: name.trim(), email: email.trim(), password }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({ error: 'Error al crear cuenta' }));
+        throw new Error(data.error || 'Error al crear cuenta');
+      }
+
+      toast.success('Cuenta creada exitosamente. Inicia sesion.');
+      router.push('/login');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error al iniciar sesion');
+      setError(err instanceof Error ? err.message : 'Error al crear cuenta');
     } finally {
       setIsSubmitting(false);
     }
   }
 
-  if (!isHydrated) {
-    return (
-      <div className="flex h-screen items-center justify-center">
-        <div className="text-muted-foreground">Cargando...</div>
-      </div>
-    );
-  }
-
   const features = [
-    'Inventario en tiempo real',
-    'Alertas de stock inteligentes',
-    'Trazabilidad completa',
+    'Sin tarjeta de credito',
+    'Configuracion en 5 minutos',
+    'Soporte incluido',
   ];
 
   return (
@@ -96,13 +120,13 @@ export default function LoginPage() {
 
           {/* Headline */}
           <h1 className="text-4xl font-bold leading-tight mb-4">
-            Gestiona tu inventario con inteligencia
+            Empieza a controlar tu inventario
           </h1>
 
           {/* Subtitle */}
           <p className="text-lg text-white/80 mb-10 leading-relaxed">
-            Control total de tu almacen, stock en tiempo real, y flujo de
-            materiales optimizado.
+            Crea tu cuenta en minutos y gestiona tu almacen de forma
+            inteligente.
           </p>
 
           {/* Feature bullets */}
@@ -124,7 +148,7 @@ export default function LoginPage() {
         </div>
       </div>
 
-      {/* Right panel - Login form */}
+      {/* Right panel - Register form */}
       <div className="flex flex-1 flex-col items-center justify-center bg-background px-6 py-12 lg:px-16">
         <div className="w-full max-w-sm">
           {/* Mobile logo */}
@@ -137,14 +161,34 @@ export default function LoginPage() {
               height={44}
               className="mb-3"
             />
-            <h2 className="text-2xl font-bold tracking-tight">VanFlux</h2>
+            <h2 className="text-2xl font-bold tracking-tight">Crear cuenta</h2>
             <p className="mt-1.5 text-sm text-muted-foreground">
-              Ingresa a tu cuenta
+              Registrate para comenzar
             </p>
           </div>
 
           {/* Form */}
           <form onSubmit={handleSubmit} className="space-y-5">
+            {/* Name */}
+            <div className="space-y-2">
+              <Label htmlFor="name">Nombre completo</Label>
+              <div className="relative">
+                <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+                <Input
+                  id="name"
+                  name="name"
+                  type="text"
+                  placeholder="Juan Perez"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  required
+                  autoComplete="name"
+                  autoFocus
+                  className="pl-10"
+                />
+              </div>
+            </div>
+
             {/* Email */}
             <div className="space-y-2">
               <Label htmlFor="email">Correo electronico</Label>
@@ -159,7 +203,6 @@ export default function LoginPage() {
                   onChange={(e) => setEmail(e.target.value)}
                   required
                   autoComplete="email"
-                  autoFocus
                   className="pl-10"
                 />
               </div>
@@ -174,11 +217,11 @@ export default function LoginPage() {
                   id="password"
                   name="password"
                   type={showPassword ? 'text' : 'password'}
-                  placeholder="********"
+                  placeholder="Minimo 8 caracteres"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
-                  autoComplete="current-password"
+                  autoComplete="new-password"
                   className="pl-10 pr-10"
                 />
                 <button
@@ -199,27 +242,70 @@ export default function LoginPage() {
               </div>
             </div>
 
-            {/* Remember me + Forgot password */}
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  id="remember"
-                  className="h-4 w-4 rounded border-border accent-primary"
+            {/* Confirm Password */}
+            <div className="space-y-2">
+              <Label htmlFor="confirmPassword">Confirmar contrasena</Label>
+              <div className="relative">
+                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+                <Input
+                  id="confirmPassword"
+                  name="confirmPassword"
+                  type={showConfirmPassword ? 'text' : 'password'}
+                  placeholder="Repite tu contrasena"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  required
+                  autoComplete="new-password"
+                  className="pl-10 pr-10"
                 />
-                <Label
-                  htmlFor="remember"
-                  className="text-sm font-normal text-muted-foreground cursor-pointer"
+                <button
+                  type="button"
+                  onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                  tabIndex={-1}
+                  aria-label={
+                    showConfirmPassword
+                      ? 'Ocultar contrasena'
+                      : 'Mostrar contrasena'
+                  }
                 >
-                  Recordarme
-                </Label>
+                  {showConfirmPassword ? (
+                    <EyeOff className="h-4 w-4" />
+                  ) : (
+                    <Eye className="h-4 w-4" />
+                  )}
+                </button>
               </div>
-              <Link
-                href="/recuperar"
-                className="text-sm font-medium text-primary hover:text-primary/80 transition-colors"
+            </div>
+
+            {/* Terms checkbox */}
+            <div className="flex items-start gap-2">
+              <input
+                type="checkbox"
+                id="terms"
+                checked={acceptTerms}
+                onChange={(e) => setAcceptTerms(e.target.checked)}
+                className="mt-1 h-4 w-4 rounded border-border accent-primary"
+              />
+              <Label
+                htmlFor="terms"
+                className="text-sm font-normal text-muted-foreground cursor-pointer leading-snug"
               >
-                Olvidaste tu contrasena?
-              </Link>
+                Acepto los{' '}
+                <Link
+                  href="/terminos"
+                  className="text-primary hover:text-primary/80 transition-colors underline"
+                >
+                  Terminos de servicio
+                </Link>{' '}
+                y la{' '}
+                <Link
+                  href="/privacidad"
+                  className="text-primary hover:text-primary/80 transition-colors underline"
+                >
+                  Politica de privacidad
+                </Link>
+              </Label>
             </div>
 
             {/* Error message */}
@@ -239,41 +325,41 @@ export default function LoginPage() {
               {isSubmitting ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Ingresando...
+                  Creando cuenta...
                 </>
               ) : (
-                'Iniciar sesion'
+                'Crear cuenta'
               )}
             </Button>
           </form>
 
-          {/* Register link */}
+          {/* Login link */}
           <div className="mt-6 text-center text-sm text-muted-foreground">
-            No tienes cuenta?{' '}
+            Ya tienes cuenta?{' '}
             <Link
-              href="/registro"
+              href="/login"
               className="font-medium text-primary hover:text-primary/80 transition-colors"
             >
-              Crear cuenta
+              Iniciar sesion
             </Link>
           </div>
 
           {/* Footer */}
           <div className="mt-12 flex flex-col items-center gap-2 text-xs text-muted-foreground">
             <div className="flex items-center gap-3">
-              <a
+              <Link
                 href="/terminos"
                 className="hover:text-foreground transition-colors"
               >
                 Terminos de servicio
-              </a>
+              </Link>
               <span aria-hidden="true">&middot;</span>
-              <a
+              <Link
                 href="/privacidad"
                 className="hover:text-foreground transition-colors"
               >
                 Politica de privacidad
-              </a>
+              </Link>
             </div>
             <p>&copy; 2026 VanFlux. Todos los derechos reservados.</p>
           </div>
