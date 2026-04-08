@@ -1,13 +1,20 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, Fragment } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api-mutations';
-import type { InventoryItem, Warehouse, Location, PaginatedResponse } from '@/types';
-import { DataTable, type ColumnDef } from '@/components/shared/data-table';
+import type {
+  InventoryItem,
+  Warehouse,
+  Location,
+  PaginatedResponse,
+  ProductLot,
+} from '@/types';
 import { EmptyState } from '@/components/shared/empty-state';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Skeleton } from '@/components/ui/skeleton';
 import { ClipboardIcon } from '@hugeicons/core-free-icons';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -18,8 +25,25 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 
 const PER_PAGE = 20;
+
+type StockFilter = 'all' | 'low' | 'critical';
 
 function StockBadge({ quantity, minStock }: { quantity: number; minStock: number }) {
   if (quantity === 0) {
@@ -29,7 +53,7 @@ function StockBadge({ quantity, minStock }: { quantity: number; minStock: number
       </Badge>
     );
   }
-  if (quantity <= minStock) {
+  if (minStock > 0 && quantity <= minStock) {
     return (
       <Badge className="bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200" data-testid="stock-badge-low">
         Bajo ({quantity}/{minStock})
@@ -43,7 +67,25 @@ function StockBadge({ quantity, minStock }: { quantity: number; minStock: number
   );
 }
 
+function QualityBadge({ status }: { status: string }) {
+  const map: Record<string, { label: string; className: string }> = {
+    approved: { label: 'Aprobado', className: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' },
+    pending: { label: 'Pendiente', className: 'bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200' },
+    rejected: { label: 'Rechazado', className: 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200' },
+    quarantine: { label: 'Cuarentena', className: 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200' },
+  };
+  const info = map[status] ?? { label: status, className: 'bg-muted text-muted-foreground' };
+  return <Badge className={info.className}>{info.label}</Badge>;
+}
+
+interface LotsData {
+  lots: ProductLot[];
+  isLoading: boolean;
+  error: string | null;
+}
+
 export default function InventoryPage() {
+  const router = useRouter();
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -56,7 +98,11 @@ export default function InventoryPage() {
   const [filterWarehouseId, setFilterWarehouseId] = useState('');
   const [filterLocationId, setFilterLocationId] = useState('');
   const [search, setSearch] = useState('');
-  const [lowStockOnly, setLowStockOnly] = useState(false);
+  const [stockFilter, setStockFilter] = useState<StockFilter>('all');
+
+  // Expandable rows
+  const [expandedItemId, setExpandedItemId] = useState<string | null>(null);
+  const [lotsCache, setLotsCache] = useState<Record<string, LotsData>>({});
 
   // Fetch warehouses for filter
   useEffect(() => {
@@ -91,7 +137,7 @@ export default function InventoryPage() {
       warehouseId: string,
       locationId: string,
       searchTerm: string,
-      lowStock: boolean
+      filter: StockFilter
     ) => {
       setIsLoading(true);
       setError(null);
@@ -102,8 +148,8 @@ export default function InventoryPage() {
         });
         if (warehouseId) params.set('warehouse_id', warehouseId);
         if (locationId) params.set('location_id', locationId);
-        if (searchTerm) params.set('product_id', searchTerm);
-        if (lowStock) params.set('low_stock', 'true');
+        if (searchTerm) params.set('search', searchTerm);
+        if (filter === 'low') params.set('low_stock', 'true');
         const res = await api.get<PaginatedResponse<InventoryItem>>(
           `/inventory?${params}`
         );
@@ -126,9 +172,46 @@ export default function InventoryPage() {
       filterWarehouseId,
       filterLocationId,
       search,
-      lowStockOnly
+      stockFilter
     );
-  }, [page, filterWarehouseId, filterLocationId, search, lowStockOnly, fetchInventory]);
+  }, [page, filterWarehouseId, filterLocationId, search, stockFilter, fetchInventory]);
+
+  // Fetch lots for a product when expanding
+  const fetchLots = useCallback(async (item: InventoryItem) => {
+    const cacheKey = `${item.product_id}_${item.location_id}`;
+    if (lotsCache[cacheKey] && !lotsCache[cacheKey].error) return;
+
+    setLotsCache((prev) => ({
+      ...prev,
+      [cacheKey]: { lots: [], isLoading: true, error: null },
+    }));
+
+    try {
+      const res = await api.get<PaginatedResponse<ProductLot> | ProductLot[]>(
+        `/products/${item.product_id}/lots`
+      );
+      const lots = Array.isArray(res) ? res : res.data;
+      setLotsCache((prev) => ({
+        ...prev,
+        [cacheKey]: { lots, isLoading: false, error: null },
+      }));
+    } catch {
+      setLotsCache((prev) => ({
+        ...prev,
+        [cacheKey]: { lots: [], isLoading: false, error: 'Error al cargar lotes' },
+      }));
+    }
+  }, [lotsCache]);
+
+  const handleToggleExpand = (item: InventoryItem) => {
+    const itemKey = `${item.product_id}_${item.location_id}`;
+    if (expandedItemId === itemKey) {
+      setExpandedItemId(null);
+    } else {
+      setExpandedItemId(itemKey);
+      fetchLots(item);
+    }
+  };
 
   const handleWarehouseChange = (value: string) => {
     setFilterWarehouseId(value);
@@ -146,69 +229,18 @@ export default function InventoryPage() {
     setPage(1);
   };
 
-  const handleLowStockToggle = () => {
-    setLowStockOnly((prev) => !prev);
+  const handleStockFilterChange = (value: StockFilter) => {
+    setStockFilter(value);
     setPage(1);
   };
 
-  const columns: ColumnDef<InventoryItem>[] = [
-    {
-      key: 'product',
-      header: 'Producto',
-      render: (item) => (
-        <div>
-          <span className="font-medium">{item.product_name}</span>
-          <span className="ml-2 font-mono text-sm text-muted-foreground">
-            {item.product_sku}
-          </span>
-        </div>
-      ),
-    },
-    {
-      key: 'location',
-      header: 'Ubicacion',
-      render: (item) => item.location_name,
-    },
-    {
-      key: 'warehouse',
-      header: 'Almacen',
-      render: (item) => {
-        const wh = warehouses.find((w) => w.id === item.warehouse_id);
-        return wh ? wh.name : item.warehouse_id;
-      },
-    },
-    {
-      key: 'quantity',
-      header: 'Cantidad',
-      render: (item) => (
-        <span className="font-medium" data-testid="inventory-quantity">
-          {item.quantity}
-        </span>
-      ),
-    },
-    {
-      key: 'min_stock',
-      header: 'Stock min',
-      render: (item) => item.min_stock,
-    },
-    {
-      key: 'status',
-      header: 'Estado',
-      render: (item) => (
-        <StockBadge quantity={item.quantity} minStock={item.min_stock} />
-      ),
-    },
-    {
-      key: 'actions',
-      header: '',
-      render: (item) =>
-        item.quantity <= item.min_stock ? (
-          <Button variant="outline" size="sm" asChild>
-            <Link href="/movimientos">Registrar entrada</Link>
-          </Button>
-        ) : null,
-    },
-  ];
+  // Client-side filter for 'critical' (quantity === 0)
+  const filteredItems = stockFilter === 'critical'
+    ? items.filter((item) => item.quantity === 0)
+    : items;
+
+  const totalPages = Math.ceil(total / PER_PAGE);
+  const COL_COUNT = 7;
 
   return (
     <div className="space-y-6" data-testid="inventory-page">
@@ -281,18 +313,32 @@ export default function InventoryPage() {
           />
         </div>
 
+        {/* Stock filter buttons */}
         <div className="flex items-center gap-2 pb-0.5">
-          <input
-            type="checkbox"
-            id="low-stock-toggle"
-            checked={lowStockOnly}
-            onChange={handleLowStockToggle}
-            className="h-4 w-4 rounded border-gray-300"
-            data-testid="low-stock-toggle"
-          />
-          <Label htmlFor="low-stock-toggle" className="text-sm cursor-pointer">
-            Solo stock bajo
-          </Label>
+          <Button
+            variant={stockFilter === 'all' ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => handleStockFilterChange('all')}
+            data-testid="filter-all"
+          >
+            Todos
+          </Button>
+          <Button
+            variant={stockFilter === 'low' ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => handleStockFilterChange('low')}
+            data-testid="filter-low"
+          >
+            Stock bajo
+          </Button>
+          <Button
+            variant={stockFilter === 'critical' ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => handleStockFilterChange('critical')}
+            data-testid="filter-critical"
+          >
+            Sin stock
+          </Button>
         </div>
       </div>
 
@@ -302,32 +348,260 @@ export default function InventoryPage() {
         </div>
       )}
 
-      <DataTable
-        columns={columns}
-        data={items}
-        total={total}
-        page={page}
-        perPage={PER_PAGE}
-        onPageChange={setPage}
-        isLoading={isLoading}
-        rowClassName={(item) =>
-          item.quantity === 0
-            ? 'border-l-4 border-l-red-500'
-            : item.quantity <= item.min_stock
-              ? 'border-l-4 border-l-amber-500'
-              : ''
-        }
-        emptyMessage="No hay registros de inventario"
-        emptyState={
-          <EmptyState
-            icon={ClipboardIcon}
-            title="No hay inventario registrado"
-            description="Registra una entrada de material para ver el stock aqui."
-            actionLabel="Ir a movimientos"
-            actionHref="/movimientos"
-          />
-        }
-      />
+      {/* Table */}
+      {isLoading ? (
+        <div className="space-y-3">
+          <div className="rounded-4xl border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-8" />
+                  <TableHead>Producto</TableHead>
+                  <TableHead>Ubicacion</TableHead>
+                  <TableHead>Almacen</TableHead>
+                  <TableHead>Cantidad</TableHead>
+                  <TableHead>Stock min</TableHead>
+                  <TableHead>Estado</TableHead>
+                  <TableHead className="w-10" />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {Array.from({ length: 5 }).map((_, i) => (
+                  <TableRow key={i}>
+                    {Array.from({ length: COL_COUNT + 1 }).map((_, j) => (
+                      <TableCell key={j}>
+                        <Skeleton className="h-4 w-24" />
+                      </TableCell>
+                    ))}
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        </div>
+      ) : filteredItems.length === 0 ? (
+        <EmptyState
+          icon={ClipboardIcon}
+          title="No hay inventario registrado"
+          description="Registra una entrada de material para ver el stock aqui."
+          actionLabel="Ir a movimientos"
+          actionHref="/movimientos"
+        />
+      ) : (
+        <div className="space-y-4">
+          <div className="rounded-4xl border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-8" />
+                  <TableHead>Producto</TableHead>
+                  <TableHead>Ubicacion</TableHead>
+                  <TableHead>Almacen</TableHead>
+                  <TableHead>Cantidad</TableHead>
+                  <TableHead>Stock min</TableHead>
+                  <TableHead>Estado</TableHead>
+                  <TableHead className="w-10" />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredItems.map((item) => {
+                  const itemKey = `${item.product_id}_${item.location_id}`;
+                  const isExpanded = expandedItemId === itemKey;
+                  const lotsData = lotsCache[itemKey];
+                  const wh = warehouses.find((w) => w.id === item.warehouse_id);
+
+                  return (
+                    <Fragment key={itemKey}>
+                      <TableRow
+                        className={`cursor-pointer transition-colors hover:bg-muted/50 ${
+                          item.quantity === 0
+                            ? 'border-l-4 border-l-red-500'
+                            : item.quantity <= item.min_stock && item.min_stock > 0
+                              ? 'border-l-4 border-l-amber-500'
+                              : ''
+                        } ${isExpanded ? 'bg-muted/30' : ''}`}
+                        onClick={() => handleToggleExpand(item)}
+                      >
+                        <TableCell className="w-8 text-center">
+                          <span className="text-muted-foreground text-sm">
+                            {isExpanded ? '\u25BC' : '\u25B6'}
+                          </span>
+                        </TableCell>
+                        <TableCell>
+                          <div>
+                            <Link
+                              href={`/productos/${item.product_id}`}
+                              className="font-bold text-foreground hover:underline"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              {item.product_name}
+                            </Link>
+                            <span className="ml-2 font-mono text-sm text-muted-foreground">
+                              {item.product_sku}
+                            </span>
+                          </div>
+                        </TableCell>
+                        <TableCell>{item.location_name}</TableCell>
+                        <TableCell>{wh ? wh.name : item.warehouse_id}</TableCell>
+                        <TableCell>
+                          <span className="font-medium" data-testid="inventory-quantity">
+                            {item.quantity}
+                          </span>
+                        </TableCell>
+                        <TableCell>{item.min_stock}</TableCell>
+                        <TableCell>
+                          <StockBadge quantity={item.quantity} minStock={item.min_stock} />
+                        </TableCell>
+                        <TableCell onClick={(e) => e.stopPropagation()}>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-8 w-8 p-0"
+                                data-testid="inventory-actions-btn"
+                              >
+                                <span className="sr-only">Abrir menu</span>
+                                <span className="text-lg leading-none">...</span>
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem
+                                onClick={() => router.push(`/movimientos?tab=entry&product=${item.product_id}`)}
+                              >
+                                Registrar entrada
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={() => router.push(`/movimientos?tab=adjustment&product=${item.product_id}`)}
+                              >
+                                Ajustar inventario
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem
+                                onClick={() => router.push(`/productos/${item.product_id}`)}
+                              >
+                                Ver producto
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={() => router.push(`/productos/${item.product_id}?tab=movimientos`)}
+                              >
+                                Ver movimientos
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </TableCell>
+                      </TableRow>
+
+                      {/* Expanded lots row */}
+                      {isExpanded && (
+                        <TableRow className="bg-muted/20 hover:bg-muted/20">
+                          <TableCell colSpan={COL_COUNT + 1} className="p-0">
+                            <div className="px-6 py-4 pl-12">
+                              {lotsData?.isLoading ? (
+                                <div className="space-y-2">
+                                  <Skeleton className="h-4 w-64" />
+                                  <Skeleton className="h-4 w-48" />
+                                </div>
+                              ) : lotsData?.error ? (
+                                <p className="text-sm text-destructive">{lotsData.error}</p>
+                              ) : lotsData && lotsData.lots.length > 0 ? (
+                                <div className="space-y-2">
+                                  <div className="flex items-center gap-2 mb-3">
+                                    <span className="text-sm font-semibold text-foreground">
+                                      Lotes ({lotsData.lots.length})
+                                    </span>
+                                    <Badge className="bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">
+                                      Con lotes
+                                    </Badge>
+                                  </div>
+                                  <div className="rounded-2xl border bg-background">
+                                    <Table>
+                                      <TableHeader>
+                                        <TableRow>
+                                          <TableHead className="text-xs">Lote</TableHead>
+                                          <TableHead className="text-xs">Cantidad recibida</TableHead>
+                                          <TableHead className="text-xs">Cantidad total</TableHead>
+                                          <TableHead className="text-xs">Vencimiento</TableHead>
+                                          <TableHead className="text-xs">Calidad</TableHead>
+                                          <TableHead className="text-xs">Notas</TableHead>
+                                        </TableRow>
+                                      </TableHeader>
+                                      <TableBody>
+                                        {lotsData.lots.map((lot) => (
+                                          <TableRow key={lot.id}>
+                                            <TableCell className="font-mono text-sm">
+                                              {lot.lot_number}
+                                            </TableCell>
+                                            <TableCell className="text-sm">
+                                              {lot.received_quantity}
+                                            </TableCell>
+                                            <TableCell className="text-sm font-medium">
+                                              {lot.total_quantity}
+                                            </TableCell>
+                                            <TableCell className="text-sm">
+                                              {lot.expiration_date
+                                                ? new Date(lot.expiration_date).toLocaleDateString('es-MX')
+                                                : '-'}
+                                            </TableCell>
+                                            <TableCell>
+                                              <QualityBadge status={lot.quality_status} />
+                                            </TableCell>
+                                            <TableCell className="text-sm text-muted-foreground">
+                                              {lot.notes ?? '-'}
+                                            </TableCell>
+                                          </TableRow>
+                                        ))}
+                                      </TableBody>
+                                    </Table>
+                                  </div>
+                                </div>
+                              ) : (
+                                <p className="text-sm text-muted-foreground">
+                                  Stock registrado sin lotes
+                                </p>
+                              )}
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </Fragment>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </div>
+
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-muted-foreground">
+                Mostrando {(page - 1) * PER_PAGE + 1}-{Math.min(page * PER_PAGE, total)} de {total}
+              </p>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPage(page - 1)}
+                  disabled={page <= 1}
+                >
+                  Anterior
+                </Button>
+                <span className="text-sm text-muted-foreground">
+                  {page} / {totalPages}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPage(page + 1)}
+                  disabled={page >= totalPages}
+                >
+                  Siguiente
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

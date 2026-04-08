@@ -470,6 +470,12 @@ impl InventoryService for PgInventoryService {
             idx += 1;
             where_clauses.push(format!("i.product_id = ${idx}"));
         }
+        if filters.search.is_some() {
+            idx += 1;
+            where_clauses.push(format!(
+                "(p.name ILIKE '%' || ${idx} || '%' OR p.sku ILIKE '%' || ${idx} || '%')"
+            ));
+        }
         if filters.low_stock == Some(true) {
             where_clauses.push("i.quantity <= p.min_stock AND p.min_stock > 0".to_string());
         }
@@ -490,6 +496,9 @@ impl InventoryService for PgInventoryService {
         }
         if let Some(pid) = filters.product_id {
             count_query = count_query.bind(pid);
+        }
+        if let Some(ref s) = filters.search {
+            count_query = count_query.bind(s);
         }
 
         let total = count_query
@@ -519,6 +528,9 @@ impl InventoryService for PgInventoryService {
         }
         if let Some(pid) = filters.product_id {
             data_query = data_query.bind(pid);
+        }
+        if let Some(ref s) = filters.search {
+            data_query = data_query.bind(s);
         }
         data_query = data_query.bind(limit).bind(offset);
 

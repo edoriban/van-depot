@@ -22,6 +22,7 @@ pub struct InventoryQueryParams {
     pub location_id: Option<Uuid>,
     pub product_id: Option<Uuid>,
     pub low_stock: Option<bool>,
+    pub search: Option<String>,
     pub page: Option<i64>,
     pub per_page: Option<i64>,
 }
@@ -81,6 +82,7 @@ async fn list_inventory(
         location_id: params.location_id,
         product_id: params.product_id,
         low_stock: params.low_stock,
+        search: params.search,
     };
 
     let svc = PgInventoryService::new(state.pool.clone());

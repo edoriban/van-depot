@@ -60,6 +60,7 @@ pub struct InventoryFilters {
     pub location_id: Option<Uuid>,
     pub product_id: Option<Uuid>,
     pub low_stock: Option<bool>,
+    pub search: Option<String>,
 }
 
 // ── Enriched read model (JOINed data) ───────────────────────────────
