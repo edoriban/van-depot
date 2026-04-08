@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, useSearchParams, useRouter, usePathname } from 'next/navigation';
 import useSWR from 'swr';
 import dynamic from 'next/dynamic';
 import { api } from '@/lib/api-mutations';
@@ -639,6 +639,16 @@ function MovementsTab({ warehouseId }: { warehouseId: string }) {
 export default function WarehouseDetailPage() {
   const params = useParams();
   const warehouseId = params.id as string;
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
+  const activeTab = searchParams.get('tab') || 'ubicaciones';
+
+  const handleTabChange = (value: string) => {
+    const sp = new URLSearchParams(searchParams.toString());
+    sp.set('tab', value);
+    router.replace(`${pathname}?${sp.toString()}`, { scroll: false });
+  };
 
   const [warehouse, setWarehouse] = useState<Warehouse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -713,7 +723,7 @@ export default function WarehouseDetailPage() {
       </div>
 
       {/* Tabs */}
-      <Tabs defaultValue="ubicaciones">
+      <Tabs value={activeTab} onValueChange={handleTabChange}>
         <TabsList>
           <TabsTrigger value="ubicaciones" data-testid="tab-ubicaciones">
             Ubicaciones

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 import { api } from '@/lib/api-mutations';
 import type { Product, Category, PaginatedResponse, UnitType } from '@/types';
 import { DataTable, type ColumnDef } from '@/components/shared/data-table';
@@ -689,6 +690,17 @@ function CategoriesTab({
 // ==========================================
 
 export default function ProductosPage() {
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
+  const activeTab = searchParams.get('tab') || 'productos';
+
+  const handleTabChange = (value: string) => {
+    const sp = new URLSearchParams(searchParams.toString());
+    sp.set('tab', value);
+    router.replace(`${pathname}?${sp.toString()}`, { scroll: false });
+  };
+
   const [categories, setCategories] = useState<Category[]>([]);
 
   const fetchCategories = useCallback(async () => {
@@ -715,7 +727,7 @@ export default function ProductosPage() {
         </p>
       </div>
 
-      <Tabs defaultValue="productos">
+      <Tabs value={activeTab} onValueChange={handleTabChange}>
         <TabsList>
           <TabsTrigger value="productos" data-testid="tab-productos">
             Productos

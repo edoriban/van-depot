@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 import { api } from '@/lib/api-mutations';
 import type {
   Movement,
@@ -1291,6 +1292,17 @@ interface MovementWithDetails extends Movement {
 // --- Main Page ---
 
 export default function MovementsPage() {
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
+  const activeTab = searchParams.get('tab') || 'entry';
+
+  const handleTabChange = (value: string) => {
+    const sp = new URLSearchParams(searchParams.toString());
+    sp.set('tab', value);
+    router.replace(`${pathname}?${sp.toString()}`, { scroll: false });
+  };
+
   const products = useProducts();
   const warehouses = useWarehouses();
   const suppliers = useSuppliers();
@@ -1417,7 +1429,7 @@ export default function MovementsPage() {
 
       {/* Section 1: Movement Actions */}
       <Card className="p-6">
-        <Tabs defaultValue="entry" data-testid="movement-tabs">
+        <Tabs value={activeTab} onValueChange={handleTabChange} data-testid="movement-tabs">
           <TabsList data-testid="movement-tabs-list">
             <TabsTrigger value="entry" data-testid="tab-entry">Entrada</TabsTrigger>
             <TabsTrigger value="exit" data-testid="tab-exit">Salida</TabsTrigger>
