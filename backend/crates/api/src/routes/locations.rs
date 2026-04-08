@@ -39,6 +39,7 @@ pub struct UpdateLocationRequest {
 #[derive(Deserialize)]
 pub struct LocationListParams {
     pub parent_id: Option<Uuid>,
+    pub all: Option<bool>,
     pub page: Option<i64>,
     pub per_page: Option<i64>,
 }
@@ -127,10 +128,12 @@ async fn list_locations(
     };
 
     let repo = PgLocationRepository::new(state.pool.clone());
+    let fetch_all = params.all.unwrap_or(false);
     let (locations, total) = repo
         .list_by_warehouse(
             warehouse_id,
-            params.parent_id,
+            if fetch_all { None } else { params.parent_id },
+            fetch_all,
             pagination.limit(),
             pagination.offset(),
         )

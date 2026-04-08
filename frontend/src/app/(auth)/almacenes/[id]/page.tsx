@@ -320,7 +320,7 @@ function LocationsTab({ warehouseId }: { warehouseId: string }) {
     setError(null);
     try {
       const res = await api.get<PaginatedResponse<Location>>(
-        `/warehouses/${warehouseId}/locations?page=1&per_page=500`
+        `/warehouses/${warehouseId}/locations?all=true&page=1&per_page=500`
       );
       setAllLocations(res.data);
       setTotal(res.total);

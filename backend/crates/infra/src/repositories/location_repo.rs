@@ -76,10 +76,18 @@ impl LocationRepository for PgLocationRepository {
         &self,
         warehouse_id: Uuid,
         parent_id: Option<Uuid>,
+        fetch_all: bool,
         limit: i64,
         offset: i64,
     ) -> Result<(Vec<Location>, i64), DomainError> {
-        let (count_sql, data_sql) = if parent_id.is_some() {
+        let (count_sql, data_sql) = if fetch_all {
+            (
+                "SELECT COUNT(*) FROM locations WHERE warehouse_id = $1",
+                "SELECT id, warehouse_id, parent_id, location_type, name, label, is_active, pos_x, pos_y, width, height, created_at, updated_at \
+                 FROM locations WHERE warehouse_id = $1 \
+                 ORDER BY created_at DESC LIMIT $2 OFFSET $3",
+            )
+        } else if parent_id.is_some() {
             (
                 "SELECT COUNT(*) FROM locations WHERE warehouse_id = $1 AND parent_id = $2",
                 "SELECT id, warehouse_id, parent_id, location_type, name, label, is_active, pos_x, pos_y, width, height, created_at, updated_at \
@@ -114,6 +122,8 @@ impl LocationRepository for PgLocationRepository {
 
             Ok((rows.into_iter().map(Into::into).collect(), total.0))
         } else {
+            // fetch_all=true (no parent filter) and default (parent_id IS NULL)
+            // both use same binding pattern: warehouse_id + limit + offset
             let total: (i64,) = sqlx::query_as(count_sql)
                 .bind(warehouse_id)
                 .fetch_one(&self.pool)

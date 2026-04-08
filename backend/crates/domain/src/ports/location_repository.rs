@@ -12,6 +12,7 @@ pub trait LocationRepository: Send + Sync {
         &self,
         warehouse_id: Uuid,
         parent_id: Option<Uuid>,
+        fetch_all: bool,
         limit: i64,
         offset: i64,
     ) -> Result<(Vec<Location>, i64), DomainError>;
