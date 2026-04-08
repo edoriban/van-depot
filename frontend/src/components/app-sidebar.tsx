@@ -60,6 +60,7 @@ const navGroups: NavGroup[] = [
     items: [
       { title: 'Productos', href: '/productos', icon: Package01Icon },
       { title: 'Proveedores', href: '/proveedores', icon: DeliveryTruck01Icon },
+      { title: 'Ordenes de Compra', href: '/proveedores/ordenes', icon: ClipboardIcon },
       { title: 'Lotes', href: '/lotes', icon: Layers01Icon },
     ],
   },
@@ -96,9 +97,26 @@ const adminGroup: NavGroup = {
   ],
 };
 
+// Collect all nav hrefs for precise active matching
+const allNavHrefs: string[] = [
+  ...navGroups.flatMap((g) => g.items.map((i) => i.href)),
+  ...adminGroup.items.map((i) => i.href),
+];
+
 function isActive(pathname: string, href: string): boolean {
   if (href === '/inicio') return pathname === href;
-  return pathname === href || pathname.startsWith(href + '/');
+  if (pathname === href) return true;
+  if (pathname.startsWith(href + '/')) {
+    // Check if a more specific nav item matches this pathname
+    const hasMoreSpecificMatch = allNavHrefs.some(
+      (other) =>
+        other !== href &&
+        other.length > href.length &&
+        (pathname === other || pathname.startsWith(other + '/'))
+    );
+    return !hasMoreSpecificMatch;
+  }
+  return false;
 }
 
 export function AppSidebar() {

@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { api } from '@/lib/api-mutations';
 import type {
   PurchaseOrder,
@@ -303,12 +304,17 @@ function CreatePurchaseOrderDialog({
 
 // --- Main Page ---
 
-export default function OrdenesPage() {
+function OrdenesPageInner() {
+  const searchParams = useSearchParams();
+  const initialSupplierId = searchParams.get('supplier_id') || '';
+
   const [orders, setOrders] = useState<PurchaseOrder[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState<PurchaseOrderStatus | 'all'>('all');
-  const [supplierFilter, setSupplierFilter] = useState('');
+  const [supplierFilter, setSupplierFilter] = useState(initialSupplierId);
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
@@ -329,6 +335,8 @@ export default function OrdenesPage() {
       const params = new URLSearchParams();
       if (statusFilter !== 'all') params.set('status', statusFilter);
       if (supplierFilter) params.set('supplier_id', supplierFilter);
+      if (fromDate) params.set('from_date', fromDate);
+      if (toDate) params.set('to_date', toDate);
       params.set('page', String(page));
       params.set('per_page', '20');
       const res = await api.get<PaginatedResponse<PurchaseOrder>>(
@@ -341,7 +349,7 @@ export default function OrdenesPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [statusFilter, supplierFilter, page]);
+  }, [statusFilter, supplierFilter, fromDate, toDate, page]);
 
   useEffect(() => {
     fetchOrders();
@@ -507,6 +515,30 @@ export default function OrdenesPage() {
             className="w-52"
           />
         </div>
+        <div className="flex items-center gap-2">
+          <Label className="text-sm whitespace-nowrap">Desde:</Label>
+          <Input
+            type="date"
+            value={fromDate}
+            onChange={(e) => {
+              setFromDate(e.target.value);
+              setPage(1);
+            }}
+            className="w-40"
+          />
+        </div>
+        <div className="flex items-center gap-2">
+          <Label className="text-sm whitespace-nowrap">Hasta:</Label>
+          <Input
+            type="date"
+            value={toDate}
+            onChange={(e) => {
+              setToDate(e.target.value);
+              setPage(1);
+            }}
+            className="w-40"
+          />
+        </div>
       </div>
 
       <DataTable
@@ -545,5 +577,13 @@ export default function OrdenesPage() {
         isLoading={isCancelling}
       />
     </div>
+  );
+}
+
+export default function OrdenesPage() {
+  return (
+    <Suspense fallback={<div className="p-6">Cargando...</div>}>
+      <OrdenesPageInner />
+    </Suspense>
   );
 }

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { api } from '@/lib/api-mutations';
-import type { Supplier, SupplierProduct, Product, PaginatedResponse } from '@/types';
+import type { Supplier, SupplierProduct, Product, PaginatedResponse, PurchaseOrder } from '@/types';
 import { DataTable, type ColumnDef } from '@/components/shared/data-table';
 import { EmptyState } from '@/components/shared/empty-state';
 import { ConfirmDialog } from '@/components/shared/confirm-dialog';
@@ -26,6 +26,7 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { toast } from 'sonner';
+import Link from 'next/link';
 
 // --- Supplier Products Dialog ---
 
@@ -39,6 +40,7 @@ function SupplierProductsDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   const [products, setProducts] = useState<SupplierProduct[]>([]);
+  const [productSearch, setProductSearch] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [linkOpen, setLinkOpen] = useState(false);
 
@@ -207,9 +209,23 @@ function SupplierProductsDialog({
                 Vincular producto
               </Button>
             </div>
+            <Input
+              placeholder="Buscar producto por nombre o SKU..."
+              value={productSearch}
+              onChange={(e) => setProductSearch(e.target.value)}
+              className="max-w-sm"
+            />
             <DataTable
               columns={columns}
-              data={products}
+              data={products.filter((sp) => {
+                if (!productSearch) return true;
+                const q = productSearch.toLowerCase();
+                return (
+                  sp.product_name.toLowerCase().includes(q) ||
+                  sp.product_sku.toLowerCase().includes(q) ||
+                  (sp.supplier_sku && sp.supplier_sku.toLowerCase().includes(q))
+                );
+              })}
               total={products.length}
               page={1}
               perPage={100}
@@ -344,6 +360,9 @@ export default function ProveedoresPage() {
   // Products dialog state
   const [productsSupplier, setProductsSupplier] = useState<Supplier | null>(null);
 
+  // Pending orders count per supplier
+  const [pendingBySupplier, setPendingBySupplier] = useState<Map<string, number>>(new Map());
+
   const perPage = 20;
 
   const fetchSuppliers = useCallback(async (p: number) => {
@@ -362,9 +381,30 @@ export default function ProveedoresPage() {
     }
   }, []);
 
+  const fetchPendingOrders = useCallback(async () => {
+    try {
+      const [sentRes, partialRes] = await Promise.all([
+        api.get<PaginatedResponse<PurchaseOrder>>('/purchase-orders?status=sent&per_page=100'),
+        api.get<PaginatedResponse<PurchaseOrder>>('/purchase-orders?status=partially_received&per_page=100'),
+      ]);
+      const map = new Map<string, number>();
+      const allPending = [...sentRes.data, ...partialRes.data];
+      allPending.forEach((o) => {
+        map.set(o.supplier_id, (map.get(o.supplier_id) || 0) + 1);
+      });
+      setPendingBySupplier(map);
+    } catch {
+      // non-critical
+    }
+  }, []);
+
   useEffect(() => {
     fetchSuppliers(page);
   }, [page, fetchSuppliers]);
+
+  useEffect(() => {
+    fetchPendingOrders();
+  }, [fetchPendingOrders]);
 
   const openCreateDialog = () => {
     setEditingSupplier(null);
@@ -427,7 +467,15 @@ export default function ProveedoresPage() {
     {
       key: 'name',
       header: 'Nombre',
-      render: (s) => <span className="font-medium">{s.name}</span>,
+      render: (s) => (
+        <Link
+          href={`/proveedores/${s.id}`}
+          className="font-bold text-foreground hover:underline"
+          data-testid="supplier-detail-link"
+        >
+          {s.name}
+        </Link>
+      ),
     },
     {
       key: 'contact_name',
@@ -448,10 +496,32 @@ export default function ProveedoresPage() {
         s.email || <span className="text-muted-foreground">-</span>,
     },
     {
+      key: 'pending',
+      header: 'Pendientes',
+      render: (s) => {
+        const count = pendingBySupplier.get(s.id);
+        if (!count) return <span className="text-muted-foreground">-</span>;
+        return (
+          <Badge className="bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300">
+            {count} pendiente{count !== 1 ? 's' : ''}
+          </Badge>
+        );
+      },
+    },
+    {
       key: 'actions',
       header: 'Acciones',
       render: (s) => (
         <div className="flex items-center gap-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            asChild
+          >
+            <Link href={`/proveedores/ordenes?supplier_id=${s.id}`}>
+              Ver ordenes
+            </Link>
+          </Button>
           <Button
             variant="ghost"
             size="sm"
