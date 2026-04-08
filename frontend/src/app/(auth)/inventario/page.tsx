@@ -348,260 +348,310 @@ export default function InventoryPage() {
         </div>
       )}
 
-      {/* Table */}
-      {isLoading ? (
-        <div className="space-y-3">
-          <div className="rounded-4xl border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-8" />
-                  <TableHead>Producto</TableHead>
-                  <TableHead>Ubicacion</TableHead>
-                  <TableHead>Almacen</TableHead>
-                  <TableHead>Cantidad</TableHead>
-                  <TableHead>Stock min</TableHead>
-                  <TableHead>Estado</TableHead>
-                  <TableHead className="w-10" />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {Array.from({ length: 5 }).map((_, i) => (
-                  <TableRow key={i}>
-                    {Array.from({ length: COL_COUNT + 1 }).map((_, j) => (
-                      <TableCell key={j}>
-                        <Skeleton className="h-4 w-24" />
-                      </TableCell>
-                    ))}
+      {/* Table — all three states rendered simultaneously; opacity crossfades between them */}
+      <div className="relative" style={{ minHeight: '320px' }}>
+        {/* Skeleton — visible while loading */}
+        <div
+          className="transition-opacity duration-200 ease-in-out"
+          style={{
+            opacity: isLoading ? 1 : 0,
+            pointerEvents: isLoading ? 'auto' : 'none',
+            position: 'absolute',
+            inset: 0,
+          }}
+        >
+          <div className="space-y-3">
+            <div className="rounded-4xl border">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-8" />
+                    <TableHead>Producto</TableHead>
+                    <TableHead>Ubicacion</TableHead>
+                    <TableHead>Almacen</TableHead>
+                    <TableHead>Cantidad</TableHead>
+                    <TableHead>Stock min</TableHead>
+                    <TableHead>Estado</TableHead>
+                    <TableHead className="w-10" />
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-        </div>
-      ) : filteredItems.length === 0 ? (
-        <EmptyState
-          icon={ClipboardIcon}
-          title="No hay inventario registrado"
-          description="Registra una entrada de material para ver el stock aqui."
-          actionLabel="Ir a movimientos"
-          actionHref="/movimientos"
-        />
-      ) : (
-        <div className="space-y-4">
-          <div className="rounded-4xl border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-8" />
-                  <TableHead>Producto</TableHead>
-                  <TableHead>Ubicacion</TableHead>
-                  <TableHead>Almacen</TableHead>
-                  <TableHead>Cantidad</TableHead>
-                  <TableHead>Stock min</TableHead>
-                  <TableHead>Estado</TableHead>
-                  <TableHead className="w-10" />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredItems.map((item) => {
-                  const itemKey = `${item.product_id}_${item.location_id}`;
-                  const isExpanded = expandedItemId === itemKey;
-                  const lotsData = lotsCache[itemKey];
-                  const wh = warehouses.find((w) => w.id === item.warehouse_id);
-
-                  return (
-                    <Fragment key={itemKey}>
-                      <TableRow
-                        className={`cursor-pointer transition-colors hover:bg-muted/50 ${
-                          item.quantity === 0
-                            ? 'border-l-4 border-l-red-500'
-                            : item.quantity <= item.min_stock && item.min_stock > 0
-                              ? 'border-l-4 border-l-amber-500'
-                              : ''
-                        } ${isExpanded ? 'bg-muted/30' : ''}`}
-                        onClick={() => handleToggleExpand(item)}
-                      >
-                        <TableCell className="w-8 text-center">
-                          <span className="text-muted-foreground text-sm">
-                            {isExpanded ? '\u25BC' : '\u25B6'}
-                          </span>
+                </TableHeader>
+                <TableBody>
+                  {Array.from({ length: 5 }).map((_, i) => (
+                    <TableRow key={i}>
+                      {Array.from({ length: COL_COUNT + 1 }).map((_, j) => (
+                        <TableCell key={j}>
+                          <Skeleton className="h-4 w-24" />
                         </TableCell>
-                        <TableCell>
-                          <div>
-                            <Link
-                              href={`/productos/${item.product_id}`}
-                              className="font-bold text-foreground hover:underline"
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              {item.product_name}
-                            </Link>
-                            <span className="ml-2 font-mono text-sm text-muted-foreground">
-                              {item.product_sku}
-                            </span>
-                          </div>
-                        </TableCell>
-                        <TableCell>{item.location_name}</TableCell>
-                        <TableCell>{wh ? wh.name : item.warehouse_id}</TableCell>
-                        <TableCell>
-                          <span className="font-medium" data-testid="inventory-quantity">
-                            {item.quantity}
-                          </span>
-                        </TableCell>
-                        <TableCell>{item.min_stock}</TableCell>
-                        <TableCell>
-                          <StockBadge quantity={item.quantity} minStock={item.min_stock} />
-                        </TableCell>
-                        <TableCell onClick={(e) => e.stopPropagation()}>
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-8 w-8 p-0"
-                                data-testid="inventory-actions-btn"
-                              >
-                                <span className="sr-only">Abrir menu</span>
-                                <span className="text-lg leading-none">...</span>
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                              <DropdownMenuItem
-                                onClick={() => router.push(`/movimientos?tab=entry&product=${item.product_id}`)}
-                              >
-                                Registrar entrada
-                              </DropdownMenuItem>
-                              <DropdownMenuItem
-                                onClick={() => router.push(`/movimientos?tab=adjustment&product=${item.product_id}`)}
-                              >
-                                Ajustar inventario
-                              </DropdownMenuItem>
-                              <DropdownMenuSeparator />
-                              <DropdownMenuItem
-                                onClick={() => router.push(`/productos/${item.product_id}`)}
-                              >
-                                Ver producto
-                              </DropdownMenuItem>
-                              <DropdownMenuItem
-                                onClick={() => router.push(`/productos/${item.product_id}?tab=movimientos`)}
-                              >
-                                Ver movimientos
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        </TableCell>
-                      </TableRow>
-
-                      {/* Expanded lots row */}
-                      {isExpanded && (
-                        <TableRow className="bg-muted/20 hover:bg-muted/20">
-                          <TableCell colSpan={COL_COUNT + 1} className="p-0">
-                            <div className="px-6 py-4 pl-12">
-                              {lotsData?.isLoading ? (
-                                <div className="space-y-2">
-                                  <Skeleton className="h-4 w-64" />
-                                  <Skeleton className="h-4 w-48" />
-                                </div>
-                              ) : lotsData?.error ? (
-                                <p className="text-sm text-destructive">{lotsData.error}</p>
-                              ) : lotsData && lotsData.lots.length > 0 ? (
-                                <div className="space-y-2">
-                                  <div className="flex items-center gap-2 mb-3">
-                                    <span className="text-sm font-semibold text-foreground">
-                                      Lotes ({lotsData.lots.length})
-                                    </span>
-                                    <Badge className="bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">
-                                      Con lotes
-                                    </Badge>
-                                  </div>
-                                  <div className="rounded-2xl border bg-background">
-                                    <Table>
-                                      <TableHeader>
-                                        <TableRow>
-                                          <TableHead className="text-xs">Lote</TableHead>
-                                          <TableHead className="text-xs">Cantidad recibida</TableHead>
-                                          <TableHead className="text-xs">Cantidad total</TableHead>
-                                          <TableHead className="text-xs">Vencimiento</TableHead>
-                                          <TableHead className="text-xs">Calidad</TableHead>
-                                          <TableHead className="text-xs">Notas</TableHead>
-                                        </TableRow>
-                                      </TableHeader>
-                                      <TableBody>
-                                        {lotsData.lots.map((lot) => (
-                                          <TableRow key={lot.id}>
-                                            <TableCell className="font-mono text-sm">
-                                              {lot.lot_number}
-                                            </TableCell>
-                                            <TableCell className="text-sm">
-                                              {lot.received_quantity}
-                                            </TableCell>
-                                            <TableCell className="text-sm font-medium">
-                                              {lot.total_quantity}
-                                            </TableCell>
-                                            <TableCell className="text-sm">
-                                              {lot.expiration_date
-                                                ? new Date(lot.expiration_date).toLocaleDateString('es-MX')
-                                                : '-'}
-                                            </TableCell>
-                                            <TableCell>
-                                              <QualityBadge status={lot.quality_status} />
-                                            </TableCell>
-                                            <TableCell className="text-sm text-muted-foreground">
-                                              {lot.notes ?? '-'}
-                                            </TableCell>
-                                          </TableRow>
-                                        ))}
-                                      </TableBody>
-                                    </Table>
-                                  </div>
-                                </div>
-                              ) : (
-                                <p className="text-sm text-muted-foreground">
-                                  Stock registrado sin lotes
-                                </p>
-                              )}
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      )}
-                    </Fragment>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          </div>
-
-          {/* Pagination */}
-          {totalPages > 1 && (
-            <div className="flex items-center justify-between">
-              <p className="text-sm text-muted-foreground">
-                Mostrando {(page - 1) * PER_PAGE + 1}-{Math.min(page * PER_PAGE, total)} de {total}
-              </p>
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setPage(page - 1)}
-                  disabled={page <= 1}
-                >
-                  Anterior
-                </Button>
-                <span className="text-sm text-muted-foreground">
-                  {page} / {totalPages}
-                </span>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setPage(page + 1)}
-                  disabled={page >= totalPages}
-                >
-                  Siguiente
-                </Button>
-              </div>
+                      ))}
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
             </div>
-          )}
+          </div>
         </div>
-      )}
+
+        {/* Content area — fades in when not loading */}
+        <div
+          className="transition-opacity duration-200 ease-in-out"
+          style={{
+            opacity: isLoading ? 0 : 1,
+            pointerEvents: isLoading ? 'none' : 'auto',
+          }}
+        >
+          {/* Empty state — crossfades with table */}
+          <div
+            className="transition-opacity duration-150 ease-in-out"
+            style={{
+              opacity: filteredItems.length === 0 ? 1 : 0,
+              pointerEvents: filteredItems.length === 0 ? 'auto' : 'none',
+              position: filteredItems.length === 0 ? 'relative' : 'absolute',
+              inset: 0,
+            }}
+          >
+            <EmptyState
+              icon={ClipboardIcon}
+              title="No hay inventario registrado"
+              description="Registra una entrada de material para ver el stock aqui."
+              actionLabel="Ir a movimientos"
+              actionHref="/movimientos"
+            />
+          </div>
+
+          {/* Table with results — crossfades with empty state */}
+          <div
+            className="transition-opacity duration-150 ease-in-out"
+            style={{
+              opacity: filteredItems.length > 0 ? 1 : 0,
+              pointerEvents: filteredItems.length > 0 ? 'auto' : 'none',
+              position: filteredItems.length > 0 ? 'relative' : 'absolute',
+              inset: 0,
+            }}
+          >
+            <div className="space-y-4">
+              <div className="rounded-4xl border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="w-8" />
+                      <TableHead>Producto</TableHead>
+                      <TableHead>Ubicacion</TableHead>
+                      <TableHead>Almacen</TableHead>
+                      <TableHead>Cantidad</TableHead>
+                      <TableHead>Stock min</TableHead>
+                      <TableHead>Estado</TableHead>
+                      <TableHead className="w-10" />
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredItems.map((item) => {
+                      const itemKey = `${item.product_id}_${item.location_id}`;
+                      const isExpanded = expandedItemId === itemKey;
+                      const lotsData = lotsCache[itemKey];
+                      const wh = warehouses.find((w) => w.id === item.warehouse_id);
+
+                      return (
+                        <Fragment key={itemKey}>
+                          <TableRow
+                            className={`cursor-pointer transition-colors hover:bg-muted/50 ${
+                              item.quantity === 0
+                                ? 'border-l-4 border-l-red-500'
+                                : item.quantity <= item.min_stock && item.min_stock > 0
+                                  ? 'border-l-4 border-l-amber-500'
+                                  : ''
+                            } ${isExpanded ? 'bg-muted/30' : ''}`}
+                            onClick={() => handleToggleExpand(item)}
+                          >
+                            <TableCell className="w-8 text-center">
+                              <span className="text-muted-foreground text-sm">
+                                {isExpanded ? '\u25BC' : '\u25B6'}
+                              </span>
+                            </TableCell>
+                            <TableCell>
+                              <div>
+                                <Link
+                                  href={`/productos/${item.product_id}`}
+                                  className="font-bold text-foreground hover:underline"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  {item.product_name}
+                                </Link>
+                                <span className="ml-2 font-mono text-sm text-muted-foreground">
+                                  {item.product_sku}
+                                </span>
+                              </div>
+                            </TableCell>
+                            <TableCell>{item.location_name}</TableCell>
+                            <TableCell>{wh ? wh.name : item.warehouse_id}</TableCell>
+                            <TableCell>
+                              <span className="font-medium" data-testid="inventory-quantity">
+                                {item.quantity}
+                              </span>
+                            </TableCell>
+                            <TableCell>{item.min_stock}</TableCell>
+                            <TableCell>
+                              <StockBadge quantity={item.quantity} minStock={item.min_stock} />
+                            </TableCell>
+                            <TableCell onClick={(e) => e.stopPropagation()}>
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-8 w-8 p-0"
+                                    data-testid="inventory-actions-btn"
+                                  >
+                                    <span className="sr-only">Abrir menu</span>
+                                    <span className="text-lg leading-none">...</span>
+                                  </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end">
+                                  <DropdownMenuItem
+                                    onClick={() => router.push(`/movimientos?tab=entry&product=${item.product_id}`)}
+                                  >
+                                    Registrar entrada
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem
+                                    onClick={() => router.push(`/movimientos?tab=adjustment&product=${item.product_id}`)}
+                                  >
+                                    Ajustar inventario
+                                  </DropdownMenuItem>
+                                  <DropdownMenuSeparator />
+                                  <DropdownMenuItem
+                                    onClick={() => router.push(`/productos/${item.product_id}`)}
+                                  >
+                                    Ver producto
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem
+                                    onClick={() => router.push(`/productos/${item.product_id}?tab=movimientos`)}
+                                  >
+                                    Ver movimientos
+                                  </DropdownMenuItem>
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                            </TableCell>
+                          </TableRow>
+
+                          {/* Expanded lots row — always in DOM for smooth CSS grid animation */}
+                          <TableRow className="bg-muted/20 hover:bg-muted/20">
+                            <TableCell colSpan={COL_COUNT + 1} className="p-0">
+                              <div
+                                style={{
+                                  display: 'grid',
+                                  gridTemplateRows: isExpanded ? '1fr' : '0fr',
+                                  transition: 'grid-template-rows 300ms ease',
+                                }}
+                              >
+                                <div style={{ overflow: 'hidden' }}>
+                                  <div className="px-6 py-4 pl-12">
+                                    {lotsData?.isLoading ? (
+                                      <div className="space-y-2">
+                                        <Skeleton className="h-4 w-64" />
+                                        <Skeleton className="h-4 w-48" />
+                                      </div>
+                                    ) : lotsData?.error ? (
+                                      <p className="text-sm text-destructive">{lotsData.error}</p>
+                                    ) : lotsData && lotsData.lots.length > 0 ? (
+                                      <div className="space-y-2">
+                                        <div className="flex items-center gap-2 mb-3">
+                                          <span className="text-sm font-semibold text-foreground">
+                                            Lotes ({lotsData.lots.length})
+                                          </span>
+                                          <Badge className="bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">
+                                            Con lotes
+                                          </Badge>
+                                        </div>
+                                        <div className="rounded-2xl border bg-background">
+                                          <Table>
+                                            <TableHeader>
+                                              <TableRow>
+                                                <TableHead className="text-xs">Lote</TableHead>
+                                                <TableHead className="text-xs">Cantidad recibida</TableHead>
+                                                <TableHead className="text-xs">Cantidad total</TableHead>
+                                                <TableHead className="text-xs">Vencimiento</TableHead>
+                                                <TableHead className="text-xs">Calidad</TableHead>
+                                                <TableHead className="text-xs">Notas</TableHead>
+                                              </TableRow>
+                                            </TableHeader>
+                                            <TableBody>
+                                              {lotsData.lots.map((lot) => (
+                                                <TableRow key={lot.id}>
+                                                  <TableCell className="font-mono text-sm">
+                                                    {lot.lot_number}
+                                                  </TableCell>
+                                                  <TableCell className="text-sm">
+                                                    {lot.received_quantity}
+                                                  </TableCell>
+                                                  <TableCell className="text-sm font-medium">
+                                                    {lot.total_quantity}
+                                                  </TableCell>
+                                                  <TableCell className="text-sm">
+                                                    {lot.expiration_date
+                                                      ? new Date(lot.expiration_date).toLocaleDateString('es-MX')
+                                                      : '-'}
+                                                  </TableCell>
+                                                  <TableCell>
+                                                    <QualityBadge status={lot.quality_status} />
+                                                  </TableCell>
+                                                  <TableCell className="text-sm text-muted-foreground">
+                                                    {lot.notes ?? '-'}
+                                                  </TableCell>
+                                                </TableRow>
+                                              ))}
+                                            </TableBody>
+                                          </Table>
+                                        </div>
+                                      </div>
+                                    ) : (
+                                      <p className="text-sm text-muted-foreground">
+                                        Stock registrado sin lotes
+                                      </p>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        </Fragment>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+
+              {/* Pagination */}
+              {totalPages > 1 && (
+                <div className="flex items-center justify-between">
+                  <p className="text-sm text-muted-foreground">
+                    Mostrando {(page - 1) * PER_PAGE + 1}-{Math.min(page * PER_PAGE, total)} de {total}
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setPage(page - 1)}
+                      disabled={page <= 1}
+                    >
+                      Anterior
+                    </Button>
+                    <span className="text-sm text-muted-foreground">
+                      {page} / {totalPages}
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setPage(page + 1)}
+                      disabled={page >= totalPages}
+                    >
+                      Siguiente
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
