@@ -132,14 +132,175 @@ function relativeDate(dateStr: string): string {
   return date.toLocaleDateString('es-MX', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
+// --- Child type constraints ---
+
+const CHILD_TYPES: Record<string, LocationType[]> = {
+  zone: ['rack', 'shelf'],
+  rack: ['shelf', 'position'],
+  shelf: ['position', 'bin'],
+  position: ['bin'],
+  bin: [],
+};
+
+// --- Location Tree Node ---
+
+function LocationTreeNode({
+  location,
+  allLocations,
+  depth,
+  expandedIds,
+  onToggleExpand,
+  onAddChild,
+  onEdit,
+  onDelete,
+}: {
+  location: Location;
+  allLocations: Location[];
+  depth: number;
+  expandedIds: Set<string>;
+  onToggleExpand: (id: string) => void;
+  onAddChild: (parentId: string, parentType: LocationType) => void;
+  onEdit: (location: Location) => void;
+  onDelete: (location: Location) => void;
+}) {
+  const children = allLocations.filter((l) => l.parent_id === location.id);
+  const allowedChildren = CHILD_TYPES[location.location_type] ?? [];
+  const canHaveChildren = allowedChildren.length > 0;
+  const hasChildren = children.length > 0;
+  const isExpanded = expandedIds.has(location.id);
+
+  return (
+    <div>
+      <div
+        className="flex items-center gap-2 py-2 px-3 hover:bg-muted/50 rounded-lg group"
+        style={{ paddingLeft: `${depth * 24 + 12}px` }}
+      >
+        {/* Expand/collapse */}
+        <button
+          type="button"
+          className={cn(
+            'flex items-center justify-center w-5 h-5 rounded transition-colors shrink-0',
+            (hasChildren || canHaveChildren) ? 'hover:bg-muted cursor-pointer' : '',
+          )}
+          onClick={() => (hasChildren || canHaveChildren) && onToggleExpand(location.id)}
+          tabIndex={hasChildren || canHaveChildren ? 0 : -1}
+          aria-label={isExpanded ? 'Colapsar' : 'Expandir'}
+        >
+          {hasChildren || canHaveChildren ? (
+            <svg
+              className={cn(
+                'w-4 h-4 text-muted-foreground transition-transform duration-200',
+                isExpanded && 'rotate-90',
+              )}
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2}
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+            </svg>
+          ) : (
+            <span className="w-4" />
+          )}
+        </button>
+
+        {/* Type badge */}
+        <Badge variant="outline" className="text-xs shrink-0">
+          {LOCATION_TYPE_LABELS[location.location_type] ?? location.location_type}
+        </Badge>
+
+        {/* Name */}
+        <span className="font-medium flex-1 truncate">{location.name}</span>
+
+        {/* Child count */}
+        {hasChildren && (
+          <span className="text-xs text-muted-foreground shrink-0">
+            {children.length} sub
+          </span>
+        )}
+
+        {/* Actions */}
+        <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+          {canHaveChildren && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-xs"
+              onClick={() => onAddChild(location.id, location.location_type)}
+            >
+              + Agregar
+            </Button>
+          )}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2 text-xs"
+            onClick={() => onEdit(location)}
+            data-testid="edit-location-btn"
+          >
+            Editar
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2 text-xs text-destructive"
+            onClick={() => onDelete(location)}
+            data-testid="delete-location-btn"
+          >
+            Eliminar
+          </Button>
+        </div>
+      </div>
+
+      {/* Children */}
+      {isExpanded && hasChildren && (
+        <div>
+          {children.map((child) => (
+            <LocationTreeNode
+              key={child.id}
+              location={child}
+              allLocations={allLocations}
+              depth={depth + 1}
+              expandedIds={expandedIds}
+              onToggleExpand={onToggleExpand}
+              onAddChild={onAddChild}
+              onEdit={onEdit}
+              onDelete={onDelete}
+            />
+          ))}
+        </div>
+      )}
+
+      {/* Inline "add child" hint when expanded but empty */}
+      {isExpanded && !hasChildren && canHaveChildren && (
+        <div
+          className="flex items-center gap-2 py-1.5 px-3 text-sm text-muted-foreground"
+          style={{ paddingLeft: `${(depth + 1) * 24 + 12}px` }}
+        >
+          <span className="w-5" />
+          <button
+            type="button"
+            className="hover:text-foreground transition-colors cursor-pointer"
+            onClick={() => onAddChild(location.id, location.location_type)}
+          >
+            + Agregar {LOCATION_TYPE_LABELS[allowedChildren[0]] ?? 'sub-ubicacion'}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // --- Locations Tab ---
 
 function LocationsTab({ warehouseId }: { warehouseId: string }) {
-  const [locations, setLocations] = useState<Location[]>([]);
+  const [allLocations, setAllLocations] = useState<Location[]>([]);
   const [total, setTotal] = useState(0);
-  const [page, setPage] = useState(1);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Tree expand state
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
 
   // Form dialog state
   const [formOpen, setFormOpen] = useState(false);
@@ -147,23 +308,21 @@ function LocationsTab({ warehouseId }: { warehouseId: string }) {
   const [formName, setFormName] = useState('');
   const [formLocationType, setFormLocationType] = useState<LocationType>('zone');
   const [formParentId, setFormParentId] = useState('');
+  const [allowedTypes, setAllowedTypes] = useState<LocationType[]>(LOCATION_TYPES);
   const [isSaving, setIsSaving] = useState(false);
 
   // Delete dialog state
   const [deleteTarget, setDeleteTarget] = useState<Location | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  // All locations for parent dropdown
-  const [allLocationsForParent, setAllLocationsForParent] = useState<Location[]>([]);
-
-  const fetchLocations = useCallback(async (p: number) => {
+  const fetchAllLocations = useCallback(async () => {
     setIsLoading(true);
     setError(null);
     try {
       const res = await api.get<PaginatedResponse<Location>>(
-        `/warehouses/${warehouseId}/locations?page=${p}&per_page=${PER_PAGE}`
+        `/warehouses/${warehouseId}/locations?page=1&per_page=500`
       );
-      setLocations(res.data);
+      setAllLocations(res.data);
       setTotal(res.total);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error al cargar ubicaciones');
@@ -172,33 +331,45 @@ function LocationsTab({ warehouseId }: { warehouseId: string }) {
     }
   }, [warehouseId]);
 
-  const fetchAllLocations = useCallback(async () => {
-    try {
-      const res = await api.get<PaginatedResponse<Location>>(
-        `/warehouses/${warehouseId}/locations?page=1&per_page=200`
-      );
-      setAllLocationsForParent(res.data);
-    } catch {
-      // Silently ignore
-    }
-  }, [warehouseId]);
-
   useEffect(() => {
-    fetchLocations(page);
     fetchAllLocations();
-  }, [page, fetchLocations, fetchAllLocations]);
+  }, [fetchAllLocations]);
 
-  const getParentName = (parentId?: string) => {
-    if (!parentId) return <span className="text-muted-foreground">-</span>;
-    const parent = allLocationsForParent.find((l) => l.id === parentId);
-    return parent?.name ?? '-';
+  // Tree helpers
+  const rootLocations = allLocations.filter((l) => !l.parent_id);
+
+  const toggleExpand = (id: string) => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
   };
 
-  const openCreateDialog = () => {
+  const expandAll = () => {
+    setExpandedIds(new Set(allLocations.map((l) => l.id)));
+  };
+
+  const collapseAll = () => {
+    setExpandedIds(new Set());
+  };
+
+  const openCreateDialog = (parentId: string | null, parentType: LocationType | null) => {
     setEditingLocation(null);
     setFormName('');
-    setFormLocationType('zone');
-    setFormParentId('');
+    setFormParentId(parentId ?? '');
+    if (parentType) {
+      const allowed = CHILD_TYPES[parentType] ?? [];
+      setAllowedTypes(allowed.length > 0 ? allowed : LOCATION_TYPES);
+      setFormLocationType(allowed[0] ?? 'zone');
+    } else {
+      setAllowedTypes(LOCATION_TYPES);
+      setFormLocationType('zone');
+    }
     setFormOpen(true);
   };
 
@@ -207,6 +378,18 @@ function LocationsTab({ warehouseId }: { warehouseId: string }) {
     setFormName(location.name);
     setFormLocationType(location.location_type);
     setFormParentId(location.parent_id ?? '');
+    // Determine allowed types based on parent
+    if (location.parent_id) {
+      const parent = allLocations.find((l) => l.id === location.parent_id);
+      if (parent) {
+        const allowed = CHILD_TYPES[parent.location_type] ?? [];
+        setAllowedTypes(allowed.length > 0 ? allowed : LOCATION_TYPES);
+      } else {
+        setAllowedTypes(LOCATION_TYPES);
+      }
+    } else {
+      setAllowedTypes(LOCATION_TYPES);
+    }
     setFormOpen(true);
   };
 
@@ -218,6 +401,7 @@ function LocationsTab({ warehouseId }: { warehouseId: string }) {
         await api.put(`/locations/${editingLocation.id}`, {
           name: formName,
           location_type: formLocationType,
+          parent_id: formParentId || undefined,
         });
       } else {
         await api.post(`/warehouses/${warehouseId}/locations`, {
@@ -227,9 +411,6 @@ function LocationsTab({ warehouseId }: { warehouseId: string }) {
         });
       }
       setFormOpen(false);
-      const targetPage = editingLocation ? page : 1;
-      if (!editingLocation) setPage(1);
-      await fetchLocations(targetPage);
       await fetchAllLocations();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error al guardar');
@@ -244,7 +425,6 @@ function LocationsTab({ warehouseId }: { warehouseId: string }) {
     try {
       await api.del(`/locations/${deleteTarget.id}`);
       setDeleteTarget(null);
-      await fetchLocations(page);
       await fetchAllLocations();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error al eliminar');
@@ -253,61 +433,14 @@ function LocationsTab({ warehouseId }: { warehouseId: string }) {
     }
   };
 
-  const columns: ColumnDef<Location>[] = [
-    {
-      key: 'name',
-      header: 'Nombre',
-      render: (l) => <span className="font-medium">{l.name}</span>,
-    },
-    {
-      key: 'type',
-      header: 'Tipo',
-      render: (l) => (
-        <Badge variant="secondary">
-          {LOCATION_TYPE_LABELS[l.location_type] ?? l.location_type}
-        </Badge>
-      ),
-    },
-    {
-      key: 'parent',
-      header: 'Padre',
-      render: (l) => getParentName(l.parent_id),
-    },
-    {
-      key: 'actions',
-      header: 'Acciones',
-      render: (l) => (
-        <div className="flex items-center gap-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => openEditDialog(l)}
-            data-testid="edit-location-btn"
-          >
-            Editar
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="text-destructive"
-            onClick={() => setDeleteTarget(l)}
-            data-testid="delete-location-btn"
-          >
-            Eliminar
-          </Button>
-        </div>
-      ),
-    },
-  ];
-
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted-foreground">
           {total} ubicacion{total !== 1 ? 'es' : ''} en este almacen
         </p>
-        <Button onClick={openCreateDialog} data-testid="new-location-btn">
-          Nueva ubicacion
+        <Button onClick={() => openCreateDialog(null, null)} data-testid="new-location-btn">
+          Nueva zona
         </Button>
       </div>
 
@@ -317,25 +450,76 @@ function LocationsTab({ warehouseId }: { warehouseId: string }) {
         </div>
       )}
 
-      <DataTable
-        columns={columns}
-        data={locations}
-        total={total}
-        page={page}
-        perPage={PER_PAGE}
-        onPageChange={setPage}
-        isLoading={isLoading}
-        emptyMessage="No hay ubicaciones registradas"
-        emptyState={
-          <EmptyState
-            icon={Location01Icon}
-            title="Aun no tienes ubicaciones"
-            description="Crea zonas y estantes para saber donde esta cada cosa."
-            actionLabel="Nueva ubicacion"
-            onAction={openCreateDialog}
-          />
-        }
-      />
+      {isLoading ? (
+        <div className="space-y-2">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <div key={i} className="h-10 rounded skeleton-shimmer" />
+          ))}
+        </div>
+      ) : allLocations.length === 0 ? (
+        <EmptyState
+          icon={Location01Icon}
+          title="Aun no tienes ubicaciones"
+          description="Crea zonas y estantes para saber donde esta cada cosa."
+          actionLabel="Nueva zona"
+          onAction={() => openCreateDialog(null, null)}
+        />
+      ) : (
+        <>
+          {/* Expand/collapse controls */}
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={expandAll}>
+              Expandir todo
+            </Button>
+            <Button variant="outline" size="sm" onClick={collapseAll}>
+              Colapsar todo
+            </Button>
+          </div>
+
+          {/* Tree */}
+          <div className="border rounded-lg divide-y">
+            {rootLocations.map((location) => (
+              <LocationTreeNode
+                key={location.id}
+                location={location}
+                allLocations={allLocations}
+                depth={0}
+                expandedIds={expandedIds}
+                onToggleExpand={toggleExpand}
+                onAddChild={(parentId, parentType) => openCreateDialog(parentId, parentType)}
+                onEdit={openEditDialog}
+                onDelete={setDeleteTarget}
+              />
+            ))}
+          </div>
+
+          {/* Locations without a parent that are NOT zones (orphans) */}
+          {allLocations.filter((l) => !l.parent_id && l.location_type !== 'zone').length > 0 && (
+            <div className="mt-4">
+              <p className="text-xs text-muted-foreground mb-2">
+                Ubicaciones sin zona asignada:
+              </p>
+              <div className="border rounded-lg divide-y">
+                {allLocations
+                  .filter((l) => !l.parent_id && l.location_type !== 'zone')
+                  .map((location) => (
+                    <LocationTreeNode
+                      key={location.id}
+                      location={location}
+                      allLocations={allLocations}
+                      depth={0}
+                      expandedIds={expandedIds}
+                      onToggleExpand={toggleExpand}
+                      onAddChild={(parentId, parentType) => openCreateDialog(parentId, parentType)}
+                      onEdit={openEditDialog}
+                      onDelete={setDeleteTarget}
+                    />
+                  ))}
+              </div>
+            </div>
+          )}
+        </>
+      )}
 
       {/* Create / Edit Dialog */}
       <Dialog open={formOpen} onOpenChange={setFormOpen}>
@@ -367,7 +551,7 @@ function LocationsTab({ warehouseId }: { warehouseId: string }) {
                   <SelectValue placeholder="Seleccionar tipo" />
                 </SelectTrigger>
                 <SelectContent>
-                  {LOCATION_TYPES.map((type) => (
+                  {allowedTypes.map((type) => (
                     <SelectItem key={type} value={type}>
                       {LOCATION_TYPE_LABELS[type]}
                     </SelectItem>
@@ -375,25 +559,50 @@ function LocationsTab({ warehouseId }: { warehouseId: string }) {
                 </SelectContent>
               </Select>
             </div>
-            {!editingLocation && (
+            {!editingLocation && !formParentId && (
               <div className="space-y-2">
                 <Label htmlFor="location-parent">Ubicacion padre (opcional)</Label>
                 <Select
                   value={formParentId || 'none'}
-                  onValueChange={(val) => setFormParentId(val === 'none' ? '' : val)}
+                  onValueChange={(val) => {
+                    const newParentId = val === 'none' ? '' : val;
+                    setFormParentId(newParentId);
+                    if (newParentId) {
+                      const parent = allLocations.find((l) => l.id === newParentId);
+                      if (parent) {
+                        const allowed = CHILD_TYPES[parent.location_type] ?? [];
+                        if (allowed.length > 0) {
+                          setAllowedTypes(allowed);
+                          if (!allowed.includes(formLocationType)) {
+                            setFormLocationType(allowed[0]);
+                          }
+                        }
+                      }
+                    } else {
+                      setAllowedTypes(LOCATION_TYPES);
+                    }
+                  }}
                 >
                   <SelectTrigger data-testid="location-parent-select" className="w-full">
                     <SelectValue placeholder="Ninguna" />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="none">Ninguna</SelectItem>
-                    {allLocationsForParent.map((l) => (
+                    {allLocations.map((l) => (
                       <SelectItem key={l.id} value={l.id}>
                         {l.name} ({LOCATION_TYPE_LABELS[l.location_type]})
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
+              </div>
+            )}
+            {formParentId && (
+              <div className="space-y-2">
+                <Label>Ubicacion padre</Label>
+                <p className="text-sm text-muted-foreground">
+                  {allLocations.find((l) => l.id === formParentId)?.name ?? 'Seleccionada'}
+                </p>
               </div>
             )}
             <DialogFooter>
