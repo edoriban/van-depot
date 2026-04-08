@@ -50,6 +50,8 @@ import {
 } from '@hugeicons/core-free-icons';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { Info } from 'lucide-react';
 
 const MapCanvas = dynamic(
   () => import('@/components/warehouse/map-canvas'),
@@ -69,6 +71,14 @@ const LOCATION_TYPE_LABELS: Record<LocationType, string> = {
   shelf: 'Estante',
   position: 'Posicion',
   bin: 'Contenedor',
+};
+
+const LOCATION_TYPE_DESCRIPTIONS: Record<LocationType, string> = {
+  zone: 'Area principal del almacen (ej: Zona de refrigerados, Zona de secos)',
+  rack: 'Estanteria o mueble dentro de una zona (ej: Rack A1, Rack B2)',
+  shelf: 'Nivel o repisa dentro de un rack (ej: Nivel superior, Nivel medio)',
+  position: 'Espacio especifico dentro de un estante (ej: Posicion izquierda, centro)',
+  bin: 'Contenedor o caja dentro de una posicion (ej: Caja 01, Contenedor azul)',
 };
 
 const LOCATION_TYPE_STYLES: Record<LocationType, string> = {
@@ -212,10 +222,17 @@ function LocationTreeNode({
           )}
         </button>
 
-        {/* Type badge */}
-        <Badge variant="outline" className={cn('text-xs shrink-0', LOCATION_TYPE_STYLES[location.location_type])}>
-          {LOCATION_TYPE_LABELS[location.location_type] ?? location.location_type}
-        </Badge>
+        {/* Type badge with tooltip */}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Badge variant="outline" className={cn('text-xs shrink-0 cursor-help', LOCATION_TYPE_STYLES[location.location_type])}>
+              {LOCATION_TYPE_LABELS[location.location_type] ?? location.location_type}
+            </Badge>
+          </TooltipTrigger>
+          <TooltipContent side="top" className="max-w-xs text-xs">
+            {LOCATION_TYPE_DESCRIPTIONS[location.location_type]}
+          </TooltipContent>
+        </Tooltip>
 
         {/* Name — clickable to expand/collapse */}
         <button
@@ -556,7 +573,19 @@ function LocationsTab({ warehouseId }: { warehouseId: string }) {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="location-type">Tipo</Label>
+              <div className="flex items-center gap-1.5">
+                <Label htmlFor="location-type">Tipo</Label>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Info className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
+                  </TooltipTrigger>
+                  <TooltipContent side="right" className="max-w-xs text-xs leading-relaxed">
+                    <p className="font-semibold mb-1.5">Jerarquia de ubicaciones:</p>
+                    <p>Zona &gt; Rack &gt; Estante &gt; Posicion &gt; Contenedor</p>
+                    <p className="mt-1.5 text-muted-foreground">Ejemplo: Zona Refrigerados &gt; Rack A1 &gt; Nivel 2 &gt; Posicion izquierda &gt; Caja 01</p>
+                  </TooltipContent>
+                </Tooltip>
+              </div>
               <Select
                 value={formLocationType}
                 onValueChange={(val) => setFormLocationType(val as LocationType)}
@@ -572,6 +601,11 @@ function LocationsTab({ warehouseId }: { warehouseId: string }) {
                   ))}
                 </SelectContent>
               </Select>
+              {formLocationType && (
+                <p className="text-xs text-muted-foreground">
+                  {LOCATION_TYPE_DESCRIPTIONS[formLocationType]}
+                </p>
+              )}
             </div>
             {!editingLocation && !formParentId && (
               <div className="space-y-2">
