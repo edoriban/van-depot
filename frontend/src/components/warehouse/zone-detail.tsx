@@ -171,11 +171,7 @@ export function ZoneDetail({ zone, warehouseId, onClose }: ZoneDetailProps) {
     <Card
       className={cn(
         'transition-all duration-300 ease-out',
-        'animate-in fade-in-0 slide-in-from-top-2',
-        // Mobile: full-width below grid
         'w-full',
-        // Desktop: constrained width
-        'lg:max-w-2xl lg:mx-auto',
       )}
       data-testid="zone-detail"
     >

@@ -49,6 +49,7 @@ import {
   MapsLocation01Icon,
 } from '@hugeicons/core-free-icons';
 import Link from 'next/link';
+import { cn } from '@/lib/utils';
 
 const MapCanvas = dynamic(
   () => import('@/components/warehouse/map-canvas'),
@@ -758,29 +759,52 @@ export default function WarehouseDetailPage() {
             <>
               <MapSummaryBar summary={mapData.summary} />
 
-              <MapCanvas
-                zones={mapData.zones}
-                canvasWidth={mapData.canvas_width ?? 1200}
-                canvasHeight={mapData.canvas_height ?? 700}
-                warehouseId={warehouseId}
-                onZoneSelect={(zoneId) => {
-                  if (zoneId) {
-                    const zone = mapData.zones.find((z) => z.zone_id === zoneId) ?? null;
-                    setSelectedZone(zone);
-                  } else {
-                    setSelectedZone(null);
-                  }
-                }}
-              />
+              <div className="flex gap-4 relative">
+                {/* Canvas - shrinks when zone is selected on desktop */}
+                <div
+                  className={cn(
+                    'transition-all duration-300 ease-in-out min-w-0',
+                    selectedZone ? 'lg:w-[65%]' : 'w-full',
+                  )}
+                >
+                  <MapCanvas
+                    zones={mapData.zones}
+                    canvasWidth={mapData.canvas_width ?? 1200}
+                    canvasHeight={mapData.canvas_height ?? 700}
+                    warehouseId={warehouseId}
+                    onZoneSelect={(zoneId) => {
+                      if (zoneId) {
+                        const zone = mapData.zones.find((z) => z.zone_id === zoneId) ?? null;
+                        setSelectedZone(zone);
+                      } else {
+                        setSelectedZone(null);
+                      }
+                    }}
+                  />
+                </div>
 
-              {/* Zone detail panel */}
-              {selectedZone && (
-                <ZoneDetail
-                  zone={selectedZone}
-                  warehouseId={warehouseId}
-                  onClose={() => setSelectedZone(null)}
-                />
-              )}
+                {/* Desktop side panel */}
+                {selectedZone && (
+                  <div className="hidden lg:block w-[35%] min-w-[300px] max-h-[650px] overflow-y-auto animate-in slide-in-from-right-5 fade-in-0 duration-300">
+                    <ZoneDetail
+                      zone={selectedZone}
+                      warehouseId={warehouseId}
+                      onClose={() => setSelectedZone(null)}
+                    />
+                  </div>
+                )}
+
+                {/* Mobile bottom sheet overlay */}
+                {selectedZone && (
+                  <div className="lg:hidden fixed inset-x-0 bottom-0 z-50 max-h-[50vh] overflow-y-auto border-t rounded-t-xl bg-card shadow-2xl animate-in slide-in-from-bottom-5 fade-in-0 duration-300">
+                    <ZoneDetail
+                      zone={selectedZone}
+                      warehouseId={warehouseId}
+                      onClose={() => setSelectedZone(null)}
+                    />
+                  </div>
+                )}
+              </div>
             </>
           ) : (
             /* Visual empty state with placeholder grid */
