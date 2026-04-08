@@ -157,8 +157,8 @@ export default function RegistroPage() {
             <img
               src="/vanflux-icon.svg"
               alt="VanFlux"
-              width={44}
-              height={44}
+              width={72}
+              height={72}
               className="mb-3"
             />
             <h2 className="text-2xl font-bold tracking-tight">Crear cuenta</h2>

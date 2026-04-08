@@ -140,11 +140,11 @@ export default function LoginPage() {
             <img
               src="/vanflux-icon.svg"
               alt="VanFlux"
-              width={44}
-              height={44}
+              width={72}
+              height={72}
               className="mb-3"
             />
-            <h2 className="text-2xl font-bold tracking-tight">VanFlux</h2>
+            <h2 className="text-2xl font-bold tracking-tight lg:hidden">VanFlux</h2>
             <p className="mt-1.5 text-sm text-muted-foreground">
               Ingresa a tu cuenta
             </p>
