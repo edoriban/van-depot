@@ -45,7 +45,14 @@ export default function LoginPage() {
     }
   }
 
-  if (!isHydrated) {
+  // Fallback: if hydration takes too long (e.g. bfcache restore), force it
+  const [forceReady, setForceReady] = useState(false);
+  useEffect(() => {
+    const timer = setTimeout(() => setForceReady(true), 500);
+    return () => clearTimeout(timer);
+  }, []);
+
+  if (!isHydrated && !forceReady) {
     return (
       <div className="flex h-screen items-center justify-center">
         <div className="text-muted-foreground">Cargando...</div>
