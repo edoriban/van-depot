@@ -38,6 +38,15 @@ export interface Warehouse {
   updated_at: string;
 }
 
+export interface WarehouseWithStats extends Warehouse {
+  locations_count: number;
+  products_count: number;
+  total_quantity: number;
+  low_stock_count: number;
+  critical_count: number;
+  last_movement_at?: string | null;
+}
+
 export interface Location {
   id: string;
   warehouse_id: string;
