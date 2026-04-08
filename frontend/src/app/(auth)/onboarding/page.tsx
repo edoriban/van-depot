@@ -3,7 +3,7 @@
 import { useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api-mutations';
-import type { Warehouse, LocationType, UnitType } from '@/types';
+import type { Warehouse, LocationType, UnitType, CreateUserResponse } from '@/types';
 import {
   Card,
   CardContent,
@@ -191,6 +191,7 @@ export default function OnboardingPage() {
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteName, setInviteName] = useState('');
   const [inviteRole, setInviteRole] = useState<'warehouse_manager' | 'operator'>('operator');
+  const [inviteCodeToShow, setInviteCodeToShow] = useState<string | null>(null);
 
   // --- Step 1: Create Warehouse ---
 
@@ -311,23 +312,14 @@ export default function OnboardingPage() {
 
   // --- Step 4: Invites ---
 
-  const generateTempPassword = () => {
-    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#$%';
-    return Array.from(crypto.getRandomValues(new Uint8Array(16)))
-      .map(b => chars[b % chars.length])
-      .join('');
-  };
-
   const handleSendInvite = useCallback(async () => {
     if (!inviteEmail.trim() || !inviteName.trim()) return;
     setIsLoading(true);
     try {
-      const tempPassword = generateTempPassword();
-      await api.post('/users', {
+      const res = await api.post<CreateUserResponse>('/users', {
         email: inviteEmail.trim(),
         name: inviteName.trim(),
         role: inviteRole,
-        password: tempPassword,
       });
       setInvites((prev) => [
         ...prev,
@@ -342,10 +334,15 @@ export default function OnboardingPage() {
       setInviteEmail('');
       setInviteName('');
       setInviteRole('operator');
-      toast.success('Usuario creado', {
-        description: `Contraseña temporal: ${tempPassword} — compártela con el usuario`,
-        duration: 15000,
-      });
+      if (res.invite_code) {
+        setInviteCodeToShow(res.invite_code);
+        toast.success('Usuario creado', {
+          description: 'Copia el codigo de activacion que aparece abajo',
+          duration: 5000,
+        });
+      } else {
+        toast.success('Usuario creado');
+      }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Error al invitar usuario');
     } finally {
@@ -447,6 +444,8 @@ export default function OnboardingPage() {
             onSend={handleSendInvite}
             onFinish={() => setStep(5)}
             isLoading={isLoading}
+            inviteCodeToShow={inviteCodeToShow}
+            onDismissCode={() => setInviteCodeToShow(null)}
           />
         )}
 
@@ -771,6 +770,8 @@ function StepInvite({
   onSend,
   onFinish,
   isLoading,
+  inviteCodeToShow,
+  onDismissCode,
 }: {
   inviteEmail: string;
   inviteName: string;
@@ -782,7 +783,18 @@ function StepInvite({
   onSend: () => void;
   onFinish: () => void;
   isLoading: boolean;
+  inviteCodeToShow: string | null;
+  onDismissCode: () => void;
 }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = () => {
+    if (!inviteCodeToShow) return;
+    navigator.clipboard.writeText(inviteCodeToShow).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
   return (
     <Card data-testid="step-invite">
       <CardHeader>
@@ -847,6 +859,50 @@ function StepInvite({
             {isLoading ? 'Enviando...' : 'Invitar'}
           </Button>
         </div>
+
+        {inviteCodeToShow && (
+          <div
+            className="rounded-xl border border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/30 p-4 space-y-3"
+            data-testid="invite-code-banner"
+          >
+            <div className="flex items-start justify-between gap-2">
+              <div className="space-y-0.5">
+                <p className="text-sm font-semibold text-amber-900 dark:text-amber-200">
+                  Codigo de activacion generado
+                </p>
+                <p className="text-xs text-amber-700 dark:text-amber-400">
+                  Comparte este codigo con el usuario para que active su cuenta. Solo se muestra una vez.
+                </p>
+              </div>
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                onClick={onDismissCode}
+                data-testid="btn-dismiss-code"
+                className="text-amber-700 hover:text-amber-900 hover:bg-amber-100 dark:text-amber-400 dark:hover:bg-amber-900/40 shrink-0"
+              >
+                <HugeiconsIcon icon={Cancel01Icon} size={14} />
+              </Button>
+            </div>
+            <div className="flex items-center gap-2">
+              <code
+                className="flex-1 rounded-lg bg-white dark:bg-black/30 border border-amber-200 dark:border-amber-800 px-3 py-2 text-sm font-mono tracking-widest text-amber-900 dark:text-amber-100 select-all overflow-x-auto"
+                data-testid="invite-code-value"
+              >
+                {inviteCodeToShow}
+              </code>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleCopy}
+                data-testid="btn-copy-code"
+                className="shrink-0 border-amber-300 text-amber-800 hover:bg-amber-100 dark:border-amber-700 dark:text-amber-300 dark:hover:bg-amber-900/40"
+              >
+                {copied ? 'Copiado' : 'Copiar'}
+              </Button>
+            </div>
+          </div>
+        )}
 
         {invites.length > 0 && (
           <div className="space-y-2" data-testid="invite-list">

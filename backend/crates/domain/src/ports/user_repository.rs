@@ -44,4 +44,7 @@ pub trait UserRepository: Send + Sync {
 
     /// List warehouse IDs assigned to a user.
     async fn list_user_warehouses(&self, user_id: Uuid) -> Result<Vec<Uuid>, DomainError>;
+
+    /// Activate an invited user by clearing the invite fields and setting a real password.
+    async fn activate_invite(&self, id: Uuid, new_password_hash: &str) -> Result<(), DomainError>;
 }

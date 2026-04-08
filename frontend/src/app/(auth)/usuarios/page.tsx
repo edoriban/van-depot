@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { api } from '@/lib/api-mutations';
 import { useAuthStore } from '@/stores/auth-store';
-import type { User, UserRole, Warehouse, PaginatedResponse } from '@/types';
+import type { User, UserRole, Warehouse, PaginatedResponse, CreateUserResponse } from '@/types';
 import { DataTable, type ColumnDef } from '@/components/shared/data-table';
 import { ConfirmDialog } from '@/components/shared/confirm-dialog';
 import { Badge } from '@/components/ui/badge';
@@ -70,11 +70,14 @@ export default function UsersPage() {
   const [formOpen, setFormOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<UserWithWarehouses | null>(null);
   const [formEmail, setFormEmail] = useState('');
-  const [formPassword, setFormPassword] = useState('');
   const [formName, setFormName] = useState('');
   const [formRole, setFormRole] = useState<UserRole>('operator');
   const [formIsActive, setFormIsActive] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+
+  // Invite code dialog (shown after creating a new user)
+  const [inviteCode, setInviteCode] = useState<string | null>(null);
+  const [copiedCode, setCopiedCode] = useState(false);
 
   // Delete dialog
   const [deleteTarget, setDeleteTarget] = useState<UserWithWarehouses | null>(null);
@@ -131,7 +134,6 @@ export default function UsersPage() {
   const openCreateDialog = () => {
     setEditingUser(null);
     setFormEmail('');
-    setFormPassword('');
     setFormName('');
     setFormRole('operator');
     setFormIsActive(true);
@@ -141,7 +143,6 @@ export default function UsersPage() {
   const openEditDialog = (u: UserWithWarehouses) => {
     setEditingUser(u);
     setFormEmail(u.email);
-    setFormPassword('');
     setFormName(u.name);
     setFormRole(u.role);
     setFormIsActive(u.is_active);
@@ -159,18 +160,23 @@ export default function UsersPage() {
           is_active: formIsActive,
         });
         toast.success('Usuario actualizado');
+        setFormOpen(false);
+        fetchUsers(page);
       } else {
-        await api.post('/users', {
+        const res = await api.post<CreateUserResponse>('/users', {
           email: formEmail,
-          password: formPassword,
           name: formName,
           role: formRole,
         });
         toast.success('Usuario creado');
+        setFormOpen(false);
+        fetchUsers(1);
+        setPage(1);
+        if (res.invite_code) {
+          setInviteCode(res.invite_code);
+          setCopiedCode(false);
+        }
       }
-      setFormOpen(false);
-      fetchUsers(editingUser ? page : 1);
-      if (!editingUser) setPage(1);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Error al guardar');
     } finally {
@@ -315,9 +321,19 @@ export default function UsersPage() {
       key: 'status',
       header: 'Estado',
       render: (u) => (
-        <Badge variant={u.is_active ? 'default' : 'secondary'} data-testid="user-status-badge">
-          {u.is_active ? 'Activo' : 'Inactivo'}
-        </Badge>
+        <div className="flex flex-col gap-1">
+          <Badge variant={u.is_active ? 'default' : 'secondary'} data-testid="user-status-badge">
+            {u.is_active ? 'Activo' : 'Inactivo'}
+          </Badge>
+          {u.must_set_password && (
+            <Badge
+              className="bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200"
+              data-testid="user-pending-activation-badge"
+            >
+              Pendiente activacion
+            </Badge>
+          )}
+        </div>
       ),
     },
     {
@@ -413,35 +429,19 @@ export default function UsersPage() {
           </DialogHeader>
           <form onSubmit={handleSubmit} className="space-y-4">
             {!editingUser && (
-              <>
-                <div className="space-y-2">
-                  <Label htmlFor="user-email">Email</Label>
-                  <Input
-                    id="user-email"
-                    name="email"
-                    type="email"
-                    value={formEmail}
-                    onChange={(e) => setFormEmail(e.target.value)}
-                    placeholder="correo@ejemplo.com"
-                    required
-                    data-testid="user-email-input"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="user-password">Contrasena</Label>
-                  <Input
-                    id="user-password"
-                    name="password"
-                    type="password"
-                    value={formPassword}
-                    onChange={(e) => setFormPassword(e.target.value)}
-                    placeholder="Contrasena"
-                    required
-                    minLength={6}
-                    data-testid="user-password-input"
-                  />
-                </div>
-              </>
+              <div className="space-y-2">
+                <Label htmlFor="user-email">Email</Label>
+                <Input
+                  id="user-email"
+                  name="email"
+                  type="email"
+                  value={formEmail}
+                  onChange={(e) => setFormEmail(e.target.value)}
+                  placeholder="correo@ejemplo.com"
+                  required
+                  data-testid="user-email-input"
+                />
+              </div>
             )}
             <div className="space-y-2">
               <Label htmlFor="user-name">Nombre</Label>
@@ -652,6 +652,46 @@ export default function UsersPage() {
               >
                 Cerrar
               </Button>
+            </DialogFooter>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Invite Code Dialog */}
+      <Dialog open={!!inviteCode} onOpenChange={(open) => !open && setInviteCode(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Codigo de activacion</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Comparte este codigo con el usuario para que active su cuenta en{' '}
+              <span className="font-medium">/activar</span>. Solo se muestra una vez.
+            </p>
+            <div className="flex items-center gap-2">
+              <code
+                className="flex-1 rounded-lg bg-muted border border-border px-3 py-2 text-sm font-mono tracking-widest select-all overflow-x-auto"
+                data-testid="dialog-invite-code-value"
+              >
+                {inviteCode}
+              </code>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  if (!inviteCode) return;
+                  navigator.clipboard.writeText(inviteCode).then(() => {
+                    setCopiedCode(true);
+                    setTimeout(() => setCopiedCode(false), 2000);
+                  });
+                }}
+                data-testid="btn-copy-invite-code"
+              >
+                {copiedCode ? 'Copiado' : 'Copiar'}
+              </Button>
+            </div>
+            <DialogFooter>
+              <Button onClick={() => setInviteCode(null)}>Cerrar</Button>
             </DialogFooter>
           </div>
         </DialogContent>

@@ -16,4 +16,8 @@ pub struct User {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub deleted_at: Option<DateTime<Utc>>,
+    #[serde(skip_serializing)]
+    pub invite_code_hash: Option<String>,
+    pub invite_expires_at: Option<DateTime<Utc>>,
+    pub must_set_password: bool,
 }

@@ -23,8 +23,14 @@ export interface User {
   name: string;
   role: UserRole;
   is_active: boolean;
+  must_set_password?: boolean;
   created_at: string;
   updated_at: string;
+}
+
+export interface CreateUserResponse extends User {
+  invite_code?: string;
+  invite_expires_at?: string;
 }
 
 export interface Warehouse {

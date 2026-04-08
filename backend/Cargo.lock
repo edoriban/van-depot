@@ -2276,6 +2276,7 @@ name = "vandepot-api"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "argon2",
  "axum",
  "axum-extra",
  "chrono",

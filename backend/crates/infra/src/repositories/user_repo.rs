@@ -23,6 +23,9 @@ struct UserRow {
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
     deleted_at: Option<DateTime<Utc>>,
+    invite_code_hash: Option<String>,
+    invite_expires_at: Option<DateTime<Utc>>,
+    must_set_password: bool,
 }
 
 impl From<UserRow> for User {
@@ -37,6 +40,9 @@ impl From<UserRow> for User {
             created_at: row.created_at,
             updated_at: row.updated_at,
             deleted_at: row.deleted_at,
+            invite_code_hash: row.invite_code_hash,
+            invite_expires_at: row.invite_expires_at,
+            must_set_password: row.must_set_password,
         }
     }
 }
@@ -55,7 +61,8 @@ impl PgUserRepository {
 impl UserRepository for PgUserRepository {
     async fn find_by_id(&self, id: Uuid) -> Result<Option<User>, DomainError> {
         let row = sqlx::query_as::<_, UserRow>(
-            "SELECT id, email, password_hash, name, role, is_active, created_at, updated_at, deleted_at \
+            "SELECT id, email, password_hash, name, role, is_active, created_at, updated_at, deleted_at, \
+                    invite_code_hash, invite_expires_at, must_set_password \
              FROM users WHERE id = $1 AND deleted_at IS NULL",
         )
         .bind(id)
@@ -68,7 +75,8 @@ impl UserRepository for PgUserRepository {
 
     async fn find_by_email(&self, email: &str) -> Result<Option<User>, DomainError> {
         let row = sqlx::query_as::<_, UserRow>(
-            "SELECT id, email, password_hash, name, role, is_active, created_at, updated_at, deleted_at \
+            "SELECT id, email, password_hash, name, role, is_active, created_at, updated_at, deleted_at, \
+                    invite_code_hash, invite_expires_at, must_set_password \
              FROM users WHERE email = $1 AND deleted_at IS NULL",
         )
         .bind(email)
@@ -81,14 +89,18 @@ impl UserRepository for PgUserRepository {
 
     async fn create(&self, user: &User) -> Result<User, DomainError> {
         let row = sqlx::query_as::<_, UserRow>(
-            "INSERT INTO users (email, password_hash, name, role) \
-             VALUES ($1, $2, $3, $4) \
-             RETURNING id, email, password_hash, name, role, is_active, created_at, updated_at, deleted_at",
+            "INSERT INTO users (email, password_hash, name, role, invite_code_hash, invite_expires_at, must_set_password) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7) \
+             RETURNING id, email, password_hash, name, role, is_active, created_at, updated_at, deleted_at, \
+                       invite_code_hash, invite_expires_at, must_set_password",
         )
         .bind(&user.email)
         .bind(&user.password_hash)
         .bind(&user.name)
         .bind(&user.role)
+        .bind(&user.invite_code_hash)
+        .bind(user.invite_expires_at)
+        .bind(user.must_set_password)
         .fetch_one(&self.pool)
         .await
         .map_err(map_sqlx_error)?;
@@ -104,7 +116,8 @@ impl UserRepository for PgUserRepository {
                 .map_err(map_sqlx_error)?;
 
         let rows: Vec<UserRow> = sqlx::query_as(
-            "SELECT id, email, password_hash, name, role, is_active, created_at, updated_at, deleted_at \
+            "SELECT id, email, password_hash, name, role, is_active, created_at, updated_at, deleted_at, \
+                    invite_code_hash, invite_expires_at, must_set_password \
              FROM users WHERE deleted_at IS NULL \
              ORDER BY created_at DESC LIMIT $1 OFFSET $2",
         )
@@ -140,7 +153,8 @@ impl UserRepository for PgUserRepository {
 
         let rows: Vec<UserRow> = sqlx::query_as(
             "SELECT DISTINCT u.id, u.email, u.password_hash, u.name, u.role, u.is_active, \
-                    u.created_at, u.updated_at, u.deleted_at \
+                    u.created_at, u.updated_at, u.deleted_at, \
+                    u.invite_code_hash, u.invite_expires_at, u.must_set_password \
              FROM users u \
              INNER JOIN user_warehouses uw ON u.id = uw.user_id \
              WHERE u.deleted_at IS NULL AND uw.warehouse_id = ANY($1) \
@@ -169,7 +183,8 @@ impl UserRepository for PgUserRepository {
                 role = COALESCE($3, role), \
                 is_active = COALESCE($4, is_active) \
              WHERE id = $1 AND deleted_at IS NULL \
-             RETURNING id, email, password_hash, name, role, is_active, created_at, updated_at, deleted_at",
+             RETURNING id, email, password_hash, name, role, is_active, created_at, updated_at, deleted_at, \
+                       invite_code_hash, invite_expires_at, must_set_password",
         )
         .bind(id)
         .bind(name)
@@ -258,6 +273,28 @@ impl UserRepository for PgUserRepository {
         .map_err(|e| DomainError::Internal(e.to_string()))?;
 
         Ok(ids)
+    }
+
+    async fn activate_invite(&self, id: Uuid, new_password_hash: &str) -> Result<(), DomainError> {
+        let result = sqlx::query(
+            "UPDATE users \
+             SET password_hash = $2, \
+                 invite_code_hash = NULL, \
+                 invite_expires_at = NULL, \
+                 must_set_password = false \
+             WHERE id = $1 AND deleted_at IS NULL",
+        )
+        .bind(id)
+        .bind(new_password_hash)
+        .execute(&self.pool)
+        .await
+        .map_err(map_sqlx_error)?;
+
+        if result.rows_affected() == 0 {
+            return Err(DomainError::NotFound("User not found".to_string()));
+        }
+
+        Ok(())
     }
 }
 

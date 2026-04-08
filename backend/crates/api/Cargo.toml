@@ -24,3 +24,4 @@ redis = { workspace = true }
 sqlx = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }
+argon2 = { workspace = true }

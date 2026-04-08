@@ -12,6 +12,7 @@ use vandepot_domain::ports::user_repository::UserRepository;
 use vandepot_infra::auth::jwt::Claims;
 use vandepot_infra::auth::password::hash_password;
 use vandepot_infra::repositories::user_repo::PgUserRepository;
+use argon2::password_hash::rand_core::{OsRng, RngCore};
 
 use crate::error::ApiError;
 use crate::extractors::role_guard::require_role;
@@ -23,7 +24,7 @@ use crate::state::AppState;
 #[derive(Deserialize)]
 pub struct CreateUserRequest {
     pub email: String,
-    pub password: String,
+    pub password: Option<String>,
     pub name: String,
     #[serde(default = "default_role")]
     pub role: String,
@@ -31,6 +32,13 @@ pub struct CreateUserRequest {
 
 fn default_role() -> String {
     "operator".to_string()
+}
+
+fn generate_invite_code() -> String {
+    const ALPHABET: &[u8] = b"23456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz";
+    let mut bytes = [0u8; 8];
+    OsRng.fill_bytes(&mut bytes);
+    bytes.iter().map(|&b| ALPHABET[(b as usize) % ALPHABET.len()] as char).collect()
 }
 
 #[derive(Deserialize)]
@@ -52,6 +60,7 @@ pub struct UserResponse {
     pub name: String,
     pub role: UserRole,
     pub is_active: bool,
+    pub must_set_password: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -64,10 +73,19 @@ impl From<User> for UserResponse {
             name: u.name,
             role: u.role,
             is_active: u.is_active,
+            must_set_password: u.must_set_password,
             created_at: u.created_at,
             updated_at: u.updated_at,
         }
     }
+}
+
+#[derive(Serialize)]
+pub struct CreateUserResponse {
+    #[serde(flatten)]
+    pub user: UserResponse,
+    pub invite_code: Option<String>,
+    pub invite_expires_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Serialize)]
@@ -98,11 +116,12 @@ pub fn user_routes() -> Router<AppState> {
 // ── Handlers ──────────────────────────────────────────────────────────
 
 /// POST /users — Create a new user (superadmin, owner).
+/// If `password` is absent or empty, an invite code is generated instead.
 async fn create_user(
     State(state): State<AppState>,
     claims: Claims,
     Json(payload): Json<CreateUserRequest>,
-) -> Result<(StatusCode, Json<UserResponse>), ApiError> {
+) -> Result<(StatusCode, Json<CreateUserResponse>), ApiError> {
     require_role(&claims, &["superadmin", "owner"])?;
 
     // Validate role string
@@ -114,12 +133,28 @@ async fn create_user(
             )))
         })?;
 
-    // Hash the password
-    let password_hash = hash_password(&payload.password).map_err(|e| {
-        ApiError(vandepot_domain::error::DomainError::Internal(
-            e.to_string(),
-        ))
-    })?;
+    let use_invite = payload.password.as_deref().unwrap_or("").is_empty();
+
+    let (password_hash, invite_code_hash, plaintext_invite, invite_expires_at, must_set_password) =
+        if use_invite {
+            let code = generate_invite_code();
+            let code_hash = hash_password(&code).map_err(|e| {
+                ApiError(vandepot_domain::error::DomainError::Internal(e.to_string()))
+            })?;
+            let expires = chrono::Utc::now() + chrono::Duration::days(7);
+            (
+                "INVITE_PENDING".to_string(),
+                Some(code_hash),
+                Some(code),
+                Some(expires),
+                true,
+            )
+        } else {
+            let hash = hash_password(payload.password.as_deref().unwrap()).map_err(|e| {
+                ApiError(vandepot_domain::error::DomainError::Internal(e.to_string()))
+            })?;
+            (hash, None, None, None, false)
+        };
 
     let user = User {
         id: Uuid::new_v4(),
@@ -131,12 +166,21 @@ async fn create_user(
         created_at: chrono::Utc::now(),
         updated_at: chrono::Utc::now(),
         deleted_at: None,
+        invite_code_hash,
+        invite_expires_at,
+        must_set_password,
     };
 
     let repo = PgUserRepository::new(state.pool.clone());
     let created = repo.create(&user).await?;
 
-    Ok((StatusCode::CREATED, Json(UserResponse::from(created))))
+    let response = CreateUserResponse {
+        invite_code: plaintext_invite,
+        invite_expires_at: created.invite_expires_at,
+        user: UserResponse::from(created),
+    };
+
+    Ok((StatusCode::CREATED, Json(response)))
 }
 
 /// GET /users — List users with pagination.
