@@ -94,6 +94,7 @@ impl PgWarehouseRepository {
             LEFT JOIN (
                 SELECT warehouse_id, COUNT(*) AS cnt
                 FROM locations
+                WHERE parent_id IS NULL
                 GROUP BY warehouse_id
             ) loc ON loc.warehouse_id = w.id
             LEFT JOIN (
