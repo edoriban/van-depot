@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Group, Rect, Text } from 'react-konva'
+import { Group, Rect, Text, Transformer } from 'react-konva'
 import { SEVERITY_HEX } from '@/lib/severity-colors'
 import { SEVERITY_CONFIG } from '@/lib/severity'
 import { useMapStore } from '@/stores/map-store'
@@ -17,6 +17,7 @@ interface ZoneRectProps {
   heatMap: boolean
   onSelect: () => void
   onDragEnd: (x: number, y: number) => void
+  onResize: (x: number, y: number, w: number, h: number) => void
 }
 
 /**
@@ -60,8 +61,11 @@ export function ZoneRect({
   heatMap,
   onSelect,
   onDragEnd,
+  onResize,
 }: ZoneRectProps) {
   const setHoveredZone = useMapStore((s) => s.setHoveredZone)
+  const shapeRef = useRef<Konva.Rect>(null)
+  const trRef = useRef<Konva.Transformer>(null)
   const colors = SEVERITY_HEX[zone.severity]
   const config = SEVERITY_CONFIG[zone.severity]
   const fill = heatMap ? computeHeatFill(zone) : colors.fill
@@ -86,6 +90,30 @@ export function ZoneRect({
       if (intervalRef.current) clearInterval(intervalRef.current)
     }
   }, [highlighted])
+
+  // Attach Transformer to the Rect when selected in edit mode
+  useEffect(() => {
+    if (isSelected && editMode && trRef.current && shapeRef.current) {
+      trRef.current.nodes([shapeRef.current])
+      trRef.current.getLayer()?.batchDraw()
+    }
+  }, [isSelected, editMode])
+
+  const handleTransformEnd = useCallback(() => {
+    const node = shapeRef.current
+    if (!node) return
+    const scaleX = node.scaleX()
+    const scaleY = node.scaleY()
+    // Reset scale and bake it into width/height
+    node.scaleX(1)
+    node.scaleY(1)
+    onResize(
+      node.x(),
+      node.y(),
+      Math.max(80, node.width() * scaleX),
+      Math.max(60, node.height() * scaleY),
+    )
+  }, [onResize])
 
   const strokeColor = highlighted
     ? pulseOn
@@ -158,6 +186,7 @@ export function ZoneRect({
     >
       {/* Zone rectangle */}
       <Rect
+        ref={shapeRef}
         width={zone.width}
         height={zone.height}
         fill={fill}
@@ -168,6 +197,7 @@ export function ZoneRect({
         shadowBlur={isSelected ? 8 : 4}
         shadowOffset={{ x: 0, y: 2 }}
         shadowOpacity={isSelected ? 0.3 : 0.15}
+        onTransformEnd={handleTransformEnd}
       />
 
       {/* Zone name */}
@@ -209,6 +239,33 @@ export function ZoneRect({
         ellipsis
         wrap="none"
       />
+
+      {/* Resize handles — only when selected in edit mode */}
+      {isSelected && editMode && (
+        <Transformer
+          ref={trRef}
+          rotateEnabled={false}
+          enabledAnchors={[
+            'top-left',
+            'top-right',
+            'bottom-left',
+            'bottom-right',
+            'middle-left',
+            'middle-right',
+            'top-center',
+            'bottom-center',
+          ]}
+          boundBoxFunc={(_oldBox, newBox) => {
+            if (newBox.width < 80 || newBox.height < 60) return _oldBox
+            return newBox
+          }}
+          borderStroke="#2563eb"
+          anchorStroke="#2563eb"
+          anchorFill="#ffffff"
+          anchorSize={8}
+          anchorCornerRadius={2}
+        />
+      )}
     </Group>
   )
 }

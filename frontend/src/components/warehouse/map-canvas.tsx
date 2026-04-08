@@ -2,7 +2,7 @@
 
 import { useRef, useCallback, useEffect, useMemo, useState } from 'react'
 import { Stage, Layer, Line } from 'react-konva'
-import useSWR from 'swr'
+import useSWR, { mutate } from 'swr'
 import KonvaLib from 'konva'
 import type Konva from 'konva'
 import { useMapStore } from '@/stores/map-store'
@@ -19,6 +19,7 @@ import type {
   LocationPosition,
   Location,
   PaginatedResponse,
+  WarehouseMapResponse,
 } from '@/types'
 import { toast } from 'sonner'
 import { api } from '@/lib/api-mutations'
@@ -273,6 +274,32 @@ export default function MapCanvas({
         canvas_height: canvasH,
       })
 
+      // Optimistically update SWR cache so zones keep their new positions
+      // even after clearing pendingPositions
+      await mutate<WarehouseMapResponse>(
+        `/warehouses/${warehouseId}/map`,
+        (currentData) => {
+          if (!currentData) return currentData
+          return {
+            ...currentData,
+            zones: currentData.zones.map((z) => {
+              const pos = positions.find((p) => p.id === z.zone_id)
+              if (pos) {
+                return {
+                  ...z,
+                  pos_x: pos.pos_x,
+                  pos_y: pos.pos_y,
+                  width: pos.width,
+                  height: pos.height,
+                }
+              }
+              return z
+            }),
+          }
+        },
+        { revalidate: false },
+      )
+
       clearPendingPositions()
       toast.success('Layout guardado')
     } catch (err) {
@@ -296,6 +323,13 @@ export default function MapCanvas({
       })
     },
     [zonesWithLayout, setPendingPosition],
+  )
+
+  const handleResize = useCallback(
+    (zoneId: string, x: number, y: number, w: number, h: number) => {
+      setPendingPosition(zoneId, { x, y, w, h })
+    },
+    [setPendingPosition],
   )
 
   const handleStageClick = useCallback(
@@ -560,6 +594,7 @@ export default function MapCanvas({
                     onZoneSelect(zone.zone_id)
                   }}
                   onDragEnd={(x, y) => handleDragEnd(zone.zone_id, x, y)}
+                  onResize={(x, y, w, h) => handleResize(zone.zone_id, x, y, w, h)}
                 />
               )
             })}
