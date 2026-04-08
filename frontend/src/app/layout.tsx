@@ -7,6 +7,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/sonner";
 import { OfflineIndicator } from "@/components/shared/offline-indicator";
 import { ServiceWorkerRegister } from "@/components/shared/sw-register";
+import { AuthInitializer } from "@/components/auth-initializer";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -57,6 +58,7 @@ export default function RootLayout({
     >
       <body className="min-h-full flex flex-col">
         <ThemeProvider>
+          <AuthInitializer />
           <ServiceWorkerRegister />
           <OfflineIndicator />
           <SWRProvider>
