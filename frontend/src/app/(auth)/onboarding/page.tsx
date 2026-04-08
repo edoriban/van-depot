@@ -311,15 +311,23 @@ export default function OnboardingPage() {
 
   // --- Step 4: Invites ---
 
+  const generateTempPassword = () => {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#$%';
+    return Array.from(crypto.getRandomValues(new Uint8Array(16)))
+      .map(b => chars[b % chars.length])
+      .join('');
+  };
+
   const handleSendInvite = useCallback(async () => {
     if (!inviteEmail.trim() || !inviteName.trim()) return;
     setIsLoading(true);
     try {
+      const tempPassword = generateTempPassword();
       await api.post('/users', {
         email: inviteEmail.trim(),
         name: inviteName.trim(),
         role: inviteRole,
-        password: 'temporal123',
+        password: tempPassword,
       });
       setInvites((prev) => [
         ...prev,
@@ -334,7 +342,10 @@ export default function OnboardingPage() {
       setInviteEmail('');
       setInviteName('');
       setInviteRole('operator');
-      toast.success('Invitación enviada');
+      toast.success('Usuario creado', {
+        description: `Contraseña temporal: ${tempPassword} — compártela con el usuario`,
+        duration: 15000,
+      });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Error al invitar usuario');
     } finally {
