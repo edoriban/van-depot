@@ -7,8 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { HugeiconsIcon } from '@hugeicons/react';
-import { ContainerIcon } from '@hugeicons/core-free-icons';
+
 
 export default function LoginPage() {
   const { login, isHydrated, user } = useAuthStore();
@@ -50,8 +49,9 @@ export default function LoginPage() {
     <div className="flex min-h-screen items-center justify-center px-4">
       <Card className="w-full max-w-sm">
         <CardHeader className="text-center">
-          <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-lg bg-primary/10">
-            <HugeiconsIcon icon={ContainerIcon} size={28} className="text-primary" />
+          <div className="mx-auto mb-2">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/vanflux-icon.svg" alt="VanFlux" width={48} height={48} />
           </div>
           <CardTitle className="text-2xl">VanFlux</CardTitle>
           <CardDescription>Ingresa tus credenciales para continuar</CardDescription>

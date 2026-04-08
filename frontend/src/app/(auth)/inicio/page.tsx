@@ -20,7 +20,6 @@ import { HugeiconsIcon } from '@hugeicons/react';
 import {
   Package01Icon,
   Store01Icon,
-  ContainerIcon,
   ClipboardIcon,
   Alert02Icon,
   ArrowDataTransferHorizontalIcon,
@@ -289,7 +288,8 @@ export default function DashboardPage() {
       {isBrandNewAccount ? (
         <Card className="border-primary/30 bg-primary/5" data-testid="welcome-banner">
           <CardContent className="p-6 text-center">
-            <HugeiconsIcon icon={ContainerIcon} className="h-12 w-12 text-primary mx-auto mb-4" />
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/vanflux-icon.svg" alt="VanFlux" className="h-12 w-12 mx-auto mb-4" />
             <h2 className="text-xl font-semibold mb-2">¡Bienvenido a VanFlux!</h2>
             <p className="text-muted-foreground mb-4">
               Configura tu almacen en unos minutos para empezar a controlar tu inventario.

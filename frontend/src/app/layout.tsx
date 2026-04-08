@@ -22,6 +22,10 @@ export const metadata: Metadata = {
   title: "VanFlux - Sistema de Inventario",
   description: "Sistema de gestión de almacén para PyMEs",
   manifest: "/manifest.json",
+  icons: {
+    icon: "/vanflux-icon.svg",
+    apple: "/vanflux-icon.svg",
+  },
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
