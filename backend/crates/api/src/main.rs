@@ -50,6 +50,7 @@ async fn main() -> anyhow::Result<()> {
         .merge(routes::movements::movement_routes())
         .merge(routes::lots::lot_routes())
         .merge(routes::purchase_orders::purchase_order_routes())
+        .merge(routes::purchase_returns::purchase_return_routes())
         .merge(routes::stock_config::stock_config_routes())
         .merge(routes::inventory::inventory_routes())
         .merge(routes::cycle_counts::cycle_count_routes())

@@ -12,6 +12,7 @@ pub mod movements;
 pub mod notifications;
 pub mod products;
 pub mod purchase_orders;
+pub mod purchase_returns;
 pub mod recipes;
 pub mod stock_config;
 pub mod supplier_products;

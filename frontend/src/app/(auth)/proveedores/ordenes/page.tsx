@@ -11,6 +11,7 @@ import type {
   Product,
   PaginatedResponse,
 } from '@/types';
+import { PurchaseReturnDialog } from '@/components/shared/purchase-return-dialog';
 import { DataTable, type ColumnDef } from '@/components/shared/data-table';
 import { EmptyState } from '@/components/shared/empty-state';
 import { ConfirmDialog } from '@/components/shared/confirm-dialog';
@@ -321,6 +322,15 @@ function OrdenesPageInner() {
   const [cancelTarget, setCancelTarget] = useState<PurchaseOrder | null>(null);
   const [isCancelling, setIsCancelling] = useState(false);
 
+  // Return dialog state
+  const [returnDialogOpen, setReturnDialogOpen] = useState(false);
+  const [returnPO, setReturnPO] = useState<{
+    id: string;
+    order_number: string;
+    lines: PurchaseOrderLine[];
+  } | null>(null);
+  const [isFetchingLines, setIsFetchingLines] = useState<string | null>(null);
+
   // Load suppliers for filter
   useEffect(() => {
     api
@@ -377,6 +387,23 @@ function OrdenesPageInner() {
       toast.error(err instanceof Error ? err.message : 'Error al cancelar orden');
     } finally {
       setIsCancelling(false);
+    }
+  };
+
+  const handleOpenReturn = async (po: PurchaseOrder) => {
+    setIsFetchingLines(po.id);
+    try {
+      const detail = await api.get<PurchaseOrder>(`/purchase-orders/${po.id}`);
+      setReturnPO({
+        id: detail.id,
+        order_number: detail.order_number,
+        lines: detail.lines ?? [],
+      });
+      setReturnDialogOpen(true);
+    } catch {
+      toast.error('Error al cargar las lineas de la orden');
+    } finally {
+      setIsFetchingLines(null);
     }
   };
 
@@ -443,6 +470,16 @@ function OrdenesPageInner() {
               onClick={() => handleSend(po)}
             >
               Enviar
+            </Button>
+          )}
+          {(po.status === 'partially_received' || po.status === 'completed') && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => handleOpenReturn(po)}
+              disabled={isFetchingLines === po.id}
+            >
+              {isFetchingLines === po.id ? 'Cargando...' : 'Nueva devolución'}
             </Button>
           )}
           {(po.status === 'draft' ||
@@ -576,6 +613,18 @@ function OrdenesPageInner() {
         onConfirm={handleCancel}
         isLoading={isCancelling}
       />
+
+      {returnPO && (
+        <PurchaseReturnDialog
+          open={returnDialogOpen}
+          onOpenChange={(open) => {
+            setReturnDialogOpen(open);
+            if (!open) setReturnPO(null);
+          }}
+          purchaseOrder={returnPO}
+          onSuccess={fetchOrders}
+        />
+      )}
     </div>
   );
 }

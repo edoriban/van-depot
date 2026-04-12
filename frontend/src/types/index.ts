@@ -465,6 +465,40 @@ export interface PurchaseOrder {
   updated_at: string;
 }
 
+// Purchase Returns
+export type PurchaseReturnStatus = 'pending' | 'shipped_to_supplier' | 'refunded' | 'rejected';
+export type PurchaseReturnReason = 'damaged' | 'defective' | 'wrong_product' | 'expired' | 'excess_inventory' | 'other';
+
+export interface PurchaseReturnItem {
+  id: string;
+  purchase_return_id: string;
+  product_id: string;
+  quantity_returned: number;
+  quantity_original: number;
+  unit_price: number;
+  subtotal: number;
+}
+
+export interface PurchaseReturn {
+  id: string;
+  purchase_order_id: string;
+  return_number: string;
+  status: PurchaseReturnStatus;
+  reason: PurchaseReturnReason;
+  reason_notes: string | null;
+  subtotal: number;
+  total: number;
+  refund_amount: number | null;
+  decrease_inventory: boolean;
+  requested_by_id: string;
+  shipped_at: string | null;
+  refunded_at: string | null;
+  rejected_at: string | null;
+  created_at: string;
+  updated_at: string;
+  items?: PurchaseReturnItem[];
+}
+
 // Stock Configuration
 export interface StockConfig {
   id: string;

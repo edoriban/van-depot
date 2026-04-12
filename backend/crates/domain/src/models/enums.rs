@@ -66,3 +66,25 @@ pub enum QualityStatus {
     Rejected,
     Quarantine,
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
+#[serde(rename_all = "snake_case")]
+#[sqlx(type_name = "purchase_return_status", rename_all = "snake_case")]
+pub enum PurchaseReturnStatus {
+    Pending,
+    ShippedToSupplier,
+    Refunded,
+    Rejected,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
+#[serde(rename_all = "snake_case")]
+#[sqlx(type_name = "purchase_return_reason", rename_all = "snake_case")]
+pub enum PurchaseReturnReason {
+    Damaged,
+    Defective,
+    WrongProduct,
+    Expired,
+    ExcessInventory,
+    Other,
+}

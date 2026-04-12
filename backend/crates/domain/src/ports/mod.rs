@@ -3,6 +3,7 @@ pub mod inventory_service;
 pub mod location_repository;
 pub mod product_repository;
 pub mod purchase_order_repository;
+pub mod purchase_return_repository;
 pub mod supplier_repository;
 pub mod user_repository;
 pub mod warehouse_repository;

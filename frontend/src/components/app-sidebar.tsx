@@ -61,6 +61,7 @@ const navGroups: NavGroup[] = [
       { title: 'Productos', href: '/productos', icon: Package01Icon },
       { title: 'Proveedores', href: '/proveedores', icon: DeliveryTruck01Icon },
       { title: 'Ordenes de Compra', href: '/proveedores/ordenes', icon: ClipboardIcon },
+      { title: 'Devoluciones', href: '/proveedores/devoluciones', icon: DeliveryTruck01Icon },
       { title: 'Lotes', href: '/lotes', icon: Layers01Icon },
     ],
   },
