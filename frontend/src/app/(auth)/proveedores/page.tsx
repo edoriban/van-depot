@@ -18,6 +18,8 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { DeliveryTruck01Icon, Package01Icon } from '@hugeicons/core-free-icons';
+import { ExportButton } from '@/components/shared/export-button';
+import { exportToExcel } from '@/lib/export-utils';
 import {
   Dialog,
   DialogContent,
@@ -561,9 +563,40 @@ export default function ProveedoresPage() {
             Gestiona los proveedores de tu organizacion
           </p>
         </div>
-        <Button onClick={openCreateDialog} data-testid="new-supplier-btn">
-          Nuevo proveedor
-        </Button>
+        <div className="flex items-center gap-2">
+          <ExportButton
+            onExport={() =>
+              exportToExcel(
+                suppliers as unknown as Record<string, unknown>[],
+                'proveedores',
+                'Proveedores',
+                [
+                  { key: 'name', label: 'Nombre' },
+                  { key: 'contact_name', label: 'Contacto', format: (v) => (v as string) ?? '' },
+                  { key: 'email', label: 'Email', format: (v) => (v as string) ?? '' },
+                  { key: 'phone', label: 'Telefono', format: (v) => (v as string) ?? '' },
+                  {
+                    key: 'is_active',
+                    label: 'Activo',
+                    format: (v) => (v ? 'Si' : 'No'),
+                  },
+                  {
+                    key: 'id',
+                    label: 'Ordenes pendientes',
+                    format: (_v, row) => {
+                      const s = row as unknown as Supplier;
+                      return pendingBySupplier.get(s.id) ?? 0;
+                    },
+                  },
+                ]
+              )
+            }
+            disabled={suppliers.length === 0}
+          />
+          <Button onClick={openCreateDialog} data-testid="new-supplier-btn">
+            Nuevo proveedor
+          </Button>
+        </div>
       </div>
 
       {error && (

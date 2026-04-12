@@ -9,6 +9,8 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Layers01Icon } from '@hugeicons/core-free-icons';
 import Link from 'next/link';
+import { ExportButton } from '@/components/shared/export-button';
+import { exportToExcel } from '@/lib/export-utils';
 
 const QUALITY_LABELS: Record<QualityStatus, string> = {
   pending: 'Pendiente',
@@ -116,9 +118,59 @@ export default function LotesPage() {
             Historial de lotes recibidos y su estado de calidad
           </p>
         </div>
-        <Button asChild>
-          <Link href="/lotes/recibir">Recibir material</Link>
-        </Button>
+        <div className="flex items-center gap-2">
+          <ExportButton
+            onExport={() =>
+              exportToExcel(
+                lots as unknown as Record<string, unknown>[],
+                'lotes',
+                'Lotes',
+                [
+                  { key: 'lot_number', label: 'No. Lote' },
+                  { key: 'product_id', label: 'Producto (ID)' },
+                  { key: 'received_quantity', label: 'Cantidad recibida' },
+                  { key: 'total_quantity', label: 'Cantidad total' },
+                  {
+                    key: 'batch_date',
+                    label: 'Fecha lote',
+                    format: (v) =>
+                      v ? new Date(v as string).toLocaleDateString('es-MX') : '-',
+                  },
+                  {
+                    key: 'expiration_date',
+                    label: 'Fecha vencimiento',
+                    format: (v) =>
+                      v ? new Date(v as string).toLocaleDateString('es-MX') : '-',
+                  },
+                  {
+                    key: 'quality_status',
+                    label: 'Estado calidad',
+                    format: (v) => {
+                      const labels: Record<string, string> = {
+                        pending: 'Pendiente',
+                        approved: 'Aprobado',
+                        rejected: 'Rechazado',
+                        quarantine: 'Cuarentena',
+                      };
+                      return labels[v as string] ?? String(v);
+                    },
+                  },
+                  { key: 'notes', label: 'Notas', format: (v) => (v as string) ?? '' },
+                  {
+                    key: 'created_at',
+                    label: 'Recibido',
+                    format: (v) =>
+                      v ? new Date(v as string).toLocaleDateString('es-MX') : '',
+                  },
+                ]
+              )
+            }
+            disabled={lots.length === 0}
+          />
+          <Button asChild>
+            <Link href="/lotes/recibir">Recibir material</Link>
+          </Button>
+        </div>
       </div>
 
       <DataTable

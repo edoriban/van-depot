@@ -16,6 +16,8 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ClipboardIcon } from '@hugeicons/core-free-icons';
+import { ExportButton } from '@/components/shared/export-button';
+import { exportToExcel } from '@/lib/export-utils';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -242,13 +244,50 @@ export default function InventoryPage() {
   const totalPages = Math.ceil(total / PER_PAGE);
   const COL_COUNT = 7;
 
+  const handleExport = () => {
+    exportToExcel(
+      filteredItems as unknown as Record<string, unknown>[],
+      'inventario',
+      'Inventario',
+      [
+        { key: 'product_name', label: 'Producto' },
+        { key: 'product_sku', label: 'SKU' },
+        { key: 'location_name', label: 'Ubicacion' },
+        {
+          key: 'warehouse_id',
+          label: 'Almacen',
+          format: (_v, row) => {
+            const r = row as unknown as InventoryItem;
+            const wh = warehouses.find((w) => w.id === r.warehouse_id);
+            return wh ? wh.name : r.warehouse_id;
+          },
+        },
+        { key: 'quantity', label: 'Cantidad' },
+        { key: 'min_stock', label: 'Stock minimo' },
+        {
+          key: 'quantity',
+          label: 'Estado stock',
+          format: (_v, row) => {
+            const r = row as unknown as InventoryItem;
+            if (r.quantity === 0) return 'Critico';
+            if (r.min_stock > 0 && r.quantity <= r.min_stock) return 'Bajo';
+            return 'OK';
+          },
+        },
+      ]
+    );
+  };
+
   return (
     <div className="space-y-6" data-testid="inventory-page">
-      <div>
-        <h1 className="text-2xl font-bold">Inventario</h1>
-        <p className="text-muted-foreground mt-1">
-          Vista de stock actual por producto y ubicacion
-        </p>
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">Inventario</h1>
+          <p className="text-muted-foreground mt-1">
+            Vista de stock actual por producto y ubicacion
+          </p>
+        </div>
+        <ExportButton onExport={handleExport} disabled={filteredItems.length === 0} />
       </div>
 
       {/* Filters */}

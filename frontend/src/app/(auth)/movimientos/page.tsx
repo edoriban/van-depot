@@ -21,6 +21,8 @@ import { DataTable, type ColumnDef } from '@/components/shared/data-table';
 import { EmptyState } from '@/components/shared/empty-state';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { ArrowDataTransferHorizontalIcon } from '@hugeicons/core-free-icons';
+import { ExportButton } from '@/components/shared/export-button';
+import { exportToExcel } from '@/lib/export-utils';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -1481,6 +1483,69 @@ export default function MovementsPage() {
         <div className="flex items-center justify-between">
           <h2 className="text-xl font-semibold">Historial de movimientos</h2>
           <div className="flex items-center gap-2">
+            <ExportButton
+              onExport={() =>
+                exportToExcel(
+                  movements as unknown as Record<string, unknown>[],
+                  'movimientos',
+                  'Movimientos',
+                  [
+                    {
+                      key: 'created_at',
+                      label: 'Fecha',
+                      format: (v) =>
+                        v ? new Date(v as string).toLocaleDateString('es-MX') : '',
+                    },
+                    {
+                      key: 'movement_type',
+                      label: 'Tipo',
+                      format: (v) => MOVEMENT_LABELS[(v as MovementType)] ?? String(v),
+                    },
+                    {
+                      key: 'product_id',
+                      label: 'Producto',
+                      format: (_v, row) => {
+                        const m = row as unknown as MovementWithDetails;
+                        return m.product_name ?? m.product_id;
+                      },
+                    },
+                    {
+                      key: 'product_sku',
+                      label: 'SKU',
+                      format: (_v, row) => {
+                        const m = row as unknown as MovementWithDetails;
+                        return m.product_sku ?? '';
+                      },
+                    },
+                    { key: 'quantity', label: 'Cantidad' },
+                    {
+                      key: 'movement_reason',
+                      label: 'Motivo',
+                      format: (v) =>
+                        v ? REASON_LABELS[(v as MovementReason)] ?? String(v) : '',
+                    },
+                    {
+                      key: 'from_location_name',
+                      label: 'Origen',
+                      format: (_v, row) => {
+                        const m = row as unknown as MovementWithDetails;
+                        return m.from_location_name ?? m.from_location_id ?? '-';
+                      },
+                    },
+                    {
+                      key: 'to_location_name',
+                      label: 'Destino',
+                      format: (_v, row) => {
+                        const m = row as unknown as MovementWithDetails;
+                        return m.to_location_name ?? m.to_location_id ?? '-';
+                      },
+                    },
+                    { key: 'reference', label: 'Referencia', format: (v) => (v as string) ?? '' },
+                  ]
+                )
+              }
+              disabled={movements.length === 0}
+            />
             <Label htmlFor="filter-type" className="text-sm whitespace-nowrap">Filtrar por tipo:</Label>
             <Select
               value={filterType || 'all'}
