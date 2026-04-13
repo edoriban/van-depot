@@ -430,6 +430,22 @@ export interface ReceiveLotRequest {
   purchase_order_id?: string;
 }
 
+// Lot Movements
+export interface LotMovement {
+  id: string;
+  product_id: string;
+  movement_type: MovementType;
+  from_location_id: string | null;
+  from_location_name: string | null;
+  to_location_id: string | null;
+  to_location_name: string | null;
+  quantity: number;
+  reference: string | null;
+  notes: string | null;
+  user_id: string;
+  created_at: string;
+}
+
 // Purchase Orders
 export type PurchaseOrderStatus =
   | 'draft'

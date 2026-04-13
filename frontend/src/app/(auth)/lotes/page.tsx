@@ -7,10 +7,27 @@ import { DataTable, type ColumnDef } from '@/components/shared/data-table';
 import { EmptyState } from '@/components/shared/empty-state';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import { Layers01Icon } from '@hugeicons/core-free-icons';
 import Link from 'next/link';
 import { ExportButton } from '@/components/shared/export-button';
 import { exportToExcel } from '@/lib/export-utils';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { toast } from 'sonner';
 
 const QUALITY_LABELS: Record<QualityStatus, string> = {
   pending: 'Pendiente',
@@ -58,6 +75,44 @@ export default function LotesPage() {
     }
   }, []);
 
+  // Quality dialog state
+  const [qualityOpen, setQualityOpen] = useState(false);
+  const [qualityLotId, setQualityLotId] = useState<string | null>(null);
+  const [qualityCurrentStatus, setQualityCurrentStatus] =
+    useState<QualityStatus>('pending');
+  const [qualityNewStatus, setQualityNewStatus] =
+    useState<QualityStatus>('pending');
+  const [qualityNotes, setQualityNotes] = useState('');
+  const [isQualitySubmitting, setIsQualitySubmitting] = useState(false);
+
+  const openQualityDialog = (lot: ProductLot) => {
+    setQualityLotId(lot.id);
+    setQualityCurrentStatus(lot.quality_status);
+    setQualityNewStatus(lot.quality_status);
+    setQualityNotes('');
+    setQualityOpen(true);
+  };
+
+  const handleQualitySubmit = async () => {
+    if (!qualityLotId) return;
+    setIsQualitySubmitting(true);
+    try {
+      await api.patch(`/lots/${qualityLotId}/quality`, {
+        quality_status: qualityNewStatus,
+        notes: qualityNotes || undefined,
+      });
+      toast.success('Estado de calidad actualizado');
+      setQualityOpen(false);
+      fetchLots(page);
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : 'Error al actualizar estado'
+      );
+    } finally {
+      setIsQualitySubmitting(false);
+    }
+  };
+
   useEffect(() => {
     fetchLots(page);
   }, [page, fetchLots]);
@@ -66,7 +121,14 @@ export default function LotesPage() {
     {
       key: 'lot_number',
       header: 'No. Lote',
-      render: (l) => <span className="font-medium font-mono">{l.lot_number}</span>,
+      render: (l) => (
+        <Link
+          href={`/lotes/${l.id}`}
+          className="font-medium font-mono hover:underline underline-offset-4"
+        >
+          {l.lot_number}
+        </Link>
+      ),
     },
     {
       key: 'product',
@@ -77,9 +139,15 @@ export default function LotesPage() {
       key: 'status',
       header: 'Estado',
       render: (l) => (
-        <Badge className={QUALITY_COLORS[l.quality_status]}>
-          {QUALITY_LABELS[l.quality_status]}
-        </Badge>
+        <button
+          type="button"
+          onClick={() => openQualityDialog(l)}
+          className="cursor-pointer"
+        >
+          <Badge className={QUALITY_COLORS[l.quality_status]}>
+            {QUALITY_LABELS[l.quality_status]}
+          </Badge>
+        </button>
       ),
     },
     {
@@ -106,6 +174,15 @@ export default function LotesPage() {
       key: 'created',
       header: 'Recibido',
       render: (l) => formatDate(l.created_at),
+    },
+    {
+      key: 'actions',
+      header: '',
+      render: (l) => (
+        <Button variant="ghost" size="sm" asChild>
+          <Link href={`/lotes/${l.id}`}>Ver</Link>
+        </Button>
+      ),
     },
   ];
 
@@ -192,6 +269,68 @@ export default function LotesPage() {
           />
         }
       />
+
+      {/* Quality status change dialog */}
+      <Dialog open={qualityOpen} onOpenChange={setQualityOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Cambiar estado de calidad</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <p className="text-sm text-muted-foreground mb-1">
+                Estado actual:
+              </p>
+              <Badge className={QUALITY_COLORS[qualityCurrentStatus]}>
+                {QUALITY_LABELS[qualityCurrentStatus]}
+              </Badge>
+            </div>
+            <div className="space-y-2">
+              <Label>Nuevo estado</Label>
+              <Select
+                value={qualityNewStatus}
+                onValueChange={(v) =>
+                  setQualityNewStatus(v as QualityStatus)
+                }
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="pending">Pendiente</SelectItem>
+                  <SelectItem value="approved">Aprobado</SelectItem>
+                  <SelectItem value="rejected">Rechazado</SelectItem>
+                  <SelectItem value="quarantine">Cuarentena</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Notas (opcional)</Label>
+              <Textarea
+                rows={3}
+                value={qualityNotes}
+                onChange={(e) => setQualityNotes(e.target.value)}
+                placeholder="Motivo del cambio de estado..."
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setQualityOpen(false)}
+              disabled={isQualitySubmitting}
+            >
+              Cancelar
+            </Button>
+            <Button
+              onClick={handleQualitySubmit}
+              disabled={isQualitySubmitting}
+            >
+              {isQualitySubmitting ? 'Guardando...' : 'Actualizar estado'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

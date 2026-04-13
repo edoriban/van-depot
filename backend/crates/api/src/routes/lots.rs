@@ -1,13 +1,13 @@
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
-use axum::routing::{get, post};
+use axum::routing::{get, patch, post};
 use axum::{Json, Router};
 use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use vandepot_domain::error::DomainError;
-use vandepot_domain::models::enums::QualityStatus;
+use vandepot_domain::models::enums::{MovementType, QualityStatus};
 use vandepot_infra::auth::jwt::Claims;
 use vandepot_infra::repositories::lots_repo;
 
@@ -76,6 +76,36 @@ pub struct InventoryLotResponse {
     pub updated_at: DateTime<Utc>,
 }
 
+#[derive(Deserialize)]
+pub struct UpdateQualityRequest {
+    pub quality_status: QualityStatus,
+    pub notes: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct TransferLotRequest {
+    pub from_location_id: Uuid,
+    pub to_location_id: Uuid,
+    pub quantity: f64,
+    pub notes: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct MovementResponse {
+    pub id: Uuid,
+    pub product_id: Uuid,
+    pub movement_type: MovementType,
+    pub from_location_id: Option<Uuid>,
+    pub from_location_name: Option<String>,
+    pub to_location_id: Option<Uuid>,
+    pub to_location_name: Option<String>,
+    pub quantity: f64,
+    pub reference: Option<String>,
+    pub notes: Option<String>,
+    pub user_id: Uuid,
+    pub created_at: DateTime<Utc>,
+}
+
 // ── Routes ────────────────────────────────────────────────────────────
 
 pub fn lot_routes() -> Router<AppState> {
@@ -83,6 +113,9 @@ pub fn lot_routes() -> Router<AppState> {
         .route("/products/{product_id}/lots", get(list_lots))
         .route("/lots/{id}", get(get_lot))
         .route("/lots/{id}/inventory", get(get_lot_inventory))
+        .route("/lots/{id}/quality", patch(update_quality_status))
+        .route("/lots/{id}/transfer", post(transfer_lot))
+        .route("/lots/{id}/movements", get(get_lot_movements))
         .route("/lots/receive", post(receive_lot))
 }
 
@@ -156,6 +189,89 @@ async fn get_lot_inventory(
             quantity: row.quantity,
             created_at: row.created_at,
             updated_at: row.updated_at,
+        })
+        .collect();
+
+    Ok(Json(data))
+}
+
+async fn update_quality_status(
+    State(state): State<AppState>,
+    claims: Claims,
+    Path(id): Path<Uuid>,
+    Json(payload): Json<UpdateQualityRequest>,
+) -> Result<Json<ProductLotResponse>, ApiError> {
+    require_role(&claims, &["superadmin", "owner", "warehouse_manager"])?;
+
+    let row = lots_repo::update_quality_status(
+        &state.pool,
+        id,
+        payload.quality_status,
+        claims.sub,
+        payload.notes.as_deref(),
+    )
+    .await?;
+
+    Ok(Json(ProductLotResponse {
+        id: row.id,
+        product_id: row.product_id,
+        lot_number: row.lot_number,
+        batch_date: row.batch_date,
+        expiration_date: row.expiration_date,
+        supplier_id: row.supplier_id,
+        received_quantity: row.received_quantity,
+        quality_status: row.quality_status,
+        notes: row.notes,
+        purchase_order_line_id: row.purchase_order_line_id,
+        created_at: row.created_at,
+        updated_at: row.updated_at,
+    }))
+}
+
+async fn transfer_lot(
+    State(state): State<AppState>,
+    claims: Claims,
+    Path(id): Path<Uuid>,
+    Json(payload): Json<TransferLotRequest>,
+) -> Result<StatusCode, ApiError> {
+    require_role(&claims, &["superadmin", "owner", "warehouse_manager"])?;
+
+    lots_repo::transfer_lot(
+        &state.pool,
+        id,
+        payload.from_location_id,
+        payload.to_location_id,
+        payload.quantity,
+        claims.sub,
+        payload.notes.as_deref(),
+    )
+    .await?;
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn get_lot_movements(
+    State(state): State<AppState>,
+    _claims: Claims,
+    Path(id): Path<Uuid>,
+) -> Result<Json<Vec<MovementResponse>>, ApiError> {
+    let rows = lots_repo::get_lot_movements(&state.pool, id).await?;
+
+    let data = rows
+        .into_iter()
+        .map(|row| MovementResponse {
+            id: row.id,
+            product_id: row.product_id,
+            movement_type: row.movement_type,
+            from_location_id: row.from_location_id,
+            from_location_name: row.from_location_name,
+            to_location_id: row.to_location_id,
+            to_location_name: row.to_location_name,
+            quantity: row.quantity,
+            reference: row.reference,
+            notes: row.notes,
+            user_id: row.user_id,
+            created_at: row.created_at,
         })
         .collect();
 
