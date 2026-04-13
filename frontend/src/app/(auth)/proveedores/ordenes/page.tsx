@@ -2,13 +2,14 @@
 
 import { useState, useEffect, useCallback, useMemo, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
+import Link from 'next/link';
 import { api } from '@/lib/api-mutations';
 import type {
   PurchaseOrder,
   PurchaseOrderLine,
   PurchaseOrderStatus,
   Supplier,
-  Product,
+  SupplierProduct,
   PaginatedResponse,
 } from '@/types';
 import { PurchaseReturnDialog } from '@/components/shared/purchase-return-dialog';
@@ -69,17 +70,20 @@ function CreatePurchaseOrderDialog({
   const [lines, setLines] = useState<
     Array<{ product_id: string; quantity_ordered: string; unit_price: string; notes: string }>
   >([{ product_id: '', quantity_ordered: '', unit_price: '', notes: '' }]);
-  const [products, setProducts] = useState<Product[]>([]);
+  const [supplierProducts, setSupplierProducts] = useState<SupplierProduct[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // Fetch supplier-linked products when supplier changes
   useEffect(() => {
-    if (open) {
+    if (open && supplierId) {
       api
-        .get<Product[] | PaginatedResponse<Product>>('/products')
-        .then((res) => setProducts(Array.isArray(res) ? res : res.data))
-        .catch(() => {});
+        .get<SupplierProduct[]>(`/suppliers/${supplierId}/products`)
+        .then((res) => setSupplierProducts(Array.isArray(res) ? res : []))
+        .catch(() => setSupplierProducts([]));
+    } else {
+      setSupplierProducts([]);
     }
-  }, [open]);
+  }, [open, supplierId]);
 
   const total = useMemo(() => {
     return lines.reduce((sum, l) => {
@@ -115,9 +119,10 @@ function CreatePurchaseOrderDialog({
     setExpectedDate('');
     setNotes('');
     setLines([{ product_id: '', quantity_ordered: '', unit_price: '', notes: '' }]);
+    setSupplierProducts([]);
   };
 
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (e: React.SyntheticEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!supplierId) {
       toast.error('Selecciona un proveedor');
@@ -186,7 +191,11 @@ function CreatePurchaseOrderDialog({
               <Label>Proveedor</Label>
               <SearchableSelect
                 value={supplierId || undefined}
-                onValueChange={setSupplierId}
+                onValueChange={(val) => {
+                  setSupplierId(val);
+                  // Clear lines when supplier changes (products are supplier-specific)
+                  setLines([{ product_id: '', quantity_ordered: '', unit_price: '', notes: '' }]);
+                }}
                 options={suppliers.map((s) => ({ value: s.id, label: s.name }))}
                 placeholder="Seleccionar proveedor"
                 searchPlaceholder="Buscar proveedor..."
@@ -217,71 +226,101 @@ function CreatePurchaseOrderDialog({
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <Label>Lineas de la orden</Label>
-              <Button type="button" size="sm" variant="outline" onClick={addLine}>
-                + Agregar linea
-              </Button>
+              {!(supplierId && supplierProducts.length === 0) && (
+                <Button type="button" size="sm" variant="outline" onClick={addLine}>
+                  + Agregar linea
+                </Button>
+              )}
             </div>
 
-            <div className="space-y-2">
-              {lines.map((line, idx) => (
-                <div key={idx} className="grid grid-cols-12 gap-2 items-end rounded-lg border p-3">
-                  <div className="col-span-5 space-y-1">
-                    <Label className="text-xs">Producto</Label>
-                    <SearchableSelect
-                      value={line.product_id || undefined}
-                      onValueChange={(val) => updateLine(idx, 'product_id', val)}
-                      options={products.map((p) => ({ value: p.id, label: `${p.name} (${p.sku})` }))}
-                      placeholder="Seleccionar"
-                      searchPlaceholder="Buscar producto..."
-                    />
-                  </div>
-                  <div className="col-span-2 space-y-1">
-                    <Label className="text-xs">Cantidad</Label>
-                    <Input
-                      type="number"
-                      min={0.01}
-                      step="any"
-                      value={line.quantity_ordered}
-                      onChange={(e) => updateLine(idx, 'quantity_ordered', e.target.value)}
-                      placeholder="0"
-                    />
-                  </div>
-                  <div className="col-span-2 space-y-1">
-                    <Label className="text-xs">Precio unit.</Label>
-                    <Input
-                      type="number"
-                      min={0}
-                      step="0.01"
-                      value={line.unit_price}
-                      onChange={(e) => updateLine(idx, 'unit_price', e.target.value)}
-                      placeholder="0.00"
-                    />
-                  </div>
-                  <div className="col-span-2 space-y-1">
-                    <Label className="text-xs">Subtotal</Label>
-                    <div className="h-9 flex items-center text-sm font-medium text-muted-foreground">
-                      ${((parseFloat(line.quantity_ordered) || 0) * (parseFloat(line.unit_price) || 0)).toFixed(2)}
+            {supplierId && supplierProducts.length === 0 ? (
+              <div className="rounded-lg border border-dashed border-muted-foreground/30 p-6 text-center space-y-3">
+                <p className="text-sm text-muted-foreground">
+                  Este proveedor no tiene productos vinculados.
+                </p>
+                <Button type="button" variant="outline" size="sm" asChild>
+                  <Link href={`/proveedores/${supplierId}`}>
+                    Ir a gestion de proveedor &rarr;
+                  </Link>
+                </Button>
+              </div>
+            ) : (
+              <>
+                <div className="space-y-2">
+                  {lines.map((line, idx) => (
+                    <div key={idx} className="grid grid-cols-12 gap-2 items-end rounded-lg border p-3">
+                      <div className="col-span-5 space-y-1">
+                        <Label className="text-xs">Producto</Label>
+                        <SearchableSelect
+                          value={line.product_id || undefined}
+                          onValueChange={(val) => {
+                            updateLine(idx, 'product_id', val);
+                            const sp = supplierProducts.find((p) => p.product_id === val);
+                            if (sp) {
+                              updateLine(idx, 'unit_price', String(sp.unit_cost));
+                            }
+                          }}
+                          options={supplierProducts
+                            .filter((p) => p.is_active)
+                            .map((p) => ({
+                              value: p.product_id,
+                              label: p.supplier_sku
+                                ? `${p.product_name} (SKU: ${p.product_sku} / Proveedor: ${p.supplier_sku})`
+                                : `${p.product_name} (${p.product_sku})`,
+                            }))}
+                          placeholder={supplierId ? 'Seleccionar' : 'Selecciona un proveedor primero'}
+                          searchPlaceholder="Buscar producto..."
+                        />
+                      </div>
+                      <div className="col-span-2 space-y-1">
+                        <Label className="text-xs">Cantidad</Label>
+                        <Input
+                          type="number"
+                          min={0.01}
+                          step="any"
+                          value={line.quantity_ordered}
+                          onChange={(e) => updateLine(idx, 'quantity_ordered', e.target.value)}
+                          placeholder="0"
+                        />
+                      </div>
+                      <div className="col-span-2 space-y-1">
+                        <Label className="text-xs">Precio unit.</Label>
+                        <Input
+                          type="number"
+                          min={0}
+                          step="0.01"
+                          value={line.unit_price}
+                          onChange={(e) => updateLine(idx, 'unit_price', e.target.value)}
+                          placeholder="0.00"
+                        />
+                      </div>
+                      <div className="col-span-2 space-y-1">
+                        <Label className="text-xs">Subtotal</Label>
+                        <div className="h-9 flex items-center text-sm font-medium text-muted-foreground">
+                          ${((parseFloat(line.quantity_ordered) || 0) * (parseFloat(line.unit_price) || 0)).toFixed(2)}
+                        </div>
+                      </div>
+                      <div className="col-span-1 flex justify-end">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="text-destructive h-9"
+                          onClick={() => removeLine(idx)}
+                          disabled={lines.length === 1}
+                        >
+                          &times;
+                        </Button>
+                      </div>
                     </div>
-                  </div>
-                  <div className="col-span-1 flex justify-end">
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="text-destructive h-9"
-                      onClick={() => removeLine(idx)}
-                      disabled={lines.length === 1}
-                    >
-                      &times;
-                    </Button>
-                  </div>
+                  ))}
                 </div>
-              ))}
-            </div>
 
-            <div className="flex justify-end text-sm font-semibold">
-              Total estimado: ${total.toFixed(2)}
-            </div>
+                <div className="flex justify-end text-sm font-semibold">
+                  Total estimado: ${total.toFixed(2)}
+                </div>
+              </>
+            )}
           </div>
 
           <DialogFooter>
@@ -412,7 +451,12 @@ function OrdenesPageInner() {
       key: 'order_number',
       header: 'Numero de orden',
       render: (po) => (
-        <span className="font-mono font-medium">{po.order_number}</span>
+        <Link
+          href={`/proveedores/ordenes/${po.id}`}
+          className="font-mono font-medium hover:underline"
+        >
+          {po.order_number}
+        </Link>
       ),
     },
     {
@@ -463,6 +507,13 @@ function OrdenesPageInner() {
       header: 'Acciones',
       render: (po) => (
         <div className="flex items-center gap-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            asChild
+          >
+            <Link href={`/proveedores/ordenes/${po.id}`}>Ver</Link>
+          </Button>
           {po.status === 'draft' && (
             <Button
               variant="ghost"
@@ -508,7 +559,7 @@ function OrdenesPageInner() {
             Gestiona las ordenes de compra a tus proveedores
           </p>
         </div>
-        <Button onClick={() => setCreateOpen(true)}>Nueva orden</Button>
+        <Button data-testid="create-order-btn" onClick={() => setCreateOpen(true)}>Nueva orden</Button>
       </div>
 
       {/* Filters */}
@@ -578,25 +629,27 @@ function OrdenesPageInner() {
         </div>
       </div>
 
-      <DataTable
-        columns={columns}
-        data={orders}
-        total={total}
-        page={page}
-        perPage={20}
-        onPageChange={setPage}
-        isLoading={isLoading}
-        emptyMessage="No hay ordenes de compra"
-        emptyState={
-          <EmptyState
-            icon={DeliveryTruck01Icon}
-            title="Aun no hay ordenes de compra"
-            description="Crea tu primera orden de compra para empezar a rastrear recepciones."
-            actionLabel="Nueva orden"
-            onAction={() => setCreateOpen(true)}
-          />
-        }
-      />
+      <div data-testid="orders-list-section">
+        <DataTable
+          columns={columns}
+          data={orders}
+          total={total}
+          page={page}
+          perPage={20}
+          onPageChange={setPage}
+          isLoading={isLoading}
+          emptyMessage="No hay ordenes de compra"
+          emptyState={
+            <EmptyState
+              icon={DeliveryTruck01Icon}
+              title="Aun no hay ordenes de compra"
+              description="Crea tu primera orden de compra para empezar a rastrear recepciones."
+              actionLabel="Nueva orden"
+              onAction={() => setCreateOpen(true)}
+            />
+          }
+        />
+      </div>
 
       <CreatePurchaseOrderDialog
         open={createOpen}
