@@ -45,7 +45,7 @@ export async function POST(req: NextRequest) {
     sameSite: 'strict',
     secure: isProduction,
     path: '/',
-    maxAge: 900,
+    maxAge: 86400,
   });
 
   response.cookies.set('vanflux_refresh', data.refresh_token, {

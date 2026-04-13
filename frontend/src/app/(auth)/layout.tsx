@@ -1,7 +1,7 @@
 'use client';
 
 import { useAuthStore } from '@/stores/auth-store';
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 import { useEffect } from 'react';
 import { SidebarProvider, SidebarInset, SidebarTrigger } from '@/components/ui/sidebar';
 import { AppSidebar } from '@/components/app-sidebar';
@@ -14,13 +14,14 @@ import { useAutoTheme } from '@/hooks/use-auto-theme';
 export default function AuthLayout({ children }: { children: React.ReactNode }) {
   const { user, isHydrated } = useAuthStore();
   const router = useRouter();
+  const pathname = usePathname();
   useAutoTheme();
 
   useEffect(() => {
     if (isHydrated && !user) {
-      router.replace('/login');
+      router.replace(`/login?from=${encodeURIComponent(pathname)}`);
     }
-  }, [isHydrated, user, router]);
+  }, [isHydrated, user, router, pathname]);
 
   if (!isHydrated) {
     return (

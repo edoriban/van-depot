@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { useAuthStore } from '@/stores/auth-store';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -17,18 +17,22 @@ import {
   AlertCircle,
 } from 'lucide-react';
 
-export default function LoginPage() {
+function LoginForm() {
   const { login, isHydrated, user } = useAuthStore();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
+  const fromParam = searchParams.get('from');
+  const redirectTo = fromParam && fromParam.startsWith('/') ? fromParam : '/inicio';
+
   useEffect(() => {
-    if (user) router.replace('/inicio');
-  }, [user, router]);
+    if (user) router.replace(redirectTo);
+  }, [user, router, redirectTo]);
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -37,7 +41,7 @@ export default function LoginPage() {
 
     try {
       await login(email, password);
-      router.replace('/inicio');
+      router.replace(redirectTo);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error al iniciar sesion');
     } finally {
@@ -274,5 +278,13 @@ export default function LoginPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense>
+      <LoginForm />
+    </Suspense>
   );
 }
