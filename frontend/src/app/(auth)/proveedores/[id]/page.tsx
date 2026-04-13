@@ -6,9 +6,11 @@ import { api } from '@/lib/api-mutations';
 import type {
   Supplier,
   SupplierProduct,
+  Product,
   PurchaseOrder,
   PaginatedResponse,
 } from '@/types';
+import { ConfirmDialog } from '@/components/shared/confirm-dialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
@@ -30,6 +32,13 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
   Dialog,
   DialogContent,
   DialogHeader,
@@ -38,6 +47,8 @@ import {
 } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import Link from 'next/link';
+import { Package01Icon } from '@hugeicons/core-free-icons';
+import { HugeiconsIcon } from '@hugeicons/react';
 
 // --- Status config ---
 
@@ -126,12 +137,95 @@ export default function SupplierDetailPage() {
   const [productsLoading, setProductsLoading] = useState(true);
   const [productSearch, setProductSearch] = useState('');
 
+  // Link product dialog
+  const [linkOpen, setLinkOpen] = useState(false);
+  const [allProducts, setAllProducts] = useState<Product[]>([]);
+  const [linkProductId, setLinkProductId] = useState('');
+  const [linkSupplierSku, setLinkSupplierSku] = useState('');
+  const [linkUnitCost, setLinkUnitCost] = useState('');
+  const [linkLeadTime, setLinkLeadTime] = useState('');
+  const [linkMinOrder, setLinkMinOrder] = useState('1');
+  const [isLinking, setIsLinking] = useState(false);
+
+  // Unlink product
+  const [unlinkTarget, setUnlinkTarget] = useState<SupplierProduct | null>(null);
+  const [isUnlinking, setIsUnlinking] = useState(false);
+
   const populateForm = useCallback((s: Supplier) => {
     setFormName(s.name);
     setFormContactName(s.contact_name ?? '');
     setFormPhone(s.phone ?? '');
     setFormEmail(s.email ?? '');
   }, []);
+
+  const fetchProducts = useCallback(async () => {
+    setProductsLoading(true);
+    try {
+      const res = await api.get<SupplierProduct[]>(`/suppliers/${params.id}/products`);
+      const prods = Array.isArray(res) ? res : [];
+      setProducts(prods);
+      setProductsCount(prods.length);
+    } catch {
+      toast.error('Error al cargar productos del proveedor');
+    } finally {
+      setProductsLoading(false);
+    }
+  }, [params.id]);
+
+  const fetchAllProducts = useCallback(async () => {
+    try {
+      const res = await api.get<Product[] | PaginatedResponse<Product>>('/products');
+      setAllProducts(Array.isArray(res) ? res : res.data);
+    } catch {
+      // silent
+    }
+  }, []);
+
+  const handleLinkProduct = async (e: React.SyntheticEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setIsLinking(true);
+    try {
+      await api.post(`/suppliers/${params.id}/products`, {
+        product_id: linkProductId,
+        supplier_sku: linkSupplierSku || undefined,
+        unit_cost: Number(linkUnitCost),
+        lead_time_days: Number(linkLeadTime),
+        minimum_order_qty: Number(linkMinOrder),
+      });
+      toast.success('Producto vinculado correctamente');
+      setLinkOpen(false);
+      setLinkProductId('');
+      setLinkSupplierSku('');
+      setLinkUnitCost('');
+      setLinkLeadTime('');
+      setLinkMinOrder('1');
+      fetchProducts();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Error al vincular producto');
+    } finally {
+      setIsLinking(false);
+    }
+  };
+
+  const handleUnlinkProduct = async () => {
+    if (!unlinkTarget) return;
+    setIsUnlinking(true);
+    try {
+      await api.del(`/supplier-products/${unlinkTarget.id}`);
+      toast.success('Producto desvinculado');
+      setUnlinkTarget(null);
+      fetchProducts();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Error al desvincular');
+    } finally {
+      setIsUnlinking(false);
+    }
+  };
+
+  const openLinkDialog = () => {
+    fetchAllProducts();
+    setLinkOpen(true);
+  };
 
   // Load supplier
   useEffect(() => {
@@ -155,9 +249,8 @@ export default function SupplierDetailPage() {
   useEffect(() => {
     async function loadData() {
       setOrdersLoading(true);
-      setProductsLoading(true);
 
-      const [statsRes, sentRes, partialRes, productsRes, recentRes] =
+      const [statsRes, sentRes, partialRes, recentRes] =
         await Promise.allSettled([
           api.get<PaginatedResponse<PurchaseOrder>>(
             `/purchase-orders?supplier_id=${params.id}&per_page=1`
@@ -168,7 +261,6 @@ export default function SupplierDetailPage() {
           api.get<PaginatedResponse<PurchaseOrder>>(
             `/purchase-orders?supplier_id=${params.id}&status=partially_received&per_page=1`
           ),
-          api.get<SupplierProduct[]>(`/suppliers/${params.id}/products`),
           api.get<PaginatedResponse<PurchaseOrder>>(
             `/purchase-orders?supplier_id=${params.id}&per_page=10`
           ),
@@ -185,16 +277,6 @@ export default function SupplierDetailPage() {
       if (partialRes.status === 'fulfilled') pending += partialRes.value.total;
       setPendingOrders(pending);
 
-      // Products
-      if (productsRes.status === 'fulfilled') {
-        const prods = Array.isArray(productsRes.value)
-          ? productsRes.value
-          : [];
-        setProducts(prods);
-        setProductsCount(prods.length);
-      }
-      setProductsLoading(false);
-
       // Recent orders + last order date
       if (recentRes.status === 'fulfilled') {
         const orders = recentRes.value.data ?? [];
@@ -207,9 +289,10 @@ export default function SupplierDetailPage() {
     }
 
     loadData();
-  }, [params.id]);
+    fetchProducts();
+  }, [params.id, fetchProducts]);
 
-  const handleEdit = async (e: React.FormEvent<HTMLFormElement>) => {
+  const handleEdit = async (e: React.SyntheticEvent<HTMLFormElement>) => {
     e.preventDefault();
     setIsSaving(true);
     try {
@@ -430,10 +513,17 @@ export default function SupplierDetailPage() {
       {/* Section 4: Supplier products */}
       <Card>
         <CardHeader>
-          <CardTitle>Productos del proveedor</CardTitle>
-          <CardDescription>
-            {productsCount} producto{productsCount !== 1 ? 's' : ''} vinculado{productsCount !== 1 ? 's' : ''}
-          </CardDescription>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle>Productos del proveedor</CardTitle>
+              <CardDescription>
+                {productsCount} producto{productsCount !== 1 ? 's' : ''} vinculado{productsCount !== 1 ? 's' : ''}
+              </CardDescription>
+            </div>
+            <Button size="sm" onClick={openLinkDialog}>
+              + Vincular producto
+            </Button>
+          </div>
         </CardHeader>
         <CardContent>
           {productsLoading ? (
@@ -448,9 +538,18 @@ export default function SupplierDetailPage() {
               ))}
             </div>
           ) : products.length === 0 ? (
-            <p className="text-muted-foreground text-sm text-center py-8">
-              No hay productos vinculados
-            </p>
+            <div className="flex flex-col items-center justify-center py-12 text-center">
+              <HugeiconsIcon icon={Package01Icon} className="h-12 w-12 text-muted-foreground/50 mb-4" />
+              <p className="text-sm font-medium text-muted-foreground">
+                No hay productos vinculados a este proveedor.
+              </p>
+              <p className="text-sm text-muted-foreground mt-1">
+                Vincula productos para poder crear ordenes de compra.
+              </p>
+              <Button size="sm" className="mt-4" onClick={openLinkDialog}>
+                + Vincular producto
+              </Button>
+            </div>
           ) : (
             <>
               <div className="mb-4">
@@ -470,6 +569,7 @@ export default function SupplierDetailPage() {
                     <TableHead>Dias entrega</TableHead>
                     <TableHead>Pedido min.</TableHead>
                     <TableHead>Preferido</TableHead>
+                    <TableHead></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -499,6 +599,16 @@ export default function SupplierDetailPage() {
                         ) : (
                           <span className="text-muted-foreground">No</span>
                         )}
+                      </TableCell>
+                      <TableCell>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-destructive"
+                          onClick={() => setUnlinkTarget(sp)}
+                        >
+                          Desvincular
+                        </Button>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -592,6 +702,96 @@ export default function SupplierDetailPage() {
           </form>
         </DialogContent>
       </Dialog>
+
+      {/* Link Product Dialog */}
+      <Dialog open={linkOpen} onOpenChange={setLinkOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Vincular producto</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleLinkProduct} className="space-y-4">
+            <div className="space-y-2">
+              <Label>Producto</Label>
+              <Select value={linkProductId || undefined} onValueChange={setLinkProductId}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Seleccionar producto" />
+                </SelectTrigger>
+                <SelectContent>
+                  {allProducts
+                    .filter((p) => !products.some((sp) => sp.product_id === p.id))
+                    .map((p) => (
+                      <SelectItem key={p.id} value={p.id}>
+                        {p.name} ({p.sku})
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>SKU del proveedor (opcional)</Label>
+              <Input
+                value={linkSupplierSku}
+                onChange={(e) => setLinkSupplierSku(e.target.value)}
+                placeholder="SKU del proveedor"
+              />
+            </div>
+            <div className="grid grid-cols-3 gap-4">
+              <div className="space-y-2">
+                <Label>Costo unitario</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={linkUnitCost}
+                  onChange={(e) => setLinkUnitCost(e.target.value)}
+                  required
+                  placeholder="0.00"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Dias de entrega</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  value={linkLeadTime}
+                  onChange={(e) => setLinkLeadTime(e.target.value)}
+                  required
+                  placeholder="0"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Pedido minimo</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  value={linkMinOrder}
+                  onChange={(e) => setLinkMinOrder(e.target.value)}
+                  required
+                  placeholder="1"
+                />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setLinkOpen(false)} disabled={isLinking}>
+                Cancelar
+              </Button>
+              <Button type="submit" disabled={isLinking || !linkProductId}>
+                {isLinking ? 'Vinculando...' : 'Vincular'}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Unlink Confirmation */}
+      <ConfirmDialog
+        open={!!unlinkTarget}
+        onOpenChange={(open) => !open && setUnlinkTarget(null)}
+        title="Desvincular producto"
+        description={`Se desvinculara "${unlinkTarget?.product_name}" de este proveedor.`}
+        onConfirm={handleUnlinkProduct}
+        isLoading={isUnlinking}
+      />
     </div>
   );
 }
