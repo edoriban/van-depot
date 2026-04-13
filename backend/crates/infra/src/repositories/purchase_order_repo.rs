@@ -19,6 +19,7 @@ use super::shared::map_sqlx_error;
 struct PurchaseOrderRow {
     id: Uuid,
     supplier_id: Uuid,
+    supplier_name: Option<String>,
     order_number: String,
     status: PurchaseOrderStatus,
     total_amount: Option<f64>,
@@ -34,6 +35,7 @@ impl From<PurchaseOrderRow> for PurchaseOrder {
         PurchaseOrder {
             id: row.id,
             supplier_id: row.supplier_id,
+            supplier_name: row.supplier_name,
             order_number: row.order_number,
             status: row.status,
             total_amount: row.total_amount,
@@ -51,6 +53,8 @@ struct PurchaseOrderLineRow {
     id: Uuid,
     purchase_order_id: Uuid,
     product_id: Uuid,
+    product_name: Option<String>,
+    product_sku: Option<String>,
     quantity_ordered: f64,
     quantity_received: f64,
     unit_price: f64,
@@ -63,6 +67,8 @@ impl From<PurchaseOrderLineRow> for PurchaseOrderLine {
             id: row.id,
             purchase_order_id: row.purchase_order_id,
             product_id: row.product_id,
+            product_name: row.product_name,
+            product_sku: row.product_sku,
             quantity_ordered: row.quantity_ordered,
             quantity_received: row.quantity_received,
             unit_price: row.unit_price,
@@ -72,14 +78,16 @@ impl From<PurchaseOrderLineRow> for PurchaseOrderLine {
 }
 
 const PO_COLUMNS: &str = r#"
-    id, supplier_id, order_number,
-    status AS "status: PurchaseOrderStatus",
+    id, supplier_id, NULL::text AS supplier_name, order_number,
+    status,
     total_amount::float8 AS total_amount,
     expected_delivery_date, notes, created_by, created_at, updated_at
 "#;
 
 const PO_LINE_COLUMNS: &str = r#"
     id, purchase_order_id, product_id,
+    NULL::text AS product_name,
+    NULL::text AS product_sku,
     quantity_ordered::float8 AS quantity_ordered,
     quantity_received::float8 AS quantity_received,
     unit_price::float8 AS unit_price,
@@ -238,19 +246,22 @@ impl PurchaseOrderRepository for PgPurchaseOrderRepository {
         .await
         .map_err(map_sqlx_error)?;
 
-        let sql = format!(
-            r#"
-            SELECT {}
-            FROM purchase_orders
-            WHERE ($1::uuid IS NULL OR supplier_id = $1)
-              AND ($2::purchase_order_status IS NULL OR status = $2)
-              AND ($3::date IS NULL OR created_at::date >= $3)
-              AND ($4::date IS NULL OR created_at::date <= $4)
-            ORDER BY created_at DESC
+        let sql = r#"
+            SELECT
+                po.id, po.supplier_id, s.name AS supplier_name, po.order_number,
+                po.status,
+                po.total_amount::float8 AS total_amount,
+                po.expected_delivery_date, po.notes, po.created_by, po.created_at, po.updated_at
+            FROM purchase_orders po
+            LEFT JOIN suppliers s ON s.id = po.supplier_id
+            WHERE ($1::uuid IS NULL OR po.supplier_id = $1)
+              AND ($2::purchase_order_status IS NULL OR po.status = $2)
+              AND ($3::date IS NULL OR po.created_at::date >= $3)
+              AND ($4::date IS NULL OR po.created_at::date <= $4)
+            ORDER BY po.created_at DESC
             LIMIT $5 OFFSET $6
-            "#,
-            PO_COLUMNS
-        );
+            "#
+        .to_string();
 
         let rows = sqlx::query_as::<_, PurchaseOrderRow>(&sql)
             .bind(filters.supplier_id)
@@ -565,21 +576,26 @@ impl PurchaseOrderRepository for PgPurchaseOrderRepository {
         &self,
         purchase_order_id: Uuid,
     ) -> Result<Vec<PurchaseOrderLine>, DomainError> {
-        let sql = format!(
+        let rows = sqlx::query_as::<_, PurchaseOrderLineRow>(
             r#"
-            SELECT {}
-            FROM purchase_order_lines
-            WHERE purchase_order_id = $1
-            ORDER BY id
+            SELECT
+                pol.id, pol.purchase_order_id, pol.product_id,
+                p.name AS product_name,
+                p.sku AS product_sku,
+                pol.quantity_ordered::float8 AS quantity_ordered,
+                pol.quantity_received::float8 AS quantity_received,
+                pol.unit_price::float8 AS unit_price,
+                pol.notes
+            FROM purchase_order_lines pol
+            LEFT JOIN products p ON p.id = pol.product_id
+            WHERE pol.purchase_order_id = $1
+            ORDER BY pol.id
             "#,
-            PO_LINE_COLUMNS
-        );
-
-        let rows = sqlx::query_as::<_, PurchaseOrderLineRow>(&sql)
-            .bind(purchase_order_id)
-            .fetch_all(&self.pool)
-            .await
-            .map_err(map_sqlx_error)?;
+        )
+        .bind(purchase_order_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(map_sqlx_error)?;
 
         Ok(rows.into_iter().map(Into::into).collect())
     }

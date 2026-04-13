@@ -82,8 +82,8 @@ impl From<PurchaseReturnItemRow> for PurchaseReturnItem {
 
 const PR_COLUMNS: &str = r#"
     id, purchase_order_id, return_number,
-    status AS "status: PurchaseReturnStatus",
-    reason AS "reason: PurchaseReturnReason",
+    status,
+    reason,
     reason_notes,
     subtotal::float8 AS subtotal,
     total::float8 AS total,
@@ -307,7 +307,7 @@ impl PurchaseReturnRepository for PgPurchaseReturnRepository {
     ) -> Result<PurchaseReturn, DomainError> {
         // Check current status first
         let current: Option<(PurchaseReturnStatus,)> = sqlx::query_as(
-            r#"SELECT status AS "status: PurchaseReturnStatus" FROM purchase_returns WHERE id = $1"#,
+            r#"SELECT status FROM purchase_returns WHERE id = $1"#,
         )
         .bind(id)
         .fetch_optional(&self.pool)
@@ -356,7 +356,7 @@ impl PurchaseReturnRepository for PgPurchaseReturnRepository {
     async fn delete(&self, id: Uuid) -> Result<(), DomainError> {
         // Only pending returns can be deleted
         let current: Option<(PurchaseReturnStatus,)> = sqlx::query_as(
-            r#"SELECT status AS "status: PurchaseReturnStatus" FROM purchase_returns WHERE id = $1"#,
+            r#"SELECT status FROM purchase_returns WHERE id = $1"#,
         )
         .bind(id)
         .fetch_optional(&self.pool)

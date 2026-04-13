@@ -6,6 +6,8 @@ pub struct PurchaseOrderLine {
     pub id: Uuid,
     pub purchase_order_id: Uuid,
     pub product_id: Uuid,
+    pub product_name: Option<String>,
+    pub product_sku: Option<String>,
     pub quantity_ordered: f64,
     pub quantity_received: f64,
     pub unit_price: f64,

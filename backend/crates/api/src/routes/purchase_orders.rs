@@ -40,6 +40,8 @@ pub struct UpdatePurchaseOrderRequest {
 pub struct PurchaseOrderResponse {
     pub id: Uuid,
     pub supplier_id: Uuid,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub supplier_name: Option<String>,
     pub order_number: String,
     pub status: PurchaseOrderStatus,
     pub total_amount: Option<f64>,
@@ -57,6 +59,7 @@ impl From<PurchaseOrder> for PurchaseOrderResponse {
         Self {
             id: po.id,
             supplier_id: po.supplier_id,
+            supplier_name: po.supplier_name,
             order_number: po.order_number,
             status: po.status,
             total_amount: po.total_amount,
@@ -75,6 +78,8 @@ pub struct PurchaseOrderLineResponse {
     pub id: Uuid,
     pub purchase_order_id: Uuid,
     pub product_id: Uuid,
+    pub product_name: Option<String>,
+    pub product_sku: Option<String>,
     pub quantity_ordered: f64,
     pub quantity_received: f64,
     pub unit_price: f64,
@@ -87,6 +92,8 @@ impl From<PurchaseOrderLine> for PurchaseOrderLineResponse {
             id: line.id,
             purchase_order_id: line.purchase_order_id,
             product_id: line.product_id,
+            product_name: line.product_name,
+            product_sku: line.product_sku,
             quantity_ordered: line.quantity_ordered,
             quantity_received: line.quantity_received,
             unit_price: line.unit_price,

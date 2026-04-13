@@ -8,6 +8,7 @@ use super::enums::PurchaseOrderStatus;
 pub struct PurchaseOrder {
     pub id: Uuid,
     pub supplier_id: Uuid,
+    pub supplier_name: Option<String>,
     pub order_number: String,
     pub status: PurchaseOrderStatus,
     pub total_amount: Option<f64>,
