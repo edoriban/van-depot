@@ -55,6 +55,7 @@ pub enum LocationType {
     Shelf,
     Position,
     Bin,
+    Reception,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]

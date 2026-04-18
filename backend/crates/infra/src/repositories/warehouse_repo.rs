@@ -166,6 +166,11 @@ impl WarehouseRepository for PgWarehouseRepository {
     }
 
     async fn create(&self, name: &str, address: Option<&str>) -> Result<Warehouse, DomainError> {
+        // Atomic insert: the warehouse row AND its system-managed Recepción
+        // location land together. If either INSERT fails, the tx rolls back
+        // and no orphan warehouse survives.
+        let mut tx = self.pool.begin().await.map_err(map_sqlx_error)?;
+
         let row = sqlx::query_as::<_, WarehouseRow>(
             "INSERT INTO warehouses (name, address) \
              VALUES ($1, $2) \
@@ -173,9 +178,24 @@ impl WarehouseRepository for PgWarehouseRepository {
         )
         .bind(name)
         .bind(address)
-        .fetch_one(&self.pool)
+        .fetch_one(&mut *tx)
         .await
         .map_err(map_sqlx_error)?;
+
+        // Default position (0,0) and 100x100 size match the migration backfill
+        // for existing warehouses; the frontend renders a "not positioned"
+        // hint until the operator drags it on the canvas.
+        sqlx::query(
+            "INSERT INTO locations \
+                (warehouse_id, location_type, name, label, is_system, pos_x, pos_y, width, height) \
+             VALUES ($1, 'reception', 'Recepción', 'RCP', true, 0, 0, 100, 100)",
+        )
+        .bind(row.id)
+        .execute(&mut *tx)
+        .await
+        .map_err(map_sqlx_error)?;
+
+        tx.commit().await.map_err(map_sqlx_error)?;
 
         Ok(Warehouse::from(row))
     }

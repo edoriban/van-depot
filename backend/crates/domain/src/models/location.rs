@@ -13,6 +13,7 @@ pub struct Location {
     pub name: String,
     pub label: Option<String>,
     pub is_active: bool,
+    pub is_system: bool,
     pub pos_x: Option<f32>,
     pub pos_y: Option<f32>,
     pub width: Option<f32>,

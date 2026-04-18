@@ -21,7 +21,9 @@ use crate::state::AppState;
 pub struct ReceiveLotRequest {
     pub product_id: Uuid,
     pub lot_number: String,
-    pub location_id: Uuid,
+    /// Warehouse whose Recepción will receive the lot. The server resolves
+    /// the Reception location internally — clients MUST NOT pick one.
+    pub warehouse_id: Uuid,
     pub good_quantity: f64,
     pub defect_quantity: Option<f64>,
     pub supplier_id: Option<Uuid>,
@@ -31,6 +33,13 @@ pub struct ReceiveLotRequest {
     // Optional PO linking fields (backward-compatible)
     pub purchase_order_line_id: Option<Uuid>,
     pub purchase_order_id: Option<Uuid>,
+}
+
+#[derive(Deserialize)]
+pub struct DistributeLotRequest {
+    pub to_location_id: Uuid,
+    pub quantity: f64,
+    pub notes: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -115,6 +124,7 @@ pub fn lot_routes() -> Router<AppState> {
         .route("/lots/{id}/inventory", get(get_lot_inventory))
         .route("/lots/{id}/quality", patch(update_quality_status))
         .route("/lots/{id}/transfer", post(transfer_lot))
+        .route("/lots/{id}/distribute", post(distribute_lot))
         .route("/lots/{id}/movements", get(get_lot_movements))
         .route("/lots/receive", post(receive_lot))
 }
@@ -250,6 +260,43 @@ async fn transfer_lot(
     Ok(StatusCode::NO_CONTENT)
 }
 
+async fn distribute_lot(
+    State(state): State<AppState>,
+    claims: Claims,
+    Path(id): Path<Uuid>,
+    Json(payload): Json<DistributeLotRequest>,
+) -> Result<Json<Vec<InventoryLotResponse>>, ApiError> {
+    require_role(&claims, &["superadmin", "owner", "warehouse_manager"])?;
+
+    lots_repo::distribute_lot(
+        &state.pool,
+        id,
+        payload.to_location_id,
+        payload.quantity,
+        claims.sub,
+        payload.notes.as_deref(),
+    )
+    .await?;
+
+    // Return the lot's updated per-location distribution so the client can
+    // re-render without issuing a follow-up GET.
+    let rows = lots_repo::get_lot_inventory(&state.pool, id).await?;
+    let data = rows
+        .into_iter()
+        .map(|row| InventoryLotResponse {
+            id: row.id,
+            product_lot_id: row.product_lot_id,
+            location_id: row.location_id,
+            location_name: row.location_name,
+            quantity: row.quantity,
+            created_at: row.created_at,
+            updated_at: row.updated_at,
+        })
+        .collect();
+
+    Ok(Json(data))
+}
+
 async fn get_lot_movements(
     State(state): State<AppState>,
     _claims: Claims,
@@ -308,7 +355,7 @@ async fn receive_lot(
         &state.pool,
         payload.product_id,
         &payload.lot_number,
-        payload.location_id,
+        payload.warehouse_id,
         payload.good_quantity,
         defect_qty,
         payload.supplier_id,

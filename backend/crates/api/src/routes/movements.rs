@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use vandepot_domain::error::DomainError;
-use vandepot_domain::models::enums::MovementType;
+use vandepot_domain::models::enums::{LocationType, MovementType};
 use vandepot_domain::models::inventory_params::{
     AdjustmentParams, EntryParams, ExitParams, MovementFilters, TransferParams,
 };
@@ -108,20 +108,23 @@ impl From<Movement> for MovementResponse {
 
 // ── Helpers ───────────────────────────────────────────────────────────
 
-/// Look up the warehouse that owns a location, returning an error if not found.
-async fn get_location_warehouse_id(
+/// Fetch `(warehouse_id, location_type)` for a location, erroring if it doesn't
+/// exist. Used by generic movement routes to reject Recepción endpoints — all
+/// inbound flows MUST go through `/lots/receive` and outbound-from-Reception
+/// through `/lots/{id}/distribute`, so generic movements cannot touch Reception.
+async fn get_location_meta(
     pool: &sqlx::PgPool,
     location_id: Uuid,
-) -> Result<Uuid, ApiError> {
-    let row: Option<(Uuid,)> =
-        sqlx::query_as("SELECT warehouse_id FROM locations WHERE id = $1")
-            .bind(location_id)
-            .fetch_optional(pool)
-            .await
-            .map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
+) -> Result<(Uuid, LocationType), ApiError> {
+    let row: Option<(Uuid, LocationType)> = sqlx::query_as(
+        "SELECT warehouse_id, location_type FROM locations WHERE id = $1",
+    )
+    .bind(location_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
 
-    row.map(|r| r.0)
-        .ok_or_else(|| ApiError(DomainError::NotFound("Location not found".to_string())))
+    row.ok_or_else(|| ApiError(DomainError::NotFound("Location not found".to_string())))
 }
 
 // ── Routes ────────────────────────────────────────────────────────────
@@ -149,7 +152,14 @@ async fn record_entry(
         )));
     }
 
-    let warehouse_id = get_location_warehouse_id(&state.pool, payload.to_location_id).await?;
+    let (warehouse_id, loc_type) =
+        get_location_meta(&state.pool, payload.to_location_id).await?;
+    if matches!(loc_type, LocationType::Reception) {
+        return Err(ApiError(DomainError::Validation(
+            "Entries cannot target a Reception location — use POST /lots/receive"
+                .to_string(),
+        )));
+    }
     ensure_warehouse_access(&claims, &warehouse_id)?;
 
     let svc = PgInventoryService::new(state.pool.clone());
@@ -181,7 +191,15 @@ async fn record_exit(
         )));
     }
 
-    let warehouse_id = get_location_warehouse_id(&state.pool, payload.from_location_id).await?;
+    let (warehouse_id, loc_type) =
+        get_location_meta(&state.pool, payload.from_location_id).await?;
+    if matches!(loc_type, LocationType::Reception) {
+        return Err(ApiError(DomainError::Validation(
+            "Exits cannot come from a Reception location — \
+             use POST /lots/{id}/distribute to move out of Reception"
+                .to_string(),
+        )));
+    }
     ensure_warehouse_access(&claims, &warehouse_id)?;
 
     let svc = PgInventoryService::new(state.pool.clone());
@@ -218,11 +236,20 @@ async fn record_transfer(
         )));
     }
 
-    let from_warehouse_id =
-        get_location_warehouse_id(&state.pool, payload.from_location_id).await?;
+    let (from_warehouse_id, from_type) =
+        get_location_meta(&state.pool, payload.from_location_id).await?;
+    let (to_warehouse_id, to_type) =
+        get_location_meta(&state.pool, payload.to_location_id).await?;
+    if matches!(from_type, LocationType::Reception)
+        || matches!(to_type, LocationType::Reception)
+    {
+        return Err(ApiError(DomainError::Validation(
+            "Transfers cannot involve a Reception location — \
+             use POST /lots/{id}/distribute or /lots/receive instead"
+                .to_string(),
+        )));
+    }
     ensure_warehouse_access(&claims, &from_warehouse_id)?;
-
-    let to_warehouse_id = get_location_warehouse_id(&state.pool, payload.to_location_id).await?;
     ensure_warehouse_access(&claims, &to_warehouse_id)?;
 
     let svc = PgInventoryService::new(state.pool.clone());
@@ -254,7 +281,13 @@ async fn record_adjustment(
         )));
     }
 
-    let warehouse_id = get_location_warehouse_id(&state.pool, payload.location_id).await?;
+    let (warehouse_id, loc_type) =
+        get_location_meta(&state.pool, payload.location_id).await?;
+    if matches!(loc_type, LocationType::Reception) {
+        return Err(ApiError(DomainError::Validation(
+            "Adjustments cannot target a Reception location".to_string(),
+        )));
+    }
     ensure_warehouse_access(&claims, &warehouse_id)?;
 
     let svc = PgInventoryService::new(state.pool.clone());

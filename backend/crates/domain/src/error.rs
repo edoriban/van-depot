@@ -1,5 +1,10 @@
 use thiserror::Error;
 
+/// Marker prefix used inside `DomainError::Conflict` messages to identify
+/// protection errors for system-managed locations (e.g., Recepción). The API
+/// layer parses this prefix to expose a structured `code` field on 409 bodies.
+pub const SYSTEM_LOCATION_PROTECTED: &str = "SYSTEM_LOCATION_PROTECTED";
+
 #[derive(Debug, Error)]
 pub enum DomainError {
     #[error("Entity not found: {0}")]

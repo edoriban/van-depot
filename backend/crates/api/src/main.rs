@@ -1,15 +1,10 @@
 use std::env;
 
-use axum::{Router, routing::get};
 use tokio::net::TcpListener;
 use tower_http::cors::CorsLayer;
 use tracing_subscriber::EnvFilter;
 
-mod error;
-mod extractors;
-mod pagination;
-mod routes;
-mod state;
+use vandepot_api::{app_router, state};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -37,31 +32,7 @@ async fn main() -> anyhow::Result<()> {
         jwt_config,
     };
 
-    let app = Router::new()
-        .route("/health", get(routes::health::health))
-        .merge(routes::auth::auth_routes())
-        .merge(routes::warehouses::warehouse_routes())
-        .merge(routes::users::user_routes())
-        .merge(routes::locations::location_routes())
-        .merge(routes::categories::category_routes())
-        .merge(routes::products::product_routes())
-        .merge(routes::suppliers::supplier_routes())
-        .merge(routes::supplier_products::supplier_product_routes())
-        .merge(routes::movements::movement_routes())
-        .merge(routes::lots::lot_routes())
-        .merge(routes::purchase_orders::purchase_order_routes())
-        .merge(routes::purchase_returns::purchase_return_routes())
-        .merge(routes::stock_config::stock_config_routes())
-        .merge(routes::inventory::inventory_routes())
-        .merge(routes::cycle_counts::cycle_count_routes())
-        .merge(routes::dashboard::dashboard_routes())
-        .merge(routes::alerts::alert_routes())
-        .merge(routes::notifications::notification_routes())
-        .merge(routes::recipes::recipe_routes())
-        .merge(routes::abc::abc_routes())
-        .merge(routes::warehouse_map::warehouse_map_routes())
-        .layer(CorsLayer::permissive())
-        .with_state(state);
+    let app = app_router(state).layer(CorsLayer::permissive());
 
     let host = env::var("API_HOST").unwrap_or_else(|_| "0.0.0.0".into());
     let port = env::var("BACKEND_PORT").unwrap_or_else(|_| "3000".into());

@@ -1,9 +1,9 @@
 use chrono::{DateTime, NaiveDate, Utc};
-use sqlx::PgPool;
+use sqlx::{PgPool, Postgres, Transaction};
 use uuid::Uuid;
 
 use vandepot_domain::error::DomainError;
-use vandepot_domain::models::enums::{MovementType, QualityStatus};
+use vandepot_domain::models::enums::{LocationType, MovementType, QualityStatus};
 
 use super::purchase_order_repo::recalculate_po_status_in_tx;
 use super::shared::map_sqlx_error;
@@ -190,7 +190,7 @@ pub async fn receive_lot(
     pool: &PgPool,
     product_id: Uuid,
     lot_number: &str,
-    location_id: Uuid,
+    warehouse_id: Uuid,
     good_qty: f64,
     defect_qty: f64,
     supplier_id: Option<Uuid>,
@@ -202,6 +202,11 @@ pub async fn receive_lot(
     purchase_order_id: Option<Uuid>,
 ) -> Result<ProductLotRow, DomainError> {
     let mut tx = pool.begin().await.map_err(map_sqlx_error)?;
+
+    // 0. Resolve the warehouse's Recepción — all inbound material lands here.
+    //    Missing Recepción means a data-integrity violation (all active
+    //    warehouses are guaranteed to have one post-migration); surface 409.
+    let location_id = find_reception_by_warehouse(&mut tx, warehouse_id).await?;
 
     // 1. INSERT or get existing lot
     let lot_row = sqlx::query_as::<_, (Uuid,)>(
@@ -501,12 +506,179 @@ pub async fn transfer_lot(
 
     let mut tx = pool.begin().await.map_err(map_sqlx_error)?;
 
+    // Reject Reception endpoints — the receive→distribute flow must use the
+    // dedicated /lots/{id}/distribute endpoint so movement reasons stay
+    // honest for downstream valuation/KPI features.
+    let types = sqlx::query_as::<_, (LocationType, LocationType)>(
+        "SELECT f.location_type, t.location_type \
+         FROM locations f, locations t \
+         WHERE f.id = $1 AND t.id = $2",
+    )
+    .bind(from_location_id)
+    .bind(to_location_id)
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(map_sqlx_error)?
+    .ok_or_else(|| DomainError::NotFound("Source or destination location not found".to_string()))?;
+    if matches!(types.0, LocationType::Reception) || matches!(types.1, LocationType::Reception) {
+        return Err(DomainError::Validation(
+            "Use POST /lots/{id}/distribute to move from or to a Reception location".to_string(),
+        ));
+    }
+
+    perform_transfer_in_tx(
+        &mut tx,
+        lot_id,
+        from_location_id,
+        to_location_id,
+        quantity,
+        user_id,
+        notes,
+        "transfer",
+    )
+    .await?;
+
+    tx.commit().await.map_err(map_sqlx_error)?;
+    Ok(())
+}
+
+// ── Distribute Lot ─────────────────────────────────────────────────
+//
+// Moves inventory from the lot's Recepción to a non-Reception destination in
+// the same warehouse. Shares `perform_transfer_in_tx` with `transfer_lot` so
+// the core SQL is not duplicated; the only thing that differs is the
+// movement_reason tag stamped on the resulting movement row.
+pub async fn distribute_lot(
+    pool: &PgPool,
+    lot_id: Uuid,
+    to_location_id: Uuid,
+    quantity: f64,
+    user_id: Uuid,
+    notes: Option<&str>,
+) -> Result<(), DomainError> {
+    if quantity <= 0.0 {
+        return Err(DomainError::Validation(
+            "Distribute quantity must be greater than 0".to_string(),
+        ));
+    }
+
+    let mut tx = pool.begin().await.map_err(map_sqlx_error)?;
+
+    // Verify the lot exists before trying to resolve its Reception row.
+    let lot_exists: Option<(Uuid,)> =
+        sqlx::query_as("SELECT id FROM product_lots WHERE id = $1")
+            .bind(lot_id)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(map_sqlx_error)?;
+    if lot_exists.is_none() {
+        return Err(DomainError::NotFound("Lot not found".to_string()));
+    }
+
+    // Resolve the warehouse + its Reception id via the lot's current
+    // inventory_lots row in a Reception-type location.
+    let src = sqlx::query_as::<_, (Uuid, Uuid)>(
+        "SELECT l.warehouse_id, l.id \
+         FROM inventory_lots il \
+         JOIN locations l ON l.id = il.location_id \
+         WHERE il.product_lot_id = $1 AND l.location_type = 'reception' \
+         LIMIT 1",
+    )
+    .bind(lot_id)
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(map_sqlx_error)?
+    .ok_or_else(|| {
+        DomainError::Validation("Lot has no inventory in a Reception location".to_string())
+    })?;
+    let (warehouse_id, reception_id) = (src.0, src.1);
+
+    // Validate destination: exists, same warehouse, NOT a Reception.
+    let target = sqlx::query_as::<_, (Uuid, LocationType)>(
+        "SELECT warehouse_id, location_type FROM locations WHERE id = $1",
+    )
+    .bind(to_location_id)
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(map_sqlx_error)?
+    .ok_or_else(|| DomainError::NotFound("Destination location not found".to_string()))?;
+    if target.0 != warehouse_id {
+        return Err(DomainError::Validation(
+            "Destination must be in the same warehouse".to_string(),
+        ));
+    }
+    if matches!(target.1, LocationType::Reception) {
+        return Err(DomainError::Validation(
+            "Destination cannot be a Reception location".to_string(),
+        ));
+    }
+
+    perform_transfer_in_tx(
+        &mut tx,
+        lot_id,
+        reception_id,
+        to_location_id,
+        quantity,
+        user_id,
+        notes,
+        "distribute_from_reception",
+    )
+    .await?;
+
+    tx.commit().await.map_err(map_sqlx_error)?;
+    Ok(())
+}
+
+// ── Shared in-tx helpers ───────────────────────────────────────────
+
+/// Resolves the `locations.id` of the Recepción row for `warehouse_id` inside
+/// an open transaction. Returns a domain-level Conflict if the warehouse has
+/// no Recepción (data-integrity violation — impossible post-migration).
+pub(crate) async fn find_reception_by_warehouse(
+    tx: &mut Transaction<'_, Postgres>,
+    warehouse_id: Uuid,
+) -> Result<Uuid, DomainError> {
+    sqlx::query_as::<_, (Uuid,)>(
+        "SELECT id FROM locations \
+         WHERE warehouse_id = $1 AND location_type = 'reception' \
+         LIMIT 1",
+    )
+    .bind(warehouse_id)
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(map_sqlx_error)?
+    .map(|r| r.0)
+    .ok_or_else(|| {
+        DomainError::Conflict(
+            "Warehouse has no Recepción location — data integrity error".to_string(),
+        )
+    })
+}
+
+/// Moves `quantity` of `lot_id` between two locations inside an open
+/// transaction. Decrements source `inventory_lots`/`inventory`, upserts at
+/// destination, and stamps a `transfer`-type movement with the supplied
+/// `movement_reason` tag.
+///
+/// Callers are responsible for any pre-validation (Reception rules, same
+/// warehouse, role checks) and for committing the enclosing transaction.
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn perform_transfer_in_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    lot_id: Uuid,
+    from_location_id: Uuid,
+    to_location_id: Uuid,
+    quantity: f64,
+    user_id: Uuid,
+    notes: Option<&str>,
+    movement_reason: &str,
+) -> Result<(), DomainError> {
     // Get lot info
     let lot = sqlx::query_as::<_, (Uuid, String)>(
         "SELECT product_id, lot_number FROM product_lots WHERE id = $1",
     )
     .bind(lot_id)
-    .fetch_one(&mut *tx)
+    .fetch_one(&mut **tx)
     .await
     .map_err(map_sqlx_error)?;
 
@@ -519,7 +691,7 @@ pub async fn transfer_lot(
     )
     .bind(lot_id)
     .bind(from_location_id)
-    .fetch_optional(&mut *tx)
+    .fetch_optional(&mut **tx)
     .await
     .map_err(map_sqlx_error)?
     .map(|r| r.0)
@@ -540,7 +712,7 @@ pub async fn transfer_lot(
         )
         .bind(lot_id)
         .bind(from_location_id)
-        .execute(&mut *tx)
+        .execute(&mut **tx)
         .await
         .map_err(map_sqlx_error)?;
     } else {
@@ -551,7 +723,7 @@ pub async fn transfer_lot(
         .bind(lot_id)
         .bind(from_location_id)
         .bind(remaining)
-        .execute(&mut *tx)
+        .execute(&mut **tx)
         .await
         .map_err(map_sqlx_error)?;
     }
@@ -568,7 +740,7 @@ pub async fn transfer_lot(
     .bind(lot_id)
     .bind(to_location_id)
     .bind(quantity)
-    .execute(&mut *tx)
+    .execute(&mut **tx)
     .await
     .map_err(map_sqlx_error)?;
 
@@ -580,7 +752,7 @@ pub async fn transfer_lot(
     .bind(product_id)
     .bind(from_location_id)
     .bind(quantity)
-    .execute(&mut *tx)
+    .execute(&mut **tx)
     .await
     .map_err(map_sqlx_error)?;
 
@@ -596,17 +768,19 @@ pub async fn transfer_lot(
     .bind(product_id)
     .bind(to_location_id)
     .bind(quantity)
-    .execute(&mut *tx)
+    .execute(&mut **tx)
     .await
     .map_err(map_sqlx_error)?;
 
-    // Create transfer movement
+    // Create transfer movement (with the caller-supplied movement_reason so
+    // valuation/KPI pipelines can tell a receive-distribute hop from a plain
+    // shelf-to-shelf transfer).
     sqlx::query(
         r#"
         INSERT INTO movements
             (product_id, from_location_id, to_location_id, quantity,
-             movement_type, user_id, reference, notes)
-        VALUES ($1, $2, $3, $4, 'transfer', $5, $6, $7)
+             movement_type, user_id, reference, notes, movement_reason)
+        VALUES ($1, $2, $3, $4, 'transfer', $5, $6, $7, $8)
         "#,
     )
     .bind(product_id)
@@ -616,11 +790,11 @@ pub async fn transfer_lot(
     .bind(user_id)
     .bind(&lot_number)
     .bind(notes)
-    .execute(&mut *tx)
+    .bind(movement_reason)
+    .execute(&mut **tx)
     .await
     .map_err(map_sqlx_error)?;
 
-    tx.commit().await.map_err(map_sqlx_error)?;
     Ok(())
 }
 

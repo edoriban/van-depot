@@ -1,10 +1,10 @@
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 use sqlx::PgPool;
 use uuid::Uuid;
 
 use vandepot_domain::error::DomainError;
-use vandepot_domain::models::enums::MovementType;
+use vandepot_domain::models::enums::{LocationType, MovementType};
 use vandepot_domain::models::inventory_params::{
     AdjustmentParams, EntryParams, ExitParams, InventoryFilters, InventoryItem, MovementFilters,
     TransferParams,
@@ -587,4 +587,149 @@ impl InventoryService for PgInventoryService {
 
         Ok(rows.into_iter().map(Into::into).collect())
     }
+}
+
+// ── Opening balance (admin-only initial-load entry) ────────────────
+//
+// Registers pre-existing stock directly at a non-Reception location without
+// going through the standard receive→distribute flow. Intended for one-off
+// migration imports (e.g., customer already has inventory on the shelf when
+// they onboard) — invoked via curl/CLI by `superadmin`/`owner` roles.
+//
+// Atomic: validates the location belongs to the warehouse and is NOT a
+// Reception, optionally upserts `product_lots` + `inventory_lots` when a lot
+// number is supplied, upserts `inventory`, and writes a movement with
+// `movement_type='entry'` and `movement_reason='initial_load'`.
+#[allow(clippy::too_many_arguments)]
+pub async fn opening_balance(
+    pool: &PgPool,
+    product_id: Uuid,
+    warehouse_id: Uuid,
+    location_id: Uuid,
+    quantity: f64,
+    lot_number: Option<&str>,
+    batch_date: Option<NaiveDate>,
+    expiration_date: Option<NaiveDate>,
+    supplier_id: Option<Uuid>,
+    user_id: Uuid,
+    notes: Option<&str>,
+) -> Result<(), DomainError> {
+    if quantity <= 0.0 {
+        return Err(DomainError::Validation(
+            "Quantity must be greater than 0".to_string(),
+        ));
+    }
+
+    let mut tx = pool.begin().await.map_err(map_sqlx_error)?;
+
+    // Validate: target location exists, belongs to warehouse, and is NOT a
+    // Reception. Opening balance MUST bypass the receive flow, so landing at
+    // Reception would produce a misleading audit trail.
+    let loc = sqlx::query_as::<_, (Uuid, LocationType)>(
+        "SELECT warehouse_id, location_type FROM locations WHERE id = $1",
+    )
+    .bind(location_id)
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(map_sqlx_error)?
+    .ok_or_else(|| DomainError::NotFound("Location not found".to_string()))?;
+
+    if loc.0 != warehouse_id {
+        return Err(DomainError::Validation(
+            "Location does not belong to warehouse".to_string(),
+        ));
+    }
+    if matches!(loc.1, LocationType::Reception) {
+        return Err(DomainError::Validation(
+            "Opening balance cannot target a Reception location".to_string(),
+        ));
+    }
+
+    // Optional lot-tracked path: upsert product_lots, increment received_qty,
+    // upsert inventory_lots at the target location.
+    if let Some(ln) = lot_number {
+        let row = sqlx::query_as::<_, (Uuid,)>(
+            r#"
+            INSERT INTO product_lots
+                (product_id, lot_number, batch_date, expiration_date, supplier_id, notes)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            ON CONFLICT (product_id, lot_number) DO UPDATE SET updated_at = NOW()
+            RETURNING id
+            "#,
+        )
+        .bind(product_id)
+        .bind(ln)
+        .bind(batch_date)
+        .bind(expiration_date)
+        .bind(supplier_id)
+        .bind(notes)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(map_sqlx_error)?;
+
+        sqlx::query(
+            "UPDATE product_lots \
+             SET received_quantity = received_quantity + $2 \
+             WHERE id = $1",
+        )
+        .bind(row.0)
+        .bind(quantity)
+        .execute(&mut *tx)
+        .await
+        .map_err(map_sqlx_error)?;
+
+        sqlx::query(
+            r#"
+            INSERT INTO inventory_lots (product_lot_id, location_id, quantity)
+            VALUES ($1, $2, $3)
+            ON CONFLICT (product_lot_id, location_id)
+            DO UPDATE SET quantity = inventory_lots.quantity + $3, updated_at = NOW()
+            "#,
+        )
+        .bind(row.0)
+        .bind(location_id)
+        .bind(quantity)
+        .execute(&mut *tx)
+        .await
+        .map_err(map_sqlx_error)?;
+    }
+
+    // Upsert the main inventory row at the target location.
+    sqlx::query(
+        "INSERT INTO inventory (product_id, location_id, quantity) \
+         VALUES ($1, $2, $3) \
+         ON CONFLICT (product_id, location_id) \
+         DO UPDATE SET quantity = inventory.quantity + $3, updated_at = NOW()",
+    )
+    .bind(product_id)
+    .bind(location_id)
+    .bind(quantity)
+    .execute(&mut *tx)
+    .await
+    .map_err(map_sqlx_error)?;
+
+    // Stamp the audit movement. `initial_load` is the canonical reason tag
+    // valuation/KPI pipelines key off to exclude one-off imports from
+    // receive-throughput metrics.
+    sqlx::query(
+        r#"
+        INSERT INTO movements
+            (product_id, from_location_id, to_location_id, quantity,
+             movement_type, user_id, supplier_id, reference, notes, movement_reason)
+        VALUES ($1, NULL, $2, $3, 'entry', $4, $5, $6, $7, 'initial_load')
+        "#,
+    )
+    .bind(product_id)
+    .bind(location_id)
+    .bind(quantity)
+    .bind(user_id)
+    .bind(supplier_id)
+    .bind(lot_number)
+    .bind(notes)
+    .execute(&mut *tx)
+    .await
+    .map_err(map_sqlx_error)?;
+
+    tx.commit().await.map_err(map_sqlx_error)?;
+    Ok(())
 }

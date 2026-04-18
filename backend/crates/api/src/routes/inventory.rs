@@ -1,15 +1,18 @@
 use axum::extract::{Path, Query, State};
-use axum::routing::get;
+use axum::http::StatusCode;
+use axum::routing::{get, post};
 use axum::{Json, Router};
+use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use vandepot_domain::error::DomainError;
 use vandepot_domain::models::inventory_params::{InventoryFilters, InventoryItem};
 use vandepot_infra::auth::jwt::Claims;
-use vandepot_infra::repositories::inventory_repo::PgInventoryService;
+use vandepot_infra::repositories::inventory_repo::{self, PgInventoryService};
 
 use crate::error::ApiError;
+use crate::extractors::role_guard::require_role;
 use crate::extractors::warehouse_access::ensure_warehouse_access;
 use crate::pagination::{PaginatedResponse, PaginationParams};
 use crate::state::AppState;
@@ -56,6 +59,30 @@ impl From<InventoryItem> for InventoryItemResponse {
     }
 }
 
+/// Admin-only opening-balance payload. Used for one-off imports of inventory
+/// that already exists on the shelf at go-live — bypasses the receive→Recepción
+/// flow so the audit trail doesn't fabricate a fake receipt.
+#[derive(Deserialize)]
+pub struct OpeningBalanceRequest {
+    pub product_id: Uuid,
+    pub warehouse_id: Uuid,
+    pub location_id: Uuid,
+    pub quantity: f64,
+    pub lot_number: Option<String>,
+    pub batch_date: Option<NaiveDate>,
+    pub expiration_date: Option<NaiveDate>,
+    pub supplier_id: Option<Uuid>,
+    pub notes: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct OpeningBalanceResponse {
+    pub product_id: Uuid,
+    pub warehouse_id: Uuid,
+    pub location_id: Uuid,
+    pub quantity: f64,
+}
+
 // ── Routes ────────────────────────────────────────────────────────────
 
 pub fn inventory_routes() -> Router<AppState> {
@@ -63,6 +90,7 @@ pub fn inventory_routes() -> Router<AppState> {
         .route("/inventory", get(list_inventory))
         .route("/inventory/product/{product_id}", get(product_stock))
         .route("/inventory/location/{location_id}", get(location_stock))
+        .route("/inventory/opening-balance", post(opening_balance))
 }
 
 // ── Handlers ──────────────────────────────────────────────────────────
@@ -153,5 +181,39 @@ async fn location_stock(
 
     Ok(Json(
         items.into_iter().map(InventoryItemResponse::from).collect(),
+    ))
+}
+
+async fn opening_balance(
+    State(state): State<AppState>,
+    claims: Claims,
+    Json(payload): Json<OpeningBalanceRequest>,
+) -> Result<(StatusCode, Json<OpeningBalanceResponse>), ApiError> {
+    require_role(&claims, &["superadmin", "owner"])?;
+    ensure_warehouse_access(&claims, &payload.warehouse_id)?;
+
+    inventory_repo::opening_balance(
+        &state.pool,
+        payload.product_id,
+        payload.warehouse_id,
+        payload.location_id,
+        payload.quantity,
+        payload.lot_number.as_deref(),
+        payload.batch_date,
+        payload.expiration_date,
+        payload.supplier_id,
+        claims.sub,
+        payload.notes.as_deref(),
+    )
+    .await?;
+
+    Ok((
+        StatusCode::CREATED,
+        Json(OpeningBalanceResponse {
+            product_id: payload.product_id,
+            warehouse_id: payload.warehouse_id,
+            location_id: payload.location_id,
+            quantity: payload.quantity,
+        }),
     ))
 }

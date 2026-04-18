@@ -33,4 +33,8 @@ pub trait LocationRepository: Send + Sync {
     ) -> Result<Location, DomainError>;
     async fn delete(&self, id: Uuid) -> Result<(), DomainError>;
     async fn has_inventory(&self, id: Uuid) -> Result<bool, DomainError>;
+    async fn find_reception_by_warehouse(
+        &self,
+        warehouse_id: Uuid,
+    ) -> Result<Option<Location>, DomainError>;
 }

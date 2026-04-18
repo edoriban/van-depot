@@ -3,7 +3,7 @@ use chrono::{DateTime, Utc};
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use vandepot_domain::error::DomainError;
+use vandepot_domain::error::{DomainError, SYSTEM_LOCATION_PROTECTED};
 use vandepot_domain::models::enums::LocationType;
 use vandepot_domain::models::location::Location;
 use vandepot_domain::ports::location_repository::LocationRepository;
@@ -19,6 +19,7 @@ struct LocationRow {
     name: String,
     label: Option<String>,
     is_active: bool,
+    is_system: bool,
     pos_x: Option<f32>,
     pos_y: Option<f32>,
     width: Option<f32>,
@@ -37,6 +38,7 @@ impl From<LocationRow> for Location {
             name: row.name,
             label: row.label,
             is_active: row.is_active,
+            is_system: row.is_system,
             pos_x: row.pos_x,
             pos_y: row.pos_y,
             width: row.width,
@@ -61,7 +63,7 @@ impl PgLocationRepository {
 impl LocationRepository for PgLocationRepository {
     async fn find_by_id(&self, id: Uuid) -> Result<Option<Location>, DomainError> {
         let row = sqlx::query_as::<_, LocationRow>(
-            "SELECT id, warehouse_id, parent_id, location_type, name, label, is_active, pos_x, pos_y, width, height, created_at, updated_at \
+            "SELECT id, warehouse_id, parent_id, location_type, name, label, is_active, is_system, pos_x, pos_y, width, height, created_at, updated_at \
              FROM locations WHERE id = $1",
         )
         .bind(id)
@@ -83,21 +85,21 @@ impl LocationRepository for PgLocationRepository {
         let (count_sql, data_sql) = if fetch_all {
             (
                 "SELECT COUNT(*) FROM locations WHERE warehouse_id = $1",
-                "SELECT id, warehouse_id, parent_id, location_type, name, label, is_active, pos_x, pos_y, width, height, created_at, updated_at \
+                "SELECT id, warehouse_id, parent_id, location_type, name, label, is_active, is_system, pos_x, pos_y, width, height, created_at, updated_at \
                  FROM locations WHERE warehouse_id = $1 \
                  ORDER BY created_at DESC LIMIT $2 OFFSET $3",
             )
         } else if parent_id.is_some() {
             (
                 "SELECT COUNT(*) FROM locations WHERE warehouse_id = $1 AND parent_id = $2",
-                "SELECT id, warehouse_id, parent_id, location_type, name, label, is_active, pos_x, pos_y, width, height, created_at, updated_at \
+                "SELECT id, warehouse_id, parent_id, location_type, name, label, is_active, is_system, pos_x, pos_y, width, height, created_at, updated_at \
                  FROM locations WHERE warehouse_id = $1 AND parent_id = $2 \
                  ORDER BY created_at DESC LIMIT $3 OFFSET $4",
             )
         } else {
             (
                 "SELECT COUNT(*) FROM locations WHERE warehouse_id = $1 AND parent_id IS NULL",
-                "SELECT id, warehouse_id, parent_id, location_type, name, label, is_active, pos_x, pos_y, width, height, created_at, updated_at \
+                "SELECT id, warehouse_id, parent_id, location_type, name, label, is_active, is_system, pos_x, pos_y, width, height, created_at, updated_at \
                  FROM locations WHERE warehouse_id = $1 AND parent_id IS NULL \
                  ORDER BY created_at DESC LIMIT $2 OFFSET $3",
             )
@@ -153,7 +155,7 @@ impl LocationRepository for PgLocationRepository {
         let row = sqlx::query_as::<_, LocationRow>(
             "INSERT INTO locations (warehouse_id, parent_id, location_type, name, label) \
              VALUES ($1, $2, $3, $4, $5) \
-             RETURNING id, warehouse_id, parent_id, location_type, name, label, is_active, pos_x, pos_y, width, height, created_at, updated_at",
+             RETURNING id, warehouse_id, parent_id, location_type, name, label, is_active, is_system, pos_x, pos_y, width, height, created_at, updated_at",
         )
         .bind(warehouse_id)
         .bind(parent_id)
@@ -174,6 +176,30 @@ impl LocationRepository for PgLocationRepository {
         label: Option<Option<&str>>,
         location_type: Option<LocationType>,
     ) -> Result<Location, DomainError> {
+        // Preflight guard: system-managed locations cannot be renamed or retyped.
+        // Position/size/active updates happen through a different code path
+        // (warehouse_map_repo), so the three fields this method touches are
+        // exactly the forbidden-set.
+        let existing: Option<(bool,)> = sqlx::query_as(
+            "SELECT is_system FROM locations WHERE id = $1",
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(map_sqlx_error)?;
+
+        match existing {
+            None => return Err(DomainError::NotFound("Location not found".to_string())),
+            Some((true,))
+                if name.is_some() || label.is_some() || location_type.is_some() =>
+            {
+                return Err(DomainError::Conflict(format!(
+                    "{SYSTEM_LOCATION_PROTECTED}: cannot retype or rename system-managed location"
+                )));
+            }
+            _ => {}
+        }
+
         let row = sqlx::query_as::<_, LocationRow>(
             "UPDATE locations SET \
                 name = COALESCE($2, name), \
@@ -181,7 +207,7 @@ impl LocationRepository for PgLocationRepository {
                 location_type = COALESCE($5, location_type), \
                 updated_at = NOW() \
              WHERE id = $1 \
-             RETURNING id, warehouse_id, parent_id, location_type, name, label, is_active, pos_x, pos_y, width, height, created_at, updated_at",
+             RETURNING id, warehouse_id, parent_id, location_type, name, label, is_active, is_system, pos_x, pos_y, width, height, created_at, updated_at",
         )
         .bind(id)
         .bind(name)
@@ -196,6 +222,27 @@ impl LocationRepository for PgLocationRepository {
     }
 
     async fn delete(&self, id: Uuid) -> Result<(), DomainError> {
+        // Preflight guard: system-managed locations MUST NOT be deleted.
+        // Check BEFORE the has_inventory / actual DELETE so the error message
+        // is accurate for operators.
+        let existing: Option<(bool,)> = sqlx::query_as(
+            "SELECT is_system FROM locations WHERE id = $1",
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(map_sqlx_error)?;
+
+        match existing {
+            None => return Err(DomainError::NotFound("Location not found".to_string())),
+            Some((true,)) => {
+                return Err(DomainError::Conflict(format!(
+                    "{SYSTEM_LOCATION_PROTECTED}: cannot delete system-managed location"
+                )));
+            }
+            Some((false,)) => {}
+        }
+
         let result = sqlx::query("DELETE FROM locations WHERE id = $1")
             .bind(id)
             .execute(&self.pool)
@@ -219,5 +266,23 @@ impl LocationRepository for PgLocationRepository {
         .map_err(map_sqlx_error)?;
 
         Ok(result.0)
+    }
+
+    async fn find_reception_by_warehouse(
+        &self,
+        warehouse_id: Uuid,
+    ) -> Result<Option<Location>, DomainError> {
+        let row = sqlx::query_as::<_, LocationRow>(
+            "SELECT id, warehouse_id, parent_id, location_type, name, label, is_active, is_system, pos_x, pos_y, width, height, created_at, updated_at \
+             FROM locations \
+             WHERE warehouse_id = $1 AND location_type = 'reception' \
+             LIMIT 1",
+        )
+        .bind(warehouse_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(map_sqlx_error)?;
+
+        Ok(row.map(Location::from))
     }
 }

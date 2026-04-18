@@ -27,6 +27,10 @@ pub struct CreateLocationRequest {
     pub location_type: LocationType,
     pub name: String,
     pub label: Option<String>,
+    /// Clients MUST NOT set this — it's tracked so we can reject forged
+    /// payloads that try to impersonate system locations.
+    #[serde(default)]
+    pub is_system: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -53,6 +57,7 @@ pub struct LocationResponse {
     pub name: String,
     pub label: Option<String>,
     pub is_active: bool,
+    pub is_system: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -67,6 +72,7 @@ impl From<Location> for LocationResponse {
             name: l.name,
             label: l.label,
             is_active: l.is_active,
+            is_system: l.is_system,
             created_at: l.created_at,
             updated_at: l.updated_at,
         }
@@ -99,6 +105,16 @@ async fn create_location(
 ) -> Result<(StatusCode, Json<LocationResponse>), ApiError> {
     require_role(&claims, &["superadmin", "owner", "warehouse_manager"])?;
     ensure_warehouse_access(&claims, &warehouse_id)?;
+
+    // Reception rows are system-managed — the warehouse-create tx and the
+    // backfill migration are the only legitimate sources. Same for is_system.
+    if matches!(payload.location_type, LocationType::Reception)
+        || payload.is_system == Some(true)
+    {
+        return Err(ApiError(DomainError::Validation(
+            "Reception locations are system-managed and cannot be created manually".to_string(),
+        )));
+    }
 
     let repo = PgLocationRepository::new(state.pool.clone());
     let location = repo
