@@ -7,7 +7,7 @@ PNPM := pnpm
 DOCKER_COMPOSE := docker compose
 
 BACKEND_PORT := 3100
-FRONTEND_PORT := 3001
+FRONTEND_PORT := 3201
 
 # Colors for output (printf-safe, BSD-compatible)
 BLUE := \033[34m
@@ -109,7 +109,7 @@ help:
 	@printf "$(BLUE)║$(NC)  $(GREEN)Development:$(NC)                                      $(BLUE)║$(NC)\n"
 	@printf "$(BLUE)║$(NC)    make dev            - Start backend + frontend     $(BLUE)║$(NC)\n"
 	@printf "$(BLUE)║$(NC)    make backend        - Rust backend (cargo-watch)   $(BLUE)║$(NC)\n"
-	@printf "$(BLUE)║$(NC)    make frontend       - Next.js frontend (port 3001) $(BLUE)║$(NC)\n"
+	@printf "$(BLUE)║$(NC)    make frontend       - Next.js frontend (port 3201) $(BLUE)║$(NC)\n"
 	@printf "$(BLUE)╠═══════════════════════════════════════════════════════╣$(NC)\n"
 	@printf "$(BLUE)║$(NC)  $(GREEN)Docker:$(NC)                                           $(BLUE)║$(NC)\n"
 	@printf "$(BLUE)║$(NC)    make docker-up      - Start dev services (detached)$(BLUE)║$(NC)\n"
