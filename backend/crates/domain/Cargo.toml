@@ -12,3 +12,6 @@ uuid = { workspace = true }
 thiserror = { workspace = true }
 sqlx = { workspace = true }
 async-trait = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

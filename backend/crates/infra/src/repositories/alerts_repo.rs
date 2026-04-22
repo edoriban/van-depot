@@ -53,6 +53,7 @@ pub async fn get_stock_alerts(
                 JOIN locations l ON i.location_id = l.id
                 JOIN warehouses w ON l.warehouse_id = w.id
                 WHERE p.deleted_at IS NULL AND w.deleted_at IS NULL
+                  AND p.product_class <> 'tool_spare'
                   AND p.min_stock > 0 AND i.quantity <= p.min_stock
                   AND l.warehouse_id = $1
                 ORDER BY (i.quantity / NULLIF(p.min_stock, 0)) ASC
@@ -74,6 +75,7 @@ pub async fn get_stock_alerts(
                 JOIN locations l ON i.location_id = l.id
                 JOIN warehouses w ON l.warehouse_id = w.id
                 WHERE p.deleted_at IS NULL AND w.deleted_at IS NULL
+                  AND p.product_class <> 'tool_spare'
                   AND p.min_stock > 0 AND i.quantity <= p.min_stock
                   AND l.warehouse_id = ANY($1)
                 ORDER BY (i.quantity / NULLIF(p.min_stock, 0)) ASC
@@ -98,6 +100,7 @@ pub async fn get_stock_alerts(
                 JOIN locations l ON i.location_id = l.id
                 JOIN warehouses w ON l.warehouse_id = w.id
                 WHERE p.deleted_at IS NULL AND w.deleted_at IS NULL
+                  AND p.product_class <> 'tool_spare'
                   AND p.min_stock > 0 AND i.quantity <= p.min_stock
                   AND l.warehouse_id = $1
                 ORDER BY (i.quantity / NULLIF(p.min_stock, 0)) ASC
@@ -119,6 +122,7 @@ pub async fn get_stock_alerts(
                 JOIN locations l ON i.location_id = l.id
                 JOIN warehouses w ON l.warehouse_id = w.id
                 WHERE p.deleted_at IS NULL AND w.deleted_at IS NULL
+                  AND p.product_class <> 'tool_spare'
                   AND p.min_stock > 0 AND i.quantity <= p.min_stock
                 ORDER BY (i.quantity / NULLIF(p.min_stock, 0)) ASC
                 "#,
@@ -149,6 +153,7 @@ pub async fn get_alert_summary(
             JOIN locations l ON i.location_id = l.id
             JOIN warehouses w ON l.warehouse_id = w.id
             WHERE p.deleted_at IS NULL AND w.deleted_at IS NULL
+              AND p.product_class <> 'tool_spare'
               AND p.min_stock > 0 AND i.quantity <= p.min_stock
               AND l.warehouse_id = ANY($1)
             "#,
@@ -170,6 +175,7 @@ pub async fn get_alert_summary(
             JOIN locations l ON i.location_id = l.id
             JOIN warehouses w ON l.warehouse_id = w.id
             WHERE p.deleted_at IS NULL AND w.deleted_at IS NULL
+              AND p.product_class <> 'tool_spare'
               AND p.min_stock > 0 AND i.quantity <= p.min_stock
             "#,
         )

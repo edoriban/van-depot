@@ -1,12 +1,12 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use sqlx::PgPool;
+use sqlx::{PgPool, Postgres, Transaction};
 use uuid::Uuid;
 
 use vandepot_domain::error::DomainError;
-use vandepot_domain::models::enums::UnitType;
+use vandepot_domain::models::enums::{ProductClass, UnitType};
 use vandepot_domain::models::product::Product;
-use vandepot_domain::ports::product_repository::ProductRepository;
+use vandepot_domain::ports::product_repository::{ClassLockStatus, ProductRepository};
 
 use super::shared::map_sqlx_error;
 
@@ -18,6 +18,8 @@ struct ProductRow {
     description: Option<String>,
     category_id: Option<Uuid>,
     unit_of_measure: UnitType,
+    product_class: ProductClass,
+    has_expiry: bool,
     min_stock: f64,
     max_stock: Option<f64>,
     is_active: bool,
@@ -37,6 +39,8 @@ struct ProductWithAuditRow {
     description: Option<String>,
     category_id: Option<Uuid>,
     unit_of_measure: UnitType,
+    product_class: ProductClass,
+    has_expiry: bool,
     min_stock: f64,
     max_stock: Option<f64>,
     is_active: bool,
@@ -58,6 +62,8 @@ impl From<ProductRow> for Product {
             description: row.description,
             category_id: row.category_id,
             unit_of_measure: row.unit_of_measure,
+            product_class: row.product_class,
+            has_expiry: row.has_expiry,
             min_stock: row.min_stock,
             max_stock: row.max_stock,
             is_active: row.is_active,
@@ -79,6 +85,8 @@ impl From<ProductWithAuditRow> for Product {
             description: row.description,
             category_id: row.category_id,
             unit_of_measure: row.unit_of_measure,
+            product_class: row.product_class,
+            has_expiry: row.has_expiry,
             min_stock: row.min_stock,
             max_stock: row.max_stock,
             is_active: row.is_active,
@@ -114,6 +122,7 @@ impl PgProductRepository {
     ) -> Result<Option<ProductWithAudit>, DomainError> {
         let sql = "\
             SELECT p.id, p.name, p.sku, p.description, p.category_id, p.unit_of_measure, \
+                   p.product_class, p.has_expiry, \
                    p.min_stock::float8, p.max_stock::float8, p.is_active, \
                    p.created_by, p.updated_by, \
                    p.created_at, p.updated_at, p.deleted_at, \
@@ -139,8 +148,40 @@ impl PgProductRepository {
 }
 
 const PRODUCT_COLUMNS: &str = "id, name, sku, description, category_id, unit_of_measure, \
+                                product_class, has_expiry, \
                                 min_stock::float8, max_stock::float8, is_active, created_by, updated_by, \
                                 created_at, updated_at, deleted_at";
+
+/// Count the three blocker kinds that prevent reclassification of a product:
+/// movements, product_lots, and tool_instances. Kept in a single helper so
+/// `reclassify` and `class_lock_status` stay in sync.
+async fn count_class_blockers_in_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    product_id: Uuid,
+) -> Result<(i64, i64, i64), DomainError> {
+    let movements: (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM movements WHERE product_id = $1")
+            .bind(product_id)
+            .fetch_one(&mut **tx)
+            .await
+            .map_err(map_sqlx_error)?;
+
+    let lots: (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM product_lots WHERE product_id = $1")
+            .bind(product_id)
+            .fetch_one(&mut **tx)
+            .await
+            .map_err(map_sqlx_error)?;
+
+    let tool_instances: (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM tool_instances WHERE product_id = $1")
+            .bind(product_id)
+            .fetch_one(&mut **tx)
+            .await
+            .map_err(map_sqlx_error)?;
+
+    Ok((movements.0, lots.0, tool_instances.0))
+}
 
 #[async_trait]
 impl ProductRepository for PgProductRepository {
@@ -162,6 +203,7 @@ impl ProductRepository for PgProductRepository {
         &self,
         search: Option<&str>,
         category_id: Option<Uuid>,
+        product_class: Option<ProductClass>,
         limit: i64,
         offset: i64,
     ) -> Result<(Vec<Product>, i64), DomainError> {
@@ -179,6 +221,10 @@ impl ProductRepository for PgProductRepository {
             idx += 1;
             where_clauses.push(format!("category_id = ${idx}"));
         }
+        if product_class.is_some() {
+            idx += 1;
+            where_clauses.push(format!("product_class = ${idx}"));
+        }
 
         let where_sql = where_clauses.join(" AND ");
 
@@ -190,6 +236,9 @@ impl ProductRepository for PgProductRepository {
         }
         if let Some(cid) = category_id {
             count_query = count_query.bind(cid);
+        }
+        if let Some(ref pc) = product_class {
+            count_query = count_query.bind(pc);
         }
         let total = count_query
             .fetch_one(&self.pool)
@@ -212,6 +261,9 @@ impl ProductRepository for PgProductRepository {
         if let Some(cid) = category_id {
             data_query = data_query.bind(cid);
         }
+        if let Some(ref pc) = product_class {
+            data_query = data_query.bind(pc);
+        }
         data_query = data_query.bind(limit).bind(offset);
 
         let rows = data_query
@@ -229,13 +281,25 @@ impl ProductRepository for PgProductRepository {
         description: Option<&str>,
         category_id: Option<Uuid>,
         unit_of_measure: UnitType,
+        product_class: ProductClass,
+        has_expiry: bool,
         min_stock: f64,
         max_stock: Option<f64>,
         created_by: Option<Uuid>,
     ) -> Result<Product, DomainError> {
+        // App-layer invariant check — provides a nicer message than the DB
+        // CHECK constraint (which surfaces as a generic sqlx error).
+        if matches!(product_class, ProductClass::ToolSpare) && has_expiry {
+            return Err(DomainError::Validation(
+                "has_expiry must be false for tool_spare products".to_string(),
+            ));
+        }
+
         let sql = format!(
-            "INSERT INTO products (name, sku, description, category_id, unit_of_measure, min_stock, max_stock, created_by) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8) \
+            "INSERT INTO products (name, sku, description, category_id, unit_of_measure, \
+                                   product_class, has_expiry, \
+                                   min_stock, max_stock, created_by) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) \
              RETURNING {}",
             PRODUCT_COLUMNS
         );
@@ -245,6 +309,8 @@ impl ProductRepository for PgProductRepository {
             .bind(description)
             .bind(category_id)
             .bind(&unit_of_measure)
+            .bind(&product_class)
+            .bind(has_expiry)
             .bind(min_stock)
             .bind(max_stock)
             .bind(created_by)
@@ -263,6 +329,7 @@ impl ProductRepository for PgProductRepository {
         description: Option<Option<&str>>,
         category_id: Option<Option<Uuid>>,
         unit_of_measure: Option<UnitType>,
+        has_expiry: Option<bool>,
         min_stock: Option<f64>,
         max_stock: Option<Option<f64>>,
         updated_by: Option<Uuid>,
@@ -274,9 +341,10 @@ impl ProductRepository for PgProductRepository {
                 description = CASE WHEN $4 THEN $5 ELSE description END, \
                 category_id = CASE WHEN $6 THEN $7 ELSE category_id END, \
                 unit_of_measure = COALESCE($8, unit_of_measure), \
-                min_stock = COALESCE($9, min_stock), \
-                max_stock = CASE WHEN $10 THEN $11 ELSE max_stock END, \
-                updated_by = COALESCE($12, updated_by), \
+                has_expiry = COALESCE($9, has_expiry), \
+                min_stock = COALESCE($10, min_stock), \
+                max_stock = CASE WHEN $11 THEN $12 ELSE max_stock END, \
+                updated_by = COALESCE($13, updated_by), \
                 updated_at = NOW() \
              WHERE id = $1 AND deleted_at IS NULL \
              RETURNING {}",
@@ -291,6 +359,7 @@ impl ProductRepository for PgProductRepository {
             .bind(category_id.is_some())
             .bind(category_id.flatten())
             .bind(unit_of_measure)
+            .bind(has_expiry)
             .bind(min_stock)
             .bind(max_stock.is_some())
             .bind(max_stock.flatten())
@@ -316,5 +385,81 @@ impl ProductRepository for PgProductRepository {
         }
 
         Ok(())
+    }
+
+    async fn reclassify(
+        &self,
+        id: Uuid,
+        new_class: ProductClass,
+        updated_by: Option<Uuid>,
+    ) -> Result<Product, DomainError> {
+        let mut tx = self.pool.begin().await.map_err(map_sqlx_error)?;
+
+        // 1. Count blockers. Any nonzero count → refuse to reclassify and
+        //    surface the structured `ClassLocked` variant so the API layer
+        //    can emit a typed `blocked_by` JSON shape (design §5e).
+        let (movements, lots, tool_instances) =
+            count_class_blockers_in_tx(&mut tx, id).await?;
+        if movements + lots + tool_instances > 0 {
+            return Err(DomainError::ClassLocked {
+                movements,
+                lots,
+                tool_instances,
+            });
+        }
+
+        // 2. Fetch current has_expiry so we can enforce the class/expiry
+        //    invariant without a second mutating statement. The CHECK
+        //    constraint on the table is the ultimate backstop, but surfacing
+        //    a nicer domain error matches the `create` path's behavior.
+        let current: Option<(bool,)> =
+            sqlx::query_as("SELECT has_expiry FROM products WHERE id = $1 AND deleted_at IS NULL")
+                .bind(id)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(map_sqlx_error)?;
+        let has_expiry = current
+            .ok_or_else(|| DomainError::NotFound("Product not found".to_string()))?
+            .0;
+        if matches!(new_class, ProductClass::ToolSpare) && has_expiry {
+            return Err(DomainError::Validation(
+                "Cannot reclassify to tool_spare while has_expiry is true".to_string(),
+            ));
+        }
+
+        // 3. Apply the update and commit.
+        let sql = format!(
+            "UPDATE products SET \
+                product_class = $2, \
+                updated_by = COALESCE($3, updated_by), \
+                updated_at = NOW() \
+             WHERE id = $1 AND deleted_at IS NULL \
+             RETURNING {}",
+            PRODUCT_COLUMNS
+        );
+        let row = sqlx::query_as::<_, ProductRow>(&sql)
+            .bind(id)
+            .bind(&new_class)
+            .bind(updated_by)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(map_sqlx_error)?;
+
+        tx.commit().await.map_err(map_sqlx_error)?;
+        Ok(Product::from(row))
+    }
+
+    async fn class_lock_status(&self, id: Uuid) -> Result<ClassLockStatus, DomainError> {
+        let mut tx = self.pool.begin().await.map_err(map_sqlx_error)?;
+        let (movements, lots, tool_instances) =
+            count_class_blockers_in_tx(&mut tx, id).await?;
+        tx.commit().await.map_err(map_sqlx_error)?;
+
+        Ok(ClassLockStatus {
+            locked: movements + lots + tool_instances > 0,
+            movements,
+            lots,
+            tool_instances,
+        })
     }
 }

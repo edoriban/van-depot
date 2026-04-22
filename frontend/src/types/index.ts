@@ -15,6 +15,38 @@ export type UnitType = 'piece' | 'kg' | 'gram' | 'liter' | 'ml' | 'meter' | 'cm'
 export type MovementType = 'entry' | 'exit' | 'transfer' | 'adjustment';
 export type LocationType = 'zone' | 'rack' | 'shelf' | 'position' | 'bin';
 export type CycleCountStatus = 'draft' | 'in_progress' | 'completed' | 'cancelled';
+export type ProductClass = 'raw_material' | 'consumable' | 'tool_spare';
+
+export const PRODUCT_CLASS_VALUES: ReadonlyArray<ProductClass> = [
+  'raw_material',
+  'consumable',
+  'tool_spare',
+] as const;
+
+export const PRODUCT_CLASS_LABELS: Record<ProductClass, string> = {
+  raw_material: 'Materia prima',
+  consumable: 'Consumible',
+  tool_spare: 'Herramienta / refacción',
+};
+
+/**
+ * Short labels for compact surfaces like chip rows and table badges.
+ * Plural for list/filter contexts, e.g. `[Todos | Materia prima | Consumibles | Herramientas]`.
+ */
+export const PRODUCT_CLASS_LABELS_SHORT: Record<ProductClass, string> = {
+  raw_material: 'Materia prima',
+  consumable: 'Consumible',
+  tool_spare: 'Herramienta',
+};
+
+export const PRODUCT_CLASS_BADGE_CLASSES: Record<ProductClass, string> = {
+  raw_material:
+    'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200',
+  consumable:
+    'bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200',
+  tool_spare:
+    'bg-violet-100 text-violet-800 dark:bg-violet-900 dark:text-violet-200',
+};
 
 // Entities
 export interface User {
@@ -80,6 +112,8 @@ export interface Product {
   description?: string;
   category_id?: string;
   unit_of_measure: UnitType;
+  product_class: ProductClass;
+  has_expiry: boolean;
   min_stock: number;
   max_stock?: number;
   is_active: boolean;
@@ -89,6 +123,36 @@ export interface Product {
   created_by_email?: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface ClassLockStatus {
+  locked: boolean;
+  movements: number;
+  lots: number;
+  tool_instances: number;
+}
+
+export interface CreateProductInput {
+  name: string;
+  sku: string;
+  description?: string;
+  category_id?: string;
+  unit_of_measure: UnitType;
+  product_class: ProductClass;
+  has_expiry: boolean;
+  min_stock: number;
+  max_stock?: number;
+}
+
+export interface UpdateProductInput {
+  name?: string;
+  sku?: string;
+  description?: string;
+  category_id?: string;
+  unit_of_measure?: UnitType;
+  has_expiry?: boolean;
+  min_stock?: number;
+  max_stock?: number;
 }
 
 export interface Supplier {
@@ -419,7 +483,12 @@ export interface InventoryLot {
 export interface ReceiveLotRequest {
   product_id: string;
   lot_number: string;
-  location_id: string;
+  /**
+   * Warehouse whose Recepción system-location will receive the lot. The
+   * server resolves the destination internally — clients MUST NOT pick a
+   * location.
+   */
+  warehouse_id: string;
   good_quantity: number;
   defect_quantity?: number;
   supplier_id?: string;
@@ -429,6 +498,26 @@ export interface ReceiveLotRequest {
   purchase_order_line_id?: string;
   purchase_order_id?: string;
 }
+
+/**
+ * Response shape for `POST /lots/receive`. The backend uses `kind` as the
+ * discriminator so the frontend can distinguish lot-backed receives
+ * (raw_material, consumable+has_expiry) from direct-inventory receives
+ * (tool_spare, consumable without expiry).
+ */
+export type ReceiveLotResponse =
+  | {
+      kind: 'lot';
+      lot: ProductLot;
+    }
+  | {
+      kind: 'direct_inventory';
+      inventory_id: string;
+      movement_id: string;
+      product_id: string;
+      location_id: string;
+      quantity: number;
+    };
 
 // Lot Movements
 export interface LotMovement {

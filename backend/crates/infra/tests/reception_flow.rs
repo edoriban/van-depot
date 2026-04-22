@@ -15,12 +15,29 @@ use uuid::Uuid;
 
 use vandepot_domain::error::{DomainError, SYSTEM_LOCATION_PROTECTED};
 use vandepot_domain::models::enums::LocationType;
+use vandepot_domain::models::product_lot::ProductLot;
+use vandepot_domain::models::receive_outcome::ReceiveOutcome;
 use vandepot_domain::ports::location_repository::LocationRepository;
 use vandepot_domain::ports::warehouse_repository::WarehouseRepository;
 use vandepot_infra::repositories::{
     inventory_repo, location_repo::PgLocationRepository, lots_repo,
     warehouse_repo::PgWarehouseRepository,
 };
+
+// The no-lot receive matrix lives in `product_classification.rs` (Batch 5).
+// Tests in this file create products via the legacy SQL helper
+// `TestData::create_product` (which omits `product_class` and relies on the
+// DB default of `raw_material` + `has_expiry=false`), so every receive here
+// takes the lot path — this helper unwraps `ReceiveOutcome::Lot`.
+#[track_caller]
+fn expect_lot(outcome: ReceiveOutcome) -> ProductLot {
+    match outcome {
+        ReceiveOutcome::Lot(lot) => lot,
+        ReceiveOutcome::DirectInventory { .. } => {
+            panic!("expected ReceiveOutcome::Lot for raw_material product")
+        }
+    }
+}
 
 // ─── Test harness ────────────────────────────────────────────────────
 
@@ -376,23 +393,25 @@ async fn test_receive_lot_lands_at_reception() {
     let rcp = td.reception_id(wid).await;
 
     let lot_number = format!("LOT-{}", Uuid::new_v4());
-    let lot = lots_repo::receive_lot(
-        &pool,
-        pid,
-        &lot_number,
-        wid,
-        50.0,
-        0.0,
-        None,
-        None,
-        None,
-        td.user_id,
-        None,
-        None,
-        None,
-    )
-    .await
-    .expect("receive_lot should succeed");
+    let lot = expect_lot(
+        lots_repo::receive_lot(
+            &pool,
+            pid,
+            &lot_number,
+            wid,
+            50.0,
+            0.0,
+            None,
+            None,
+            None,
+            td.user_id,
+            None,
+            None,
+            None,
+        )
+        .await
+        .expect("receive_lot should succeed"),
+    );
 
     // inventory_lots MUST land at Reception.
     assert_eq!(td.inventory_lot_qty(lot.id, rcp).await, 50.0);
@@ -427,23 +446,25 @@ async fn test_receive_lot_defect_movement_lands_at_reception() {
     let pid = td.create_product(&Uuid::new_v4().to_string()[..8]).await;
     let rcp = td.reception_id(wid).await;
 
-    let _ = lots_repo::receive_lot(
-        &pool,
-        pid,
-        &format!("LOT-DEF-{}", Uuid::new_v4()),
-        wid,
-        10.0,
-        3.0,
-        None,
-        None,
-        None,
-        td.user_id,
-        None,
-        None,
-        None,
-    )
-    .await
-    .expect("receive_lot with defect should succeed");
+    let _ = expect_lot(
+        lots_repo::receive_lot(
+            &pool,
+            pid,
+            &format!("LOT-DEF-{}", Uuid::new_v4()),
+            wid,
+            10.0,
+            3.0,
+            None,
+            None,
+            None,
+            td.user_id,
+            None,
+            None,
+            None,
+        )
+        .await
+        .expect("receive_lot with defect should succeed"),
+    );
 
     // The defect movement must also target the Reception.
     let defect: (Option<Uuid>, String) = sqlx::query_as(
@@ -473,11 +494,13 @@ async fn test_transfer_lot_rejects_reception_source() {
 
     // Seed a lot at Reception so the transfer otherwise would proceed.
     let lot_no = format!("LOT-{}", Uuid::new_v4());
-    let lot = lots_repo::receive_lot(
-        &pool, pid, &lot_no, wid, 20.0, 0.0, None, None, None, td.user_id, None, None, None,
-    )
-    .await
-    .unwrap();
+    let lot = expect_lot(
+        lots_repo::receive_lot(
+            &pool, pid, &lot_no, wid, 20.0, 0.0, None, None, None, td.user_id, None, None, None,
+        )
+        .await
+        .unwrap(),
+    );
 
     let res = lots_repo::transfer_lot(
         &pool,
@@ -516,11 +539,13 @@ async fn test_distribute_lot_full_and_partial() {
     let zone = td.create_location(wid, "Zona-A", LocationType::Zone).await;
 
     let lot_no = format!("LOT-{}", Uuid::new_v4());
-    let lot = lots_repo::receive_lot(
-        &pool, pid, &lot_no, wid, 100.0, 0.0, None, None, None, td.user_id, None, None, None,
-    )
-    .await
-    .unwrap();
+    let lot = expect_lot(
+        lots_repo::receive_lot(
+            &pool, pid, &lot_no, wid, 100.0, 0.0, None, None, None, td.user_id, None, None, None,
+        )
+        .await
+        .unwrap(),
+    );
 
     // Partial distribute 30.
     lots_repo::distribute_lot(&pool, lot.id, zone, 30.0, td.user_id, None)
@@ -561,13 +586,15 @@ async fn test_distribute_lot_insufficient_quantity() {
     let pid = td.create_product(&Uuid::new_v4().to_string()[..8]).await;
     let zone = td.create_location(wid, "Zona-A", LocationType::Zone).await;
 
-    let lot = lots_repo::receive_lot(
-        &pool, pid,
-        &format!("LOT-{}", Uuid::new_v4()),
-        wid, 20.0, 0.0, None, None, None, td.user_id, None, None, None,
-    )
-    .await
-    .unwrap();
+    let lot = expect_lot(
+        lots_repo::receive_lot(
+            &pool, pid,
+            &format!("LOT-{}", Uuid::new_v4()),
+            wid, 20.0, 0.0, None, None, None, td.user_id, None, None, None,
+        )
+        .await
+        .unwrap(),
+    );
 
     let res = lots_repo::distribute_lot(&pool, lot.id, zone, 50.0, td.user_id, None).await;
     assert!(matches!(res, Err(DomainError::Validation(_))));
@@ -585,13 +612,15 @@ async fn test_distribute_lot_rejects_reception_destination() {
     let pid = td.create_product(&Uuid::new_v4().to_string()[..8]).await;
     let rcp_b = td.reception_id(wid_b).await;
 
-    let lot = lots_repo::receive_lot(
-        &pool, pid,
-        &format!("LOT-{}", Uuid::new_v4()),
-        wid_a, 50.0, 0.0, None, None, None, td.user_id, None, None, None,
-    )
-    .await
-    .unwrap();
+    let lot = expect_lot(
+        lots_repo::receive_lot(
+            &pool, pid,
+            &format!("LOT-{}", Uuid::new_v4()),
+            wid_a, 50.0, 0.0, None, None, None, td.user_id, None, None, None,
+        )
+        .await
+        .unwrap(),
+    );
 
     // destination is a Reception → must be rejected.
     let res = lots_repo::distribute_lot(&pool, lot.id, rcp_b, 10.0, td.user_id, None).await;
@@ -613,13 +642,15 @@ async fn test_distribute_lot_rejects_different_warehouse() {
     let pid = td.create_product(&Uuid::new_v4().to_string()[..8]).await;
     let zone_b = td.create_location(wid_b, "Zona B", LocationType::Zone).await;
 
-    let lot = lots_repo::receive_lot(
-        &pool, pid,
-        &format!("LOT-{}", Uuid::new_v4()),
-        wid_a, 50.0, 0.0, None, None, None, td.user_id, None, None, None,
-    )
-    .await
-    .unwrap();
+    let lot = expect_lot(
+        lots_repo::receive_lot(
+            &pool, pid,
+            &format!("LOT-{}", Uuid::new_v4()),
+            wid_a, 50.0, 0.0, None, None, None, td.user_id, None, None, None,
+        )
+        .await
+        .unwrap(),
+    );
 
     let res = lots_repo::distribute_lot(&pool, lot.id, zone_b, 10.0, td.user_id, None).await;
     assert!(

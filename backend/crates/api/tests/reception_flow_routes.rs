@@ -20,7 +20,23 @@ use tower::ServiceExt;
 use uuid::Uuid;
 
 use vandepot_api::{app_router, state::AppState};
+use vandepot_domain::models::product_lot::ProductLot;
+use vandepot_domain::models::receive_outcome::ReceiveOutcome;
 use vandepot_infra::auth::jwt::{create_access_token, JwtConfig};
+
+// No-lot receive matrix lives in `product_classification.rs` (Batch 5). The
+// tests in this file stay focused on the reception-location-flow behavior and
+// keep using raw_material products (the backfill default), which always take
+// the lot path — this helper unwraps that variant.
+#[track_caller]
+fn expect_lot(outcome: ReceiveOutcome) -> ProductLot {
+    match outcome {
+        ReceiveOutcome::Lot(lot) => lot,
+        ReceiveOutcome::DirectInventory { .. } => {
+            panic!("expected ReceiveOutcome::Lot for raw_material product")
+        }
+    }
+}
 
 // ─── Test harness ────────────────────────────────────────────────────
 
@@ -429,23 +445,25 @@ async fn test_distribute_lot_happy_path_via_http() {
     let zone = f.create_zone(wid, "Zona").await;
 
     // Receive first.
-    let lot = vandepot_infra::repositories::lots_repo::receive_lot(
-        &state.pool,
-        pid,
-        &format!("LOT-{}", Uuid::new_v4()),
-        wid,
-        25.0,
-        0.0,
-        None,
-        None,
-        None,
-        admin,
-        None,
-        None,
-        None,
-    )
-    .await
-    .unwrap();
+    let lot = expect_lot(
+        vandepot_infra::repositories::lots_repo::receive_lot(
+            &state.pool,
+            pid,
+            &format!("LOT-{}", Uuid::new_v4()),
+            wid,
+            25.0,
+            0.0,
+            None,
+            None,
+            None,
+            admin,
+            None,
+            None,
+            None,
+        )
+        .await
+        .unwrap(),
+    );
 
     let token = mint_token(&state, admin, "superadmin", vec![wid]);
 
@@ -481,23 +499,25 @@ async fn test_transfer_lot_rejects_reception_via_http() {
     let zone = f.create_zone(wid, "Zona").await;
     let rcp = f.reception_id(wid).await;
 
-    let lot = vandepot_infra::repositories::lots_repo::receive_lot(
-        &state.pool,
-        pid,
-        &format!("LOT-{}", Uuid::new_v4()),
-        wid,
-        10.0,
-        0.0,
-        None,
-        None,
-        None,
-        admin,
-        None,
-        None,
-        None,
-    )
-    .await
-    .unwrap();
+    let lot = expect_lot(
+        vandepot_infra::repositories::lots_repo::receive_lot(
+            &state.pool,
+            pid,
+            &format!("LOT-{}", Uuid::new_v4()),
+            wid,
+            10.0,
+            0.0,
+            None,
+            None,
+            None,
+            admin,
+            None,
+            None,
+            None,
+        )
+        .await
+        .unwrap(),
+    );
 
     let token = mint_token(&state, admin, "superadmin", vec![wid]);
     let app = app_router(state.clone());

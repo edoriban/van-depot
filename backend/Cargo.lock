@@ -2304,6 +2304,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "serde",
+ "serde_json",
  "sqlx",
  "thiserror",
  "uuid",

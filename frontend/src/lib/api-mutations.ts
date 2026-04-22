@@ -1,4 +1,5 @@
 import { useAuthStore } from '@/stores/auth-store';
+import type { ClassLockStatus, Product, ProductClass } from '@/types';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3100';
 
@@ -64,3 +65,22 @@ export const api = {
   del: <T>(path: string) =>
     request<T>(path, { method: 'DELETE' }),
 };
+
+// ──────────────────────────────────────────────────────────────────────
+// Product-classification endpoints
+// ──────────────────────────────────────────────────────────────────────
+
+export function getProduct(id: string): Promise<Product> {
+  return api.get<Product>(`/products/${id}`);
+}
+
+export function getProductClassLock(id: string): Promise<ClassLockStatus> {
+  return api.get<ClassLockStatus>(`/products/${id}/class-lock`);
+}
+
+export function reclassifyProduct(
+  id: string,
+  product_class: ProductClass,
+): Promise<Product> {
+  return api.patch<Product>(`/products/${id}/class`, { product_class });
+}

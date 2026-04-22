@@ -132,13 +132,17 @@ impl PgCycleCountRepository {
             .await
             .map_err(map_sqlx_error)?;
 
-        // Populate items from current inventory snapshot for this warehouse
+        // Populate items from current inventory snapshot for this warehouse.
+        // Exclude tool_spare products — they are tracked as tool_instances, not
+        // inventory counts. Mirrors the exclusion used in alerts_repo.rs.
         sqlx::query(
             "INSERT INTO cycle_count_items (cycle_count_id, product_id, location_id, system_quantity) \
              SELECT $1, i.product_id, i.location_id, i.quantity \
              FROM inventory i \
              JOIN locations l ON i.location_id = l.id \
-             WHERE l.warehouse_id = $2 AND i.quantity > 0"
+             JOIN products p ON i.product_id = p.id \
+             WHERE l.warehouse_id = $2 AND i.quantity > 0 \
+               AND p.product_class <> 'tool_spare'"
         )
         .bind(cc_row.id)
         .bind(warehouse_id)

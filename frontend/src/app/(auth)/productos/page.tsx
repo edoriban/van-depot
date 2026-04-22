@@ -3,7 +3,20 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 import { api } from '@/lib/api-mutations';
-import type { Product, Category, PaginatedResponse, UnitType } from '@/types';
+import type {
+  Product,
+  Category,
+  PaginatedResponse,
+  UnitType,
+  ProductClass,
+} from '@/types';
+import {
+  PRODUCT_CLASS_VALUES,
+  PRODUCT_CLASS_LABELS,
+  PRODUCT_CLASS_LABELS_SHORT,
+  PRODUCT_CLASS_BADGE_CLASSES,
+} from '@/types';
+import { cn } from '@/lib/utils';
 import { DataTable, type ColumnDef } from '@/components/shared/data-table';
 import { EmptyState } from '@/components/shared/empty-state';
 import { ConfirmDialog } from '@/components/shared/confirm-dialog';
@@ -36,16 +49,35 @@ const UNIT_LABELS: Record<UnitType, string> = {
   pack: 'Paquete',
 };
 
+// Chip row filter. Value `null` means "Todos" (no filter). URL-bound via
+// `?class=`; invalid or missing values behave as "Todos".
+const CLASS_CHIPS: ReadonlyArray<{ value: ProductClass | null; label: string; testId: string }> = [
+  { value: null, label: 'Todos', testId: 'class-chip-all' },
+  { value: 'raw_material', label: 'Materia prima', testId: 'class-chip-raw-material' },
+  { value: 'consumable', label: 'Consumibles', testId: 'class-chip-consumable' },
+  { value: 'tool_spare', label: 'Herramientas', testId: 'class-chip-tool-spare' },
+] as const;
+
+function isProductClass(value: unknown): value is ProductClass {
+  return (
+    value === 'raw_material' || value === 'consumable' || value === 'tool_spare'
+  );
+}
+
 // ==========================================
 // Products Tab
 // ==========================================
 
 function ProductsTab({
   categories,
-  fetchCategories,
+  fetchCategories: _fetchCategories,
+  filterClass,
+  setFilterClass,
 }: {
   categories: Category[];
   fetchCategories: () => void;
+  filterClass: ProductClass | null;
+  setFilterClass: (value: ProductClass | null) => void;
 }) {
   const [products, setProducts] = useState<Product[]>([]);
   const [total, setTotal] = useState(0);
@@ -65,6 +97,8 @@ function ProductsTab({
   const [formDescription, setFormDescription] = useState('');
   const [formCategoryId, setFormCategoryId] = useState('');
   const [formUnit, setFormUnit] = useState<UnitType>('piece');
+  const [formClass, setFormClass] = useState<ProductClass>('raw_material');
+  const [formHasExpiry, setFormHasExpiry] = useState(false);
   const [formMinStock, setFormMinStock] = useState('0');
   const [formMaxStock, setFormMaxStock] = useState('');
   const [isSaving, setIsSaving] = useState(false);
@@ -75,26 +109,35 @@ function ProductsTab({
 
   const perPage = 20;
 
-  const fetchProducts = useCallback(async (p: number, s: string, catId: string) => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      let url = `/products?page=${p}&per_page=${perPage}`;
-      if (s) url += `&search=${encodeURIComponent(s)}`;
-      if (catId) url += `&category_id=${catId}`;
-      const res = await api.get<PaginatedResponse<Product>>(url);
-      setProducts(res.data);
-      setTotal(res.total);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error al cargar productos');
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
+  const fetchProducts = useCallback(
+    async (
+      p: number,
+      s: string,
+      catId: string,
+      cls: ProductClass | null,
+    ) => {
+      setIsLoading(true);
+      setError(null);
+      try {
+        let url = `/products?page=${p}&per_page=${perPage}`;
+        if (s) url += `&search=${encodeURIComponent(s)}`;
+        if (catId) url += `&category_id=${catId}`;
+        if (cls) url += `&class=${cls}`;
+        const res = await api.get<PaginatedResponse<Product>>(url);
+        setProducts(res.data);
+        setTotal(res.total);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Error al cargar productos');
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
-    fetchProducts(page, search, filterCategoryId);
-  }, [page, search, filterCategoryId, fetchProducts]);
+    fetchProducts(page, search, filterCategoryId, filterClass);
+  }, [page, search, filterCategoryId, filterClass, fetchProducts]);
 
   const getCategoryName = (categoryId?: string) => {
     if (!categoryId) return <span className="text-muted-foreground">-</span>;
@@ -109,6 +152,8 @@ function ProductsTab({
     setFormDescription('');
     setFormCategoryId('');
     setFormUnit('piece');
+    setFormClass('raw_material');
+    setFormHasExpiry(false);
     setFormMinStock('0');
     setFormMaxStock('');
     setFormOpen(true);
@@ -121,31 +166,57 @@ function ProductsTab({
     setFormDescription(product.description ?? '');
     setFormCategoryId(product.category_id ?? '');
     setFormUnit(product.unit_of_measure);
+    setFormClass(product.product_class);
+    setFormHasExpiry(product.has_expiry);
     setFormMinStock(String(product.min_stock));
     setFormMaxStock(product.max_stock != null ? String(product.max_stock) : '');
     setFormOpen(true);
+  };
+
+  // Enforce the class/expiry invariant at the form boundary: tool_spare never
+  // allows has_expiry=true.
+  const handleFormClassChange = (next: ProductClass) => {
+    setFormClass(next);
+    if (next === 'tool_spare') {
+      setFormHasExpiry(false);
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setIsSaving(true);
     try {
-      const body = {
+      // Normalize: tool_spare never sends has_expiry=true, regardless of what
+      // an out-of-date toggle state might say.
+      const hasExpiryForPayload =
+        formClass === 'tool_spare' ? false : formHasExpiry;
+      const basePayload = {
         name: formName,
         sku: formSku,
         description: formDescription || undefined,
         category_id: formCategoryId || undefined,
         unit_of_measure: formUnit,
+        has_expiry: hasExpiryForPayload,
         min_stock: Number(formMinStock),
         max_stock: formMaxStock ? Number(formMaxStock) : undefined,
       };
       if (editingProduct) {
-        await api.put(`/products/${editingProduct.id}`, body);
+        // product_class cannot be updated through PUT — that's what PATCH
+        // /products/{id}/class is for (detail page).
+        await api.put(`/products/${editingProduct.id}`, basePayload);
       } else {
-        await api.post('/products', body);
+        await api.post('/products', {
+          ...basePayload,
+          product_class: formClass,
+        });
       }
       setFormOpen(false);
-      fetchProducts(editingProduct ? page : 1, search, filterCategoryId);
+      fetchProducts(
+        editingProduct ? page : 1,
+        search,
+        filterCategoryId,
+        filterClass,
+      );
       if (!editingProduct) setPage(1);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error al guardar');
@@ -160,7 +231,7 @@ function ProductsTab({
     try {
       await api.del(`/products/${deleteTarget.id}`);
       setDeleteTarget(null);
-      fetchProducts(page, search, filterCategoryId);
+      fetchProducts(page, search, filterCategoryId, filterClass);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error al eliminar');
     } finally {
@@ -196,6 +267,20 @@ function ProductsTab({
       key: 'sku',
       header: 'SKU',
       render: (p) => <span className="font-mono text-sm">{p.sku}</span>,
+    },
+    {
+      key: 'class',
+      header: 'Clase',
+      render: (p) => (
+        <Badge
+          variant="outline"
+          className={cn('border-0', PRODUCT_CLASS_BADGE_CLASSES[p.product_class])}
+          data-testid="product-class-badge"
+          data-class={p.product_class}
+        >
+          {PRODUCT_CLASS_LABELS_SHORT[p.product_class]}
+        </Badge>
+      ),
     },
     {
       key: 'category',
@@ -248,8 +333,46 @@ function ProductsTab({
     },
   ];
 
+  const handleChipClick = (next: ProductClass | null) => {
+    setFilterClass(next);
+    setPage(1);
+  };
+
   return (
     <div className="space-y-4">
+      {/* Class chip-row (URL-bound via ?class=). Keep visually stable even
+          when filters below are interacted with. */}
+      <div
+        className="flex flex-wrap items-center gap-2"
+        role="tablist"
+        aria-label="Filtrar por clase de producto"
+        data-testid="class-chip-row"
+      >
+        {CLASS_CHIPS.map((chip) => {
+          const isActive = filterClass === chip.value;
+          return (
+            <button
+              key={chip.testId}
+              type="button"
+              role="tab"
+              aria-selected={isActive}
+              aria-pressed={isActive}
+              onClick={() => handleChipClick(chip.value)}
+              data-testid={chip.testId}
+              data-active={isActive ? 'true' : 'false'}
+              className={cn(
+                'inline-flex h-8 items-center rounded-full border px-3 text-sm font-medium transition-colors',
+                isActive
+                  ? 'border-primary bg-primary text-primary-foreground'
+                  : 'border-border bg-background text-muted-foreground hover:bg-muted hover:text-foreground',
+              )}
+            >
+              {chip.label}
+            </button>
+          );
+        })}
+      </div>
+
       <div className="flex items-center justify-between">
         {/* Filters */}
         <div className="flex items-center gap-4">
@@ -376,6 +499,80 @@ function ProductsTab({
                   searchPlaceholder="Buscar unidad..."
                 />
               </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="product-class">Clase</Label>
+                {editingProduct ? (
+                  <div
+                    className="flex h-9 items-center gap-2 rounded-3xl border border-dashed px-3 text-sm text-muted-foreground"
+                    data-testid="product-class-readonly"
+                  >
+                    <Badge
+                      variant="outline"
+                      className={cn(
+                        'border-0',
+                        PRODUCT_CLASS_BADGE_CLASSES[formClass],
+                      )}
+                    >
+                      {PRODUCT_CLASS_LABELS[formClass]}
+                    </Badge>
+                    <span className="text-xs">
+                      Usa &ldquo;Reclasificar&rdquo; en el detalle para cambiar la clase.
+                    </span>
+                  </div>
+                ) : (
+                  <div data-testid="product-class-select-wrapper">
+                    <SearchableSelect
+                      value={formClass}
+                      onValueChange={(val) =>
+                        handleFormClassChange(val as ProductClass)
+                      }
+                      options={PRODUCT_CLASS_VALUES.map((value) => ({
+                        value,
+                        label: PRODUCT_CLASS_LABELS[value],
+                      }))}
+                      placeholder="Seleccionar clase"
+                      searchPlaceholder="Buscar clase..."
+                    />
+                  </div>
+                )}
+              </div>
+              {/* has_expiry: hidden when class = tool_spare (invariant:
+                  tool_spare never has expiry). Rendered as a plain checkbox
+                  for simplicity — the design system has no Switch component
+                  and shadcn Checkbox is not installed here. */}
+              {formClass !== 'tool_spare' ? (
+                <div className="space-y-2">
+                  <Label htmlFor="product-has-expiry">Caducidad</Label>
+                  <div className="flex h-9 items-center gap-2">
+                    <input
+                      id="product-has-expiry"
+                      type="checkbox"
+                      checked={formHasExpiry}
+                      onChange={(e) => setFormHasExpiry(e.target.checked)}
+                      className="size-4 rounded border-input accent-primary"
+                      data-testid="product-has-expiry-toggle"
+                    />
+                    <label
+                      htmlFor="product-has-expiry"
+                      className="text-sm text-muted-foreground"
+                    >
+                      Este producto tiene fecha de caducidad
+                    </label>
+                  </div>
+                </div>
+              ) : (
+                <div
+                  className="space-y-2"
+                  data-testid="product-has-expiry-hidden"
+                >
+                  <Label>Caducidad</Label>
+                  <div className="flex h-9 items-center text-sm text-muted-foreground">
+                    Las herramientas / refacciones no manejan caducidad.
+                  </div>
+                </div>
+              )}
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
@@ -695,11 +892,32 @@ export default function ProductosPage() {
   const pathname = usePathname();
   const activeTab = searchParams.get('tab') || 'productos';
 
+  // URL-bound class filter (`?class=`). Source of truth lives in the URL so
+  // the chip selection persists across reloads and back-button navigation.
+  const rawClass = searchParams.get('class');
+  const filterClass: ProductClass | null = isProductClass(rawClass)
+    ? rawClass
+    : null;
+
   const handleTabChange = (value: string) => {
     const sp = new URLSearchParams(searchParams.toString());
     sp.set('tab', value);
     router.replace(`${pathname}?${sp.toString()}`, { scroll: false });
   };
+
+  const setFilterClass = useCallback(
+    (next: ProductClass | null) => {
+      const sp = new URLSearchParams(searchParams.toString());
+      if (next === null) {
+        sp.delete('class');
+      } else {
+        sp.set('class', next);
+      }
+      const qs = sp.toString();
+      router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+    },
+    [searchParams, pathname, router],
+  );
 
   const [categories, setCategories] = useState<Category[]>([]);
 
@@ -738,7 +956,12 @@ export default function ProductosPage() {
         </TabsList>
 
         <TabsContent value="productos">
-          <ProductsTab categories={categories} fetchCategories={fetchCategories} />
+          <ProductsTab
+            categories={categories}
+            fetchCategories={fetchCategories}
+            filterClass={filterClass}
+            setFilterClass={setFilterClass}
+          />
         </TabsContent>
 
         <TabsContent value="categorias">

@@ -1,15 +1,15 @@
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
-use axum::routing::{get, post};
+use axum::routing::{get, patch, post};
 use axum::{Json, Router};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use vandepot_domain::error::DomainError;
-use vandepot_domain::models::enums::UnitType;
+use vandepot_domain::models::enums::{ProductClass, UnitType};
 use vandepot_domain::models::product::Product;
-use vandepot_domain::ports::product_repository::ProductRepository;
+use vandepot_domain::ports::product_repository::{ClassLockStatus, ProductRepository};
 use vandepot_infra::auth::jwt::Claims;
 use vandepot_infra::repositories::product_repo::PgProductRepository;
 
@@ -27,6 +27,9 @@ pub struct CreateProductRequest {
     pub description: Option<String>,
     pub category_id: Option<Uuid>,
     pub unit_of_measure: UnitType,
+    pub product_class: ProductClass,
+    #[serde(default)]
+    pub has_expiry: bool,
     pub min_stock: f64,
     pub max_stock: Option<f64>,
 }
@@ -38,6 +41,9 @@ pub struct UpdateProductRequest {
     pub description: Option<Option<String>>,
     pub category_id: Option<Option<Uuid>>,
     pub unit_of_measure: Option<UnitType>,
+    /// `product_class` is intentionally NOT accepted here — class changes
+    /// flow through `PATCH /products/{id}/class`.
+    pub has_expiry: Option<bool>,
     pub min_stock: Option<f64>,
     pub max_stock: Option<Option<f64>>,
 }
@@ -46,8 +52,35 @@ pub struct UpdateProductRequest {
 pub struct ProductListParams {
     pub search: Option<String>,
     pub category_id: Option<Uuid>,
+    /// Filter by product class. Bound to the `?class=` query-string key.
+    #[serde(rename = "class")]
+    pub product_class: Option<ProductClass>,
     pub page: Option<i64>,
     pub per_page: Option<i64>,
+}
+
+#[derive(Deserialize)]
+pub struct ReclassifyProductRequest {
+    pub product_class: ProductClass,
+}
+
+#[derive(Serialize)]
+pub struct ClassLockResponse {
+    pub locked: bool,
+    pub movements: i64,
+    pub lots: i64,
+    pub tool_instances: i64,
+}
+
+impl From<ClassLockStatus> for ClassLockResponse {
+    fn from(s: ClassLockStatus) -> Self {
+        Self {
+            locked: s.locked,
+            movements: s.movements,
+            lots: s.lots,
+            tool_instances: s.tool_instances,
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -58,6 +91,8 @@ pub struct ProductResponse {
     pub description: Option<String>,
     pub category_id: Option<Uuid>,
     pub unit_of_measure: UnitType,
+    pub product_class: ProductClass,
+    pub has_expiry: bool,
     pub min_stock: f64,
     pub max_stock: Option<f64>,
     pub is_active: bool,
@@ -78,6 +113,8 @@ impl From<Product> for ProductResponse {
             description: p.description,
             category_id: p.category_id,
             unit_of_measure: p.unit_of_measure,
+            product_class: p.product_class,
+            has_expiry: p.has_expiry,
             min_stock: p.min_stock,
             max_stock: p.max_stock,
             is_active: p.is_active,
@@ -102,6 +139,8 @@ pub fn product_routes() -> Router<AppState> {
                 .put(update_product)
                 .delete(delete_product),
         )
+        .route("/products/{id}/class", patch(reclassify_product))
+        .route("/products/{id}/class-lock", get(get_class_lock))
 }
 
 // ── Handlers ──────────────────────────────────────────────────────────
@@ -121,6 +160,8 @@ async fn create_product(
             payload.description.as_deref(),
             payload.category_id,
             payload.unit_of_measure,
+            payload.product_class,
+            payload.has_expiry,
             payload.min_stock,
             payload.max_stock,
             Some(claims.sub),
@@ -145,6 +186,7 @@ async fn list_products(
         .list(
             params.search.as_deref(),
             params.category_id,
+            params.product_class,
             pagination.limit(),
             pagination.offset(),
         )
@@ -192,6 +234,7 @@ async fn update_product(
             payload.description.as_ref().map(|d| d.as_deref()),
             payload.category_id,
             payload.unit_of_measure,
+            payload.has_expiry,
             payload.min_stock,
             payload.max_stock,
             Some(claims.sub),
@@ -212,4 +255,30 @@ async fn delete_product(
     repo.soft_delete(id).await?;
 
     Ok(StatusCode::NO_CONTENT)
+}
+
+async fn reclassify_product(
+    State(state): State<AppState>,
+    claims: Claims,
+    Path(id): Path<Uuid>,
+    Json(payload): Json<ReclassifyProductRequest>,
+) -> Result<Json<ProductResponse>, ApiError> {
+    require_role(&claims, &["superadmin", "owner", "warehouse_manager"])?;
+
+    let repo = PgProductRepository::new(state.pool.clone());
+    let product = repo
+        .reclassify(id, payload.product_class, Some(claims.sub))
+        .await?;
+
+    Ok(Json(ProductResponse::from(product)))
+}
+
+async fn get_class_lock(
+    State(state): State<AppState>,
+    _claims: Claims,
+    Path(id): Path<Uuid>,
+) -> Result<Json<ClassLockResponse>, ApiError> {
+    let repo = PgProductRepository::new(state.pool.clone());
+    let status = repo.class_lock_status(id).await?;
+    Ok(Json(ClassLockResponse::from(status)))
 }

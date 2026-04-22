@@ -15,6 +15,7 @@ pub mod shared;
 pub mod stock_config_repo;
 pub mod supplier_products_repo;
 pub mod supplier_repo;
+pub mod tool_instances_repo;
 pub mod user_repo;
 pub mod warehouse_map_repo;
 pub mod warehouse_repo;

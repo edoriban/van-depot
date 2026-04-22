@@ -11,6 +11,8 @@ pub mod movement;
 pub mod cycle_count;
 pub mod supplier_product;
 pub mod product_lot;
+pub mod receive_outcome;
+pub mod tool_instance;
 pub mod inventory_lot;
 pub mod stock_configuration;
 pub mod purchase_order;

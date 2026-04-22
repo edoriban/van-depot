@@ -2,8 +2,25 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { api } from '@/lib/api-mutations';
-import type { Product, Category, PaginatedResponse, UnitType, MovementType } from '@/types';
+import {
+  api,
+  getProductClassLock,
+  reclassifyProduct,
+} from '@/lib/api-mutations';
+import type {
+  Product,
+  Category,
+  ClassLockStatus,
+  PaginatedResponse,
+  ProductClass,
+  UnitType,
+  MovementType,
+} from '@/types';
+import {
+  PRODUCT_CLASS_VALUES,
+  PRODUCT_CLASS_LABELS,
+  PRODUCT_CLASS_BADGE_CLASSES,
+} from '@/types';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
@@ -33,6 +50,18 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 
@@ -88,9 +117,16 @@ export default function ProductDetailPage() {
 
   const [product, setProduct] = useState<Product | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [classLock, setClassLock] = useState<ClassLockStatus | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+
+  // Reclassify dialog
+  const [reclassifyOpen, setReclassifyOpen] = useState(false);
+  const [reclassifyChoice, setReclassifyChoice] =
+    useState<ProductClass>('raw_material');
+  const [isReclassifying, setIsReclassifying] = useState(false);
 
   // Form state
   const [formName, setFormName] = useState('');
@@ -98,6 +134,7 @@ export default function ProductDetailPage() {
   const [formDescription, setFormDescription] = useState('');
   const [formCategoryId, setFormCategoryId] = useState('');
   const [formUnit, setFormUnit] = useState<UnitType>('piece');
+  const [formHasExpiry, setFormHasExpiry] = useState(false);
   const [formMinStock, setFormMinStock] = useState('0');
   const [formMaxStock, setFormMaxStock] = useState('');
   const [formIsActive, setFormIsActive] = useState(true);
@@ -108,23 +145,37 @@ export default function ProductDetailPage() {
     setFormDescription(p.description ?? '');
     setFormCategoryId(p.category_id ?? '');
     setFormUnit(p.unit_of_measure);
+    setFormHasExpiry(p.has_expiry);
     setFormMinStock(String(p.min_stock));
     setFormMaxStock(p.max_stock != null ? String(p.max_stock) : '');
     setFormIsActive(p.is_active);
   }, []);
+
+  const refetchClassLock = useCallback(async () => {
+    try {
+      const lock = await getProductClassLock(params.id);
+      setClassLock(lock);
+    } catch {
+      // Lock probe is non-blocking — fall back to enabled UI; the API
+      // would still 409 on the actual reclassify if locked.
+      setClassLock(null);
+    }
+  }, [params.id]);
 
   useEffect(() => {
     async function load() {
       setIsLoading(true);
       setError(null);
       try {
-        const [prod, catRes] = await Promise.all([
+        const [prod, catRes, lock] = await Promise.all([
           api.get<Product>(`/products/${params.id}`),
           api.get<PaginatedResponse<Category>>('/categories?page=1&per_page=100'),
+          getProductClassLock(params.id).catch(() => null),
         ]);
         setProduct(prod);
         populateForm(prod);
         setCategories(catRes.data);
+        setClassLock(lock);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Error al cargar el producto');
       } finally {
@@ -138,23 +189,85 @@ export default function ProductDetailPage() {
     e.preventDefault();
     setIsSaving(true);
     try {
+      // tool_spare can never carry has_expiry=true. Keep the constraint
+      // mirrored on the wire even though the toggle is hidden in the UI.
+      const hasExpiryForPayload =
+        product?.product_class === 'tool_spare' ? false : formHasExpiry;
       const body = {
         name: formName,
         sku: formSku,
         description: formDescription || undefined,
         category_id: formCategoryId || undefined,
         unit_of_measure: formUnit,
+        has_expiry: hasExpiryForPayload,
         min_stock: Number(formMinStock),
         max_stock: formMaxStock ? Number(formMaxStock) : undefined,
       };
       const updated = await api.put<Product>(`/products/${params.id}`, body);
       setProduct(updated);
+      populateForm(updated);
       toast.success('Producto actualizado correctamente');
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Error al guardar');
     } finally {
       setIsSaving(false);
     }
+  };
+
+  const openReclassifyDialog = () => {
+    if (!product) return;
+    // Default the picker to the current class (no-op submit becomes a
+    // valid happy-path scenario).
+    setReclassifyChoice(product.product_class);
+    setReclassifyOpen(true);
+    // Refresh the lock status when opening the dialog so the user sees
+    // the freshest counts (in case a movement just landed).
+    void refetchClassLock();
+  };
+
+  const handleReclassifyConfirm = async () => {
+    if (!product) return;
+    setIsReclassifying(true);
+    try {
+      const updated = await reclassifyProduct(product.id, reclassifyChoice);
+      setProduct(updated);
+      populateForm(updated);
+      setReclassifyOpen(false);
+      toast.success(
+        `Producto reclasificado a ${PRODUCT_CLASS_LABELS[updated.product_class]}`,
+      );
+      void refetchClassLock();
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : 'Error al reclasificar producto',
+      );
+    } finally {
+      setIsReclassifying(false);
+    }
+  };
+
+  /**
+   * Build a Spanish lock-reason sentence mentioning only non-zero counts,
+   * e.g. "Bloqueado por: 2 movimientos, 1 lote".
+   */
+  const lockReason = (lock: ClassLockStatus): string => {
+    const parts: string[] = [];
+    if (lock.movements > 0) {
+      parts.push(
+        `${lock.movements} ${lock.movements === 1 ? 'movimiento' : 'movimientos'}`,
+      );
+    }
+    if (lock.lots > 0) {
+      parts.push(`${lock.lots} ${lock.lots === 1 ? 'lote' : 'lotes'}`);
+    }
+    if (lock.tool_instances > 0) {
+      parts.push(
+        `${lock.tool_instances} ${lock.tool_instances === 1 ? 'herramienta' : 'herramientas'}`,
+      );
+    }
+    return parts.length > 0
+      ? `Bloqueado por: ${parts.join(', ')}`
+      : 'Bloqueado';
   };
 
   if (isLoading) {
@@ -192,11 +305,15 @@ export default function ProductDetailPage() {
     );
   }
 
+  const isLocked = classLock?.locked ?? false;
+  const reclassifyDisabled = isReclassifying || isLocked;
+  const tooltipText = classLock && isLocked ? lockReason(classLock) : '';
+
   return (
     <div className="space-y-6" data-testid="product-detail-page">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <Button
             variant="outline"
             size="sm"
@@ -205,9 +322,70 @@ export default function ProductDetailPage() {
             Volver a productos
           </Button>
           <h1 className="text-2xl font-bold">{product.name}</h1>
+          <Badge
+            variant="outline"
+            className={cn(
+              'border-0',
+              PRODUCT_CLASS_BADGE_CLASSES[product.product_class],
+            )}
+            data-testid="product-class-badge"
+            data-class={product.product_class}
+          >
+            {PRODUCT_CLASS_LABELS[product.product_class]}
+          </Badge>
+          {product.has_expiry && (
+            <Badge
+              variant="outline"
+              className="border-0 bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200"
+              data-testid="product-has-expiry-chip"
+            >
+              Con caducidad
+            </Badge>
+          )}
           <Badge variant={product.is_active ? 'default' : 'secondary'}>
             {product.is_active ? 'Activo' : 'Inactivo'}
           </Badge>
+          {isLocked ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                {/* span wrapper keeps the tooltip working on a disabled
+                    button (disabled buttons don't fire mouse events). */}
+                <span
+                  tabIndex={0}
+                  data-testid="reclassify-btn-wrapper"
+                  className="inline-block"
+                >
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled
+                    aria-disabled="true"
+                    data-testid="reclassify-btn"
+                    data-locked="true"
+                  >
+                    Reclasificar
+                  </Button>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent
+                side="bottom"
+                className="max-w-xs text-xs"
+                data-testid="reclassify-lock-tooltip"
+              >
+                {tooltipText}
+              </TooltipContent>
+            </Tooltip>
+          ) : (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={openReclassifyDialog}
+              data-testid="reclassify-btn"
+              data-locked="false"
+            >
+              Reclasificar
+            </Button>
+          )}
         </div>
       </div>
 
@@ -310,6 +488,36 @@ export default function ProductDetailPage() {
               </div>
             </div>
 
+            {/* has_expiry: hidden when class = tool_spare (invariant). */}
+            {product.product_class !== 'tool_spare' ? (
+              <div className="space-y-2">
+                <Label htmlFor="detail-has-expiry">Caducidad</Label>
+                <div className="flex h-9 items-center gap-2">
+                  <input
+                    id="detail-has-expiry"
+                    type="checkbox"
+                    checked={formHasExpiry}
+                    onChange={(e) => setFormHasExpiry(e.target.checked)}
+                    className="size-4 rounded border-input accent-primary"
+                    data-testid="detail-has-expiry-toggle"
+                  />
+                  <label
+                    htmlFor="detail-has-expiry"
+                    className="text-sm text-muted-foreground"
+                  >
+                    Este producto tiene fecha de caducidad
+                  </label>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-2" data-testid="detail-has-expiry-hidden">
+                <Label>Caducidad</Label>
+                <div className="flex h-9 items-center text-sm text-muted-foreground">
+                  Las herramientas / refacciones no manejan caducidad.
+                </div>
+              </div>
+            )}
+
             <div className="space-y-2">
               <Label htmlFor="detail-status">Estado</Label>
               <Select
@@ -368,6 +576,70 @@ export default function ProductDetailPage() {
 
       {/* Movement history */}
       <MovementHistory productId={params.id} />
+
+      {/* Reclassify dialog */}
+      <Dialog open={reclassifyOpen} onOpenChange={setReclassifyOpen}>
+        <DialogContent data-testid="reclassify-dialog">
+          <DialogHeader>
+            <DialogTitle>Reclasificar producto</DialogTitle>
+          </DialogHeader>
+          {classLock?.locked ? (
+            <div className="space-y-2 text-sm">
+              <p className="text-muted-foreground">
+                Este producto ya tiene historial y no se puede reclasificar:
+              </p>
+              <p
+                className="font-medium text-destructive"
+                data-testid="reclassify-lock-reason"
+              >
+                {lockReason(classLock)}
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                Selecciona la nueva clase. Esta acción solo está disponible
+                mientras el producto no tenga movimientos, lotes ni
+                herramientas asociadas.
+              </p>
+              <div className="space-y-2">
+                <Label htmlFor="reclassify-class">Nueva clase</Label>
+                <SearchableSelect
+                  value={reclassifyChoice}
+                  onValueChange={(val) =>
+                    setReclassifyChoice(val as ProductClass)
+                  }
+                  options={PRODUCT_CLASS_VALUES.map((value) => ({
+                    value,
+                    label: PRODUCT_CLASS_LABELS[value],
+                  }))}
+                  placeholder="Seleccionar clase"
+                  searchPlaceholder="Buscar clase..."
+                />
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setReclassifyOpen(false)}
+              disabled={isReclassifying}
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              onClick={handleReclassifyConfirm}
+              disabled={reclassifyDisabled}
+              data-testid="reclassify-confirm-btn"
+              data-locked={isLocked ? 'true' : 'false'}
+            >
+              {isReclassifying ? 'Reclasificando...' : 'Confirmar'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

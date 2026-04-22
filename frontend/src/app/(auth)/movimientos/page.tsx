@@ -14,7 +14,7 @@ import type {
   PaginatedResponse,
   PurchaseOrder,
   PurchaseOrderLine,
-  ProductLot,
+  ReceiveLotResponse,
 } from '@/types';
 import { Textarea } from '@/components/ui/textarea';
 import { DataTable, type ColumnDef } from '@/components/shared/data-table';
@@ -177,7 +177,7 @@ function WarehouseLocationSelector({
     : locations;
   return (
     <>
-      <div className="space-y-2">
+      <div className="space-y-2" data-testid={warehouseTestId}>
         <Label>Almacen</Label>
         <SearchableSelect
           value={warehouseId || undefined}
@@ -190,7 +190,7 @@ function WarehouseLocationSelector({
           searchPlaceholder="Buscar almacen..."
         />
       </div>
-      <div className="space-y-2">
+      <div className="space-y-2" data-testid={locationTestId}>
         <Label>{label}</Label>
         <SearchableSelect
           value={locationId || undefined}
@@ -399,10 +399,12 @@ function EntryWithLotForm({ onSuccess }: { onSuccess: () => void }) {
     e.preventDefault();
     setSaving(true);
     try {
-      const lot = await api.post<ProductLot>('/lots/receive', {
+      const result = await api.post<ReceiveLotResponse>('/lots/receive', {
         product_id: productId,
         lot_number: lotNumber,
-        location_id: locationId,
+        // Backend resolves the warehouse's Recepción location itself —
+        // clients send `warehouse_id`, not a destination `location_id`.
+        warehouse_id: warehouseId,
         good_quantity: Number(goodQuantity),
         defect_quantity: defectQuantity ? Number(defectQuantity) : undefined,
         supplier_id: supplierId || undefined,
@@ -410,7 +412,19 @@ function EntryWithLotForm({ onSuccess }: { onSuccess: () => void }) {
         expiration_date: expirationDate || undefined,
         notes: notes || undefined,
       });
-      toast.success(`Lote ${lot.lot_number} recibido correctamente`);
+      // Branch on the discriminator: lot vs direct_inventory.
+      // raw_material and consumable+has_expiry come back as "lot";
+      // tool_spare and consumable without expiry come back as
+      // "direct_inventory" (no lot row was created).
+      if (result.kind === 'lot') {
+        toast.success(`Lote ${result.lot.lot_number} recibido correctamente`, {
+          description: `Cantidad: ${result.lot.received_quantity}`,
+        });
+      } else {
+        toast.success('Inventario directo creado', {
+          description: `Cantidad ${result.quantity} ingresada en Recepción (sin lote).`,
+        });
+      }
       resetForm();
       onSuccess();
     } catch (err) {
@@ -631,10 +645,12 @@ function EntryWithPOForm({ onSuccess }: { onSuccess: () => void }) {
 
     setSaving(true);
     try {
-      const lot = await api.post<ProductLot>('/lots/receive', {
+      const result = await api.post<ReceiveLotResponse>('/lots/receive', {
         product_id: selectedLine.product_id,
         lot_number: lotNumber,
-        location_id: locationId,
+        // Backend resolves the warehouse's Recepción location itself —
+        // clients send `warehouse_id`, not a destination `location_id`.
+        warehouse_id: warehouseId,
         good_quantity: Number(goodQuantity),
         defect_quantity: defectQuantity ? Number(defectQuantity) : undefined,
         supplier_id: selectedPO.supplier_id,
@@ -644,7 +660,18 @@ function EntryWithPOForm({ onSuccess }: { onSuccess: () => void }) {
         purchase_order_line_id: selectedLineId,
         purchase_order_id: selectedPO.id,
       });
-      toast.success(`Material recibido — OC ${selectedPO.order_number} actualizada (Lote: ${lot.lot_number})`);
+      if (result.kind === 'lot') {
+        toast.success(
+          `Material recibido — OC ${selectedPO.order_number} actualizada (Lote: ${result.lot.lot_number})`,
+        );
+      } else {
+        toast.success(
+          `Inventario directo creado — OC ${selectedPO.order_number} actualizada`,
+          {
+            description: `Cantidad ${result.quantity} ingresada en Recepción (sin lote).`,
+          },
+        );
+      }
       resetStep2();
       // Refresh PO lines
       const updatedLines = await api.get<PurchaseOrderLine[]>(

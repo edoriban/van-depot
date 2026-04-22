@@ -3,10 +3,50 @@ use sqlx::{PgPool, Postgres, Transaction};
 use uuid::Uuid;
 
 use vandepot_domain::error::DomainError;
-use vandepot_domain::models::enums::{LocationType, MovementType, QualityStatus};
+use vandepot_domain::models::enums::{LocationType, MovementType, ProductClass, QualityStatus};
+use vandepot_domain::models::product_lot::ProductLot;
+use vandepot_domain::models::receive_outcome::ReceiveOutcome;
 
 use super::purchase_order_repo::recalculate_po_status_in_tx;
 use super::shared::map_sqlx_error;
+
+impl From<ProductLotRow> for ProductLot {
+    fn from(row: ProductLotRow) -> Self {
+        ProductLot {
+            id: row.id,
+            product_id: row.product_id,
+            lot_number: row.lot_number,
+            batch_date: row.batch_date,
+            expiration_date: row.expiration_date,
+            supplier_id: row.supplier_id,
+            received_quantity: row.received_quantity,
+            quality_status: row.quality_status,
+            notes: row.notes,
+            purchase_order_line_id: row.purchase_order_line_id,
+            created_at: row.created_at,
+            updated_at: row.updated_at,
+        }
+    }
+}
+
+/// Fetch `(product_class, has_expiry)` for `product_id` inside an open
+/// transaction. Returns `NotFound` if the product does not exist or is
+/// soft-deleted. Used by `create_lot` and `receive_lot` to branch on class
+/// before touching `product_lots`.
+pub(crate) async fn fetch_product_class_guard(
+    tx: &mut Transaction<'_, Postgres>,
+    product_id: Uuid,
+) -> Result<(ProductClass, bool), DomainError> {
+    let row: Option<(ProductClass, bool)> = sqlx::query_as(
+        "SELECT product_class, has_expiry FROM products WHERE id = $1 AND deleted_at IS NULL",
+    )
+    .bind(product_id)
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(map_sqlx_error)?;
+
+    row.ok_or_else(|| DomainError::NotFound("Product not found".to_string()))
+}
 
 // ── Row structs ─────────────────────────────────────────────────────
 
@@ -80,6 +120,19 @@ pub async fn create_lot(
     supplier_id: Option<Uuid>,
     notes: Option<&str>,
 ) -> Result<ProductLotRow, DomainError> {
+    // Guard: reject lot creation for product classes that do not support
+    // lots (tool_spare always; consumable requires has_expiry=true). We wrap
+    // in a transaction so the class read and the insert see the same
+    // snapshot even under concurrent `update`/`reclassify` writes.
+    let mut tx = pool.begin().await.map_err(map_sqlx_error)?;
+    let (class, has_expiry) = fetch_product_class_guard(&mut tx, product_id).await?;
+    if matches!(class, ProductClass::ToolSpare) {
+        return Err(DomainError::ProductClassDoesNotSupportLots);
+    }
+    if matches!(class, ProductClass::Consumable) && !has_expiry {
+        return Err(DomainError::ProductClassDoesNotSupportLots);
+    }
+
     let row = sqlx::query_as::<_, ProductLotRow>(
         r#"
         INSERT INTO product_lots
@@ -96,10 +149,11 @@ pub async fn create_lot(
     .bind(expiration_date)
     .bind(supplier_id)
     .bind(notes)
-    .fetch_one(pool)
+    .fetch_one(&mut *tx)
     .await
     .map_err(map_sqlx_error)?;
 
+    tx.commit().await.map_err(map_sqlx_error)?;
     Ok(row)
 }
 
@@ -173,8 +227,23 @@ pub async fn get_lot_inventory(
     Ok(rows)
 }
 
-/// Receive a lot with transactional integrity.
+/// Receive inbound material with transactional integrity.
 ///
+/// Branches on the product's class after resolving Recepción:
+///
+/// - For classes that support lots (`raw_material`, or `consumable` with
+///   `has_expiry = true`) the classic flow runs: upsert `product_lots`,
+///   update received_quantity, upsert `inventory_lots`, upsert `inventory`,
+///   stamp entry movement(s), link to PO line if provided, and return
+///   `ReceiveOutcome::Lot`.
+/// - For classes that do NOT support lots (`tool_spare`, or `consumable`
+///   with `has_expiry = false`) the no-lot flow runs: upsert `inventory`
+///   with `lot_id = NULL` at Recepción, stamp an entry movement with no
+///   lot reference, and return `ReceiveOutcome::DirectInventory`. The PO
+///   line — if provided — still advances, but no `product_lots` row is
+///   created.
+///
+/// Classic lot flow (existing behavior):
 /// 1. INSERT or get existing product_lot by (product_id, lot_number)
 /// 2. UPDATE received_quantity
 /// 3. UPSERT inventory_lots for good quantity
@@ -200,13 +269,38 @@ pub async fn receive_lot(
     notes: Option<&str>,
     purchase_order_line_id: Option<Uuid>,
     purchase_order_id: Option<Uuid>,
-) -> Result<ProductLotRow, DomainError> {
+) -> Result<ReceiveOutcome, DomainError> {
     let mut tx = pool.begin().await.map_err(map_sqlx_error)?;
 
     // 0. Resolve the warehouse's Recepción — all inbound material lands here.
     //    Missing Recepción means a data-integrity violation (all active
     //    warehouses are guaranteed to have one post-migration); surface 409.
     let location_id = find_reception_by_warehouse(&mut tx, warehouse_id).await?;
+
+    // 0.5 Classify the product. Tool spares and expiry-less consumables
+    //     skip the lot path entirely and land as direct inventory.
+    let (class, has_expiry) = fetch_product_class_guard(&mut tx, product_id).await?;
+    let is_no_lot = matches!(class, ProductClass::ToolSpare)
+        || (matches!(class, ProductClass::Consumable) && !has_expiry);
+
+    if is_no_lot {
+        let outcome = receive_direct_inventory_in_tx(
+            &mut tx,
+            product_id,
+            location_id,
+            good_qty,
+            defect_qty,
+            supplier_id,
+            user_id,
+            notes,
+            lot_number,
+            purchase_order_line_id,
+            purchase_order_id,
+        )
+        .await?;
+        tx.commit().await.map_err(map_sqlx_error)?;
+        return Ok(outcome);
+    }
 
     // 1. INSERT or get existing lot
     let lot_row = sqlx::query_as::<_, (Uuid,)>(
@@ -399,7 +493,191 @@ pub async fn receive_lot(
     .map_err(map_sqlx_error)?;
 
     tx.commit().await.map_err(map_sqlx_error)?;
-    Ok(lot)
+    Ok(ReceiveOutcome::Lot(ProductLot::from(lot)))
+}
+
+/// No-lot receive path used for `tool_spare` and `consumable + !has_expiry`.
+///
+/// Skips `product_lots` entirely: material still lands at Recepción via the
+/// main `inventory` table (upsert on `(product_id, location_id)`), and a
+/// single entry movement is stamped with `lot_id = NULL` / no lot reference.
+/// If linked to a PO line, the line's `quantity_received` is advanced and
+/// PO status recalculated identically to the lot path — only the
+/// `UPDATE product_lots … purchase_order_line_id` step is skipped.
+#[allow(clippy::too_many_arguments)]
+async fn receive_direct_inventory_in_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    product_id: Uuid,
+    location_id: Uuid,
+    good_qty: f64,
+    defect_qty: f64,
+    supplier_id: Option<Uuid>,
+    user_id: Uuid,
+    notes: Option<&str>,
+    reference: &str,
+    purchase_order_line_id: Option<Uuid>,
+    purchase_order_id: Option<Uuid>,
+) -> Result<ReceiveOutcome, DomainError> {
+    // Upsert the main inventory row for good_qty and capture its id for the
+    // outcome payload. For no-lot receives we treat good_qty == 0 as a
+    // legitimate receive (defect-only) — the inventory stays unchanged but
+    // we still need an id to echo back, so we upsert a 0-delta row.
+    let inventory_id: Uuid = if good_qty > 0.0 {
+        let row: (Uuid,) = sqlx::query_as(
+            r#"
+            INSERT INTO inventory (product_id, location_id, quantity)
+            VALUES ($1, $2, $3)
+            ON CONFLICT (product_id, location_id)
+            DO UPDATE SET quantity = inventory.quantity + $3, updated_at = NOW()
+            RETURNING id
+            "#,
+        )
+        .bind(product_id)
+        .bind(location_id)
+        .bind(good_qty)
+        .fetch_one(&mut **tx)
+        .await
+        .map_err(map_sqlx_error)?;
+        row.0
+    } else {
+        // No positive delta — upsert a 0 row (idempotent) and read back id.
+        sqlx::query(
+            r#"
+            INSERT INTO inventory (product_id, location_id, quantity)
+            VALUES ($1, $2, 0)
+            ON CONFLICT (product_id, location_id) DO NOTHING
+            "#,
+        )
+        .bind(product_id)
+        .bind(location_id)
+        .execute(&mut **tx)
+        .await
+        .map_err(map_sqlx_error)?;
+
+        let row: (Uuid,) = sqlx::query_as(
+            "SELECT id FROM inventory WHERE product_id = $1 AND location_id = $2",
+        )
+        .bind(product_id)
+        .bind(location_id)
+        .fetch_one(&mut **tx)
+        .await
+        .map_err(map_sqlx_error)?;
+        row.0
+    };
+
+    // Entry movement for good qty — lot_id is intentionally absent. The
+    // `reference` column still carries the client-supplied lot_number (if
+    // any) so traceability downstream is not lost.
+    let mut primary_movement_id: Option<Uuid> = None;
+    if good_qty > 0.0 {
+        let row: (Uuid,) = sqlx::query_as(
+            r#"
+            INSERT INTO movements
+                (product_id, from_location_id, to_location_id, quantity,
+                 movement_type, user_id, supplier_id, reference, notes, movement_reason,
+                 purchase_order_id)
+            VALUES ($1, NULL, $2, $3, 'entry', $4, $5, $6, $7, 'purchase_receive', $8)
+            RETURNING id
+            "#,
+        )
+        .bind(product_id)
+        .bind(location_id)
+        .bind(good_qty)
+        .bind(user_id)
+        .bind(supplier_id)
+        .bind(reference)
+        .bind(notes)
+        .bind(purchase_order_id)
+        .fetch_one(&mut **tx)
+        .await
+        .map_err(map_sqlx_error)?;
+        primary_movement_id = Some(row.0);
+    }
+
+    if defect_qty > 0.0 {
+        let row: (Uuid,) = sqlx::query_as(
+            r#"
+            INSERT INTO movements
+                (product_id, from_location_id, to_location_id, quantity,
+                 movement_type, user_id, supplier_id, reference, notes, movement_reason,
+                 purchase_order_id)
+            VALUES ($1, NULL, $2, $3, 'entry', $4, $5, $6, $7, 'quality_reject', $8)
+            RETURNING id
+            "#,
+        )
+        .bind(product_id)
+        .bind(location_id)
+        .bind(defect_qty)
+        .bind(user_id)
+        .bind(supplier_id)
+        .bind(reference)
+        .bind(notes)
+        .bind(purchase_order_id)
+        .fetch_one(&mut **tx)
+        .await
+        .map_err(map_sqlx_error)?;
+        if primary_movement_id.is_none() {
+            primary_movement_id = Some(row.0);
+        }
+    }
+
+    // Advance the PO line if one was supplied — identical to the lot path
+    // except we skip the `UPDATE product_lots … purchase_order_line_id` step.
+    if let (Some(line_id), Some(po_id)) = (purchase_order_line_id, purchase_order_id) {
+        let po_status: Option<(String,)> =
+            sqlx::query_as("SELECT status::text FROM purchase_orders WHERE id = $1")
+                .bind(po_id)
+                .fetch_optional(&mut **tx)
+                .await
+                .map_err(map_sqlx_error)?;
+
+        match po_status {
+            None => {
+                return Err(DomainError::NotFound(
+                    "Purchase order not found".to_string(),
+                ))
+            }
+            Some((status,)) if status != "sent" && status != "partially_received" => {
+                return Err(DomainError::Validation(format!(
+                    "Cannot receive against a purchase order in status '{}'",
+                    status
+                )))
+            }
+            _ => {}
+        }
+
+        sqlx::query(
+            r#"
+            UPDATE purchase_order_lines
+            SET quantity_received = quantity_received + $2
+            WHERE id = $1
+            "#,
+        )
+        .bind(line_id)
+        .bind(good_qty)
+        .execute(&mut **tx)
+        .await
+        .map_err(map_sqlx_error)?;
+
+        recalculate_po_status_in_tx(tx, po_id)
+            .await
+            .map_err(map_sqlx_error)?;
+    }
+
+    // If neither good nor defect movement was stamped (both zero), the
+    // validation layer should have rejected the call — surface a sensible
+    // error rather than returning a fabricated movement id.
+    let movement_id = primary_movement_id.ok_or_else(|| {
+        DomainError::Validation("At least one quantity must be greater than 0".to_string())
+    })?;
+
+    Ok(ReceiveOutcome::DirectInventory {
+        inventory_id,
+        movement_id,
+        product_id,
+        location_id,
+        quantity: good_qty,
+    })
 }
 
 // ── Quality Status ─────────────────────────────────────────────────

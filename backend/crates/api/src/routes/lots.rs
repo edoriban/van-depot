@@ -8,6 +8,7 @@ use uuid::Uuid;
 
 use vandepot_domain::error::DomainError;
 use vandepot_domain::models::enums::{MovementType, QualityStatus};
+use vandepot_domain::models::receive_outcome::ReceiveOutcome;
 use vandepot_infra::auth::jwt::Claims;
 use vandepot_infra::repositories::lots_repo;
 
@@ -56,6 +57,28 @@ pub struct ProductLotResponse {
     pub purchase_order_line_id: Option<Uuid>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+}
+
+/// Response shape for `POST /lots/receive`. The `kind` discriminator lets
+/// clients tell the two receive outcomes apart:
+///
+/// * `lot` — lot-backed receive (raw_material, or consumable+has_expiry).
+/// * `direct_inventory` — no-lot receive (tool_spare, or consumable without
+///   expiry); the quantity still lands at Recepción but no `product_lots`
+///   row is created.
+#[derive(Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ReceiveResponse {
+    Lot {
+        lot: ProductLotResponse,
+    },
+    DirectInventory {
+        inventory_id: Uuid,
+        movement_id: Uuid,
+        product_id: Uuid,
+        location_id: Uuid,
+        quantity: f64,
+    },
 }
 
 #[derive(Serialize)]
@@ -329,7 +352,7 @@ async fn receive_lot(
     State(state): State<AppState>,
     claims: Claims,
     Json(payload): Json<ReceiveLotRequest>,
-) -> Result<(StatusCode, Json<ProductLotResponse>), ApiError> {
+) -> Result<(StatusCode, Json<ReceiveResponse>), ApiError> {
     require_role(&claims, &["superadmin", "owner", "warehouse_manager"])?;
 
     if payload.good_quantity < 0.0 {
@@ -351,7 +374,7 @@ async fn receive_lot(
         )));
     }
 
-    let row = lots_repo::receive_lot(
+    let outcome = lots_repo::receive_lot(
         &state.pool,
         payload.product_id,
         &payload.lot_number,
@@ -368,21 +391,37 @@ async fn receive_lot(
     )
     .await?;
 
-    Ok((
-        StatusCode::CREATED,
-        Json(ProductLotResponse {
-            id: row.id,
-            product_id: row.product_id,
-            lot_number: row.lot_number,
-            batch_date: row.batch_date,
-            expiration_date: row.expiration_date,
-            supplier_id: row.supplier_id,
-            received_quantity: row.received_quantity,
-            quality_status: row.quality_status,
-            notes: row.notes,
-            purchase_order_line_id: row.purchase_order_line_id,
-            created_at: row.created_at,
-            updated_at: row.updated_at,
-        }),
-    ))
+    let body = match outcome {
+        ReceiveOutcome::Lot(lot) => ReceiveResponse::Lot {
+            lot: ProductLotResponse {
+                id: lot.id,
+                product_id: lot.product_id,
+                lot_number: lot.lot_number,
+                batch_date: lot.batch_date,
+                expiration_date: lot.expiration_date,
+                supplier_id: lot.supplier_id,
+                received_quantity: lot.received_quantity,
+                quality_status: lot.quality_status,
+                notes: lot.notes,
+                purchase_order_line_id: lot.purchase_order_line_id,
+                created_at: lot.created_at,
+                updated_at: lot.updated_at,
+            },
+        },
+        ReceiveOutcome::DirectInventory {
+            inventory_id,
+            movement_id,
+            product_id,
+            location_id,
+            quantity,
+        } => ReceiveResponse::DirectInventory {
+            inventory_id,
+            movement_id,
+            product_id,
+            location_id,
+            quantity,
+        },
+    };
+
+    Ok((StatusCode::CREATED, Json(body)))
 }
