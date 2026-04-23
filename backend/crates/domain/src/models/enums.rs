@@ -56,6 +56,8 @@ pub enum LocationType {
     Position,
     Bin,
     Reception,
+    WorkCenter,
+    FinishedGood,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
@@ -97,6 +99,16 @@ pub enum ProductClass {
     RawMaterial,
     Consumable,
     ToolSpare,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
+#[serde(rename_all = "snake_case")]
+#[sqlx(type_name = "work_order_status", rename_all = "snake_case")]
+pub enum WorkOrderStatus {
+    Draft,
+    InProgress,
+    Completed,
+    Cancelled,
 }
 
 #[cfg(test)]

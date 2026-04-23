@@ -3,8 +3,11 @@ use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde_json::json;
 use vandepot_domain::error::{
-    DomainError, PRODUCT_CLASS_DOES_NOT_SUPPORT_LOTS, PRODUCT_CLASS_LOCKED,
-    SYSTEM_LOCATION_PROTECTED,
+    DomainError, INSUFFICIENT_WORK_ORDER_STOCK, PRODUCT_CLASS_DOES_NOT_SUPPORT_LOTS,
+    PRODUCT_CLASS_LOCKED, PRODUCT_MANUFACTURED_REQUIRES_RAW_MATERIAL,
+    RECIPE_ITEM_REJECTS_TOOL_SPARE, SYSTEM_LOCATION_PROTECTED,
+    WORK_ORDER_BOM_INCLUDES_TOOL_SPARE, WORK_ORDER_FG_PRODUCT_NOT_MANUFACTURED,
+    WORK_ORDER_INVALID_TRANSITION, WORK_ORDER_WAREHOUSE_HAS_NO_WORK_CENTER,
 };
 
 pub struct ApiError(pub DomainError);
@@ -38,6 +41,66 @@ impl IntoResponse for ApiError {
                 });
                 return (StatusCode::CONFLICT, Json(body)).into_response();
             }
+            // ── Work-orders-and-bom typed branches (design §5e) ───────────
+            DomainError::InsufficientWorkOrderStock { missing } => {
+                let body = json!({
+                    "code": INSUFFICIENT_WORK_ORDER_STOCK,
+                    "error": "No hay inventario suficiente en el centro de trabajo para completar la orden",
+                    "missing": missing,
+                });
+                return (StatusCode::CONFLICT, Json(body)).into_response();
+            }
+            DomainError::WorkOrderInvalidTransition { from, to } => {
+                let body = json!({
+                    "code": WORK_ORDER_INVALID_TRANSITION,
+                    "error": format!("Transición inválida: {:?} → {:?}", from, to),
+                    "from": from,
+                    "to": to,
+                });
+                return (StatusCode::CONFLICT, Json(body)).into_response();
+            }
+            DomainError::WorkOrderBomIncludesToolSpare {
+                offending_product_ids,
+            } => {
+                let body = json!({
+                    "code": WORK_ORDER_BOM_INCLUDES_TOOL_SPARE,
+                    "error": "La receta contiene herramientas; no se puede crear la orden",
+                    "offending_product_ids": offending_product_ids,
+                });
+                return (StatusCode::UNPROCESSABLE_ENTITY, Json(body)).into_response();
+            }
+            DomainError::WorkOrderWarehouseHasNoWorkCenter { warehouse_id } => {
+                let body = json!({
+                    "code": WORK_ORDER_WAREHOUSE_HAS_NO_WORK_CENTER,
+                    "error": "El almacén no tiene ningún centro de trabajo configurado",
+                    "warehouse_id": warehouse_id,
+                });
+                return (StatusCode::UNPROCESSABLE_ENTITY, Json(body)).into_response();
+            }
+            DomainError::WorkOrderFgProductNotManufactured { product_id } => {
+                let body = json!({
+                    "code": WORK_ORDER_FG_PRODUCT_NOT_MANUFACTURED,
+                    "error": "El producto terminado no está marcado como manufacturable",
+                    "product_id": product_id,
+                });
+                return (StatusCode::UNPROCESSABLE_ENTITY, Json(body)).into_response();
+            }
+            DomainError::RecipeItemRejectsToolSpare { product_id } => {
+                let body = json!({
+                    "code": RECIPE_ITEM_REJECTS_TOOL_SPARE,
+                    "error": "Los items de receta no pueden ser herramientas (tool_spare)",
+                    "product_id": product_id,
+                });
+                return (StatusCode::UNPROCESSABLE_ENTITY, Json(body)).into_response();
+            }
+            DomainError::ProductIsManufacturedRequiresRawMaterial { product_id } => {
+                let body = json!({
+                    "code": PRODUCT_MANUFACTURED_REQUIRES_RAW_MATERIAL,
+                    "error": "is_manufactured=true requiere product_class=raw_material",
+                    "product_id": product_id,
+                });
+                return (StatusCode::UNPROCESSABLE_ENTITY, Json(body)).into_response();
+            }
             ref other => {
                 let (status, message) = match other {
                     DomainError::NotFound(msg) => (StatusCode::NOT_FOUND, msg.clone()),
@@ -52,7 +115,14 @@ impl IntoResponse for ApiError {
                         (StatusCode::INTERNAL_SERVER_ERROR, msg.clone())
                     }
                     DomainError::ClassLocked { .. }
-                    | DomainError::ProductClassDoesNotSupportLots => {
+                    | DomainError::ProductClassDoesNotSupportLots
+                    | DomainError::InsufficientWorkOrderStock { .. }
+                    | DomainError::WorkOrderInvalidTransition { .. }
+                    | DomainError::WorkOrderBomIncludesToolSpare { .. }
+                    | DomainError::WorkOrderWarehouseHasNoWorkCenter { .. }
+                    | DomainError::WorkOrderFgProductNotManufactured { .. }
+                    | DomainError::RecipeItemRejectsToolSpare { .. }
+                    | DomainError::ProductIsManufacturedRequiresRawMaterial { .. } => {
                         unreachable!("handled by typed branches above")
                     }
                 };

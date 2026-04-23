@@ -14,6 +14,7 @@ pub struct Product {
     pub unit_of_measure: UnitType,
     pub product_class: ProductClass,
     pub has_expiry: bool,
+    pub is_manufactured: bool,
     pub min_stock: f64,
     pub max_stock: Option<f64>,
     pub is_active: bool,

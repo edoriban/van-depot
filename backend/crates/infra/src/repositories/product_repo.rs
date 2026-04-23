@@ -20,6 +20,7 @@ struct ProductRow {
     unit_of_measure: UnitType,
     product_class: ProductClass,
     has_expiry: bool,
+    is_manufactured: bool,
     min_stock: f64,
     max_stock: Option<f64>,
     is_active: bool,
@@ -41,6 +42,7 @@ struct ProductWithAuditRow {
     unit_of_measure: UnitType,
     product_class: ProductClass,
     has_expiry: bool,
+    is_manufactured: bool,
     min_stock: f64,
     max_stock: Option<f64>,
     is_active: bool,
@@ -64,6 +66,7 @@ impl From<ProductRow> for Product {
             unit_of_measure: row.unit_of_measure,
             product_class: row.product_class,
             has_expiry: row.has_expiry,
+            is_manufactured: row.is_manufactured,
             min_stock: row.min_stock,
             max_stock: row.max_stock,
             is_active: row.is_active,
@@ -87,6 +90,7 @@ impl From<ProductWithAuditRow> for Product {
             unit_of_measure: row.unit_of_measure,
             product_class: row.product_class,
             has_expiry: row.has_expiry,
+            is_manufactured: row.is_manufactured,
             min_stock: row.min_stock,
             max_stock: row.max_stock,
             is_active: row.is_active,
@@ -122,7 +126,7 @@ impl PgProductRepository {
     ) -> Result<Option<ProductWithAudit>, DomainError> {
         let sql = "\
             SELECT p.id, p.name, p.sku, p.description, p.category_id, p.unit_of_measure, \
-                   p.product_class, p.has_expiry, \
+                   p.product_class, p.has_expiry, p.is_manufactured, \
                    p.min_stock::float8, p.max_stock::float8, p.is_active, \
                    p.created_by, p.updated_by, \
                    p.created_at, p.updated_at, p.deleted_at, \
@@ -148,7 +152,7 @@ impl PgProductRepository {
 }
 
 const PRODUCT_COLUMNS: &str = "id, name, sku, description, category_id, unit_of_measure, \
-                                product_class, has_expiry, \
+                                product_class, has_expiry, is_manufactured, \
                                 min_stock::float8, max_stock::float8, is_active, created_by, updated_by, \
                                 created_at, updated_at, deleted_at";
 
