@@ -37,5 +37,6 @@ pub fn app_router(state: AppState) -> Router {
         .merge(routes::recipes::recipe_routes())
         .merge(routes::abc::abc_routes())
         .merge(routes::warehouse_map::warehouse_map_routes())
+        .merge(routes::work_orders::work_order_routes())
         .with_state(state)
 }

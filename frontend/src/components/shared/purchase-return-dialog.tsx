@@ -83,7 +83,7 @@ export function PurchaseReturnDialog({
     setQuantities((prev) => ({ ...prev, [lineId]: isNaN(num) ? 0 : num }));
   };
 
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (e: React.SubmitEvent<HTMLFormElement>) => {
     e.preventDefault();
 
     if (!reason) {

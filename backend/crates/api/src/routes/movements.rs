@@ -67,6 +67,10 @@ pub struct MovementQueryParams {
     pub movement_type: Option<MovementType>,
     pub start_date: Option<DateTime<Utc>>,
     pub end_date: Option<DateTime<Utc>>,
+    /// Filter movements tied to a specific work order. Used by the WO
+    /// detail page to show the wo_issue / back_flush / production_output /
+    /// wo_cancel_reversal movement chain (work-orders-and-bom design §7b).
+    pub work_order_id: Option<Uuid>,
     pub page: Option<i64>,
     pub per_page: Option<i64>,
 }
@@ -323,6 +327,7 @@ async fn list_movements(
         movement_type: params.movement_type,
         start_date: params.start_date,
         end_date: params.end_date,
+        work_order_id: params.work_order_id,
     };
 
     let svc = PgInventoryService::new(state.pool.clone());

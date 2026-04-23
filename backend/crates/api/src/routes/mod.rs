@@ -20,3 +20,4 @@ pub mod suppliers;
 pub mod users;
 pub mod warehouse_map;
 pub mod warehouses;
+pub mod work_orders;

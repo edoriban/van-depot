@@ -1623,3 +1623,503 @@ async fn seed_notifications(
 
     Ok(())
 }
+
+// ── Phase 5 ─ Work Orders & BOM demo fixture ──────────────────────────
+//
+// Idempotent, self-contained top-level helper. Runs AFTER `seed_demo_data`
+// (called from main.rs). Every INSERT is guarded by a natural key or
+// `NOT EXISTS` pre-check so re-running the seed adds zero rows to any of
+// the touched tables (locations, products, recipe_items, work_orders,
+// work_order_materials, movements, product_lots, inventory_lots, inventory).
+//
+// Unlike `seed_demo_data`, this helper does NOT bail on a populated DB —
+// its per-section guards handle re-entry. The "seed-in-isolation" case
+// (test DB restored without migrations) also ends up in the expected
+// state via the 5.1 backfill duplicating Migration 3.
+//
+// Sections:
+//   5.1 — finished_good system location per non-deleted warehouse (duplicates
+//         the 20260423000003 migration backfill; harmless when both run).
+//   5.2 — 1–2 `work_center` system locations in `Almacén Principal`.
+//   5.3 — manufacturable raw_material SKU `PUE-HER-BAS`.
+//   5.4 — ensure REC-01 (`Puerta herrería básica`) has ≥3 `recipe_items`.
+//         The existing `seed_recipes` already inserts 6 items; this is a
+//         belt-and-suspenders check for the seed-in-isolation case.
+//   5.5 — 2 demo work orders: WO-DEMO-01 (draft, no movements),
+//         WO-DEMO-02 (completed, full back-flush chain + FG lot + FG
+//         inventory).
+pub async fn seed_work_orders_demo(pool: &PgPool) -> Result<()> {
+    let mut tx = pool.begin().await?;
+
+    // Resolve shared IDs used across sections. The seed is ordered so
+    // these must exist by the time this helper runs; if the DB is missing
+    // `Almacén Principal`, we skip 5.2/5.5 and still do 5.1 + 5.3 + 5.4.
+    let almacen_principal_id = sqlx::query_scalar::<_, Uuid>(
+        "SELECT id FROM warehouses WHERE name = 'Almacén Principal' LIMIT 1",
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    let admin_id = sqlx::query_scalar::<_, Uuid>(
+        "SELECT id FROM users WHERE role = 'superadmin' LIMIT 1",
+    )
+    .fetch_one(&mut *tx)
+    .await?;
+
+    // ── 5.1 ─ Finished-good system location per warehouse ────────────
+    // Duplicates migration 20260423000003's backfill so a fresh test DB
+    // (e.g. restored without running migrations) still lands in the
+    // expected state. The partial unique index
+    // `idx_one_finished_good_per_warehouse` guarantees ≤1 row per
+    // warehouse; NOT EXISTS makes the INSERT idempotent.
+    sqlx::query(
+        "INSERT INTO locations
+             (warehouse_id, location_type, name, label, is_system, pos_x, pos_y, width, height)
+         SELECT w.id, 'finished_good', 'Producto Terminado', 'PT', TRUE, 0, 0, 100, 100
+         FROM warehouses w
+         WHERE NOT EXISTS (
+             SELECT 1 FROM locations l
+             WHERE l.warehouse_id = w.id
+               AND l.location_type = 'finished_good'
+               AND l.is_system = TRUE
+         )",
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    // If there's no Almacén Principal we can't do 5.2 or 5.5. 5.3/5.4 still
+    // run since they're warehouse-independent.
+    let Some(almacen_principal_id) = almacen_principal_id else {
+        info!("seed_work_orders_demo: Almacén Principal not found — completed 5.1 only");
+        // Still run 5.3 and 5.4 (they don't depend on Almacén Principal).
+        seed_phase5_product_and_recipe(&mut tx).await?;
+        tx.commit().await?;
+        return Ok(());
+    };
+
+    // ── 5.2 ─ Work-center locations in Almacén Principal ─────────────
+    // Guard by (warehouse_id, name) pre-check. CHECK requires is_system=true.
+    // Coordinates are stable so re-runs compare identically.
+    for (name, label, pos_x, pos_y) in [
+        ("Taller Principal", "T1", 600.0_f32, 400.0_f32),
+        ("Taller Secundario", "T2", 820.0_f32, 400.0_f32),
+    ] {
+        let exists = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM locations
+             WHERE warehouse_id = $1 AND name = $2 AND location_type = 'work_center'",
+        )
+        .bind(almacen_principal_id)
+        .bind(name)
+        .fetch_one(&mut *tx)
+        .await?;
+
+        if exists == 0 {
+            sqlx::query(
+                "INSERT INTO locations
+                     (warehouse_id, location_type, name, label, is_system, pos_x, pos_y, width, height)
+                 VALUES ($1, 'work_center', $2, $3, TRUE, $4, $5, 180, 160)",
+            )
+            .bind(almacen_principal_id)
+            .bind(name)
+            .bind(label)
+            .bind(pos_x)
+            .bind(pos_y)
+            .execute(&mut *tx)
+            .await?;
+        }
+    }
+
+    // ── 5.3 + 5.4 ─ Product + REC-01 ingredients guard ───────────────
+    seed_phase5_product_and_recipe(&mut tx).await?;
+
+    // ── 5.5 ─ Demo Work Orders ───────────────────────────────────────
+    // Pre-check WO-DEMO-01 existence. Because WO-DEMO-02 cascades into
+    // movements/product_lots/inventory rows, gate the ENTIRE section on
+    // the presence of both WO codes — if either is missing, do its
+    // respective cascade; otherwise skip.
+    let pue_her_bas_id =
+        sqlx::query_scalar::<_, Uuid>("SELECT id FROM products WHERE sku = 'PUE-HER-BAS' LIMIT 1")
+            .fetch_one(&mut *tx)
+            .await?;
+
+    let rec_01_id = sqlx::query_scalar::<_, Uuid>(
+        "SELECT id FROM recipes WHERE name = 'Puerta herrería básica' AND deleted_at IS NULL LIMIT 1",
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    let Some(rec_01_id) = rec_01_id else {
+        info!("seed_work_orders_demo: REC-01 (Puerta herrería básica) missing — skipping 5.5");
+        tx.commit().await?;
+        return Ok(());
+    };
+
+    let taller_principal_id = sqlx::query_scalar::<_, Uuid>(
+        "SELECT id FROM locations
+         WHERE warehouse_id = $1 AND name = 'Taller Principal' AND location_type = 'work_center'
+         LIMIT 1",
+    )
+    .bind(almacen_principal_id)
+    .fetch_one(&mut *tx)
+    .await?;
+
+    let producto_terminado_id = sqlx::query_scalar::<_, Uuid>(
+        "SELECT id FROM locations
+         WHERE warehouse_id = $1 AND location_type = 'finished_good' AND is_system = TRUE
+         LIMIT 1",
+    )
+    .bind(almacen_principal_id)
+    .fetch_one(&mut *tx)
+    .await?;
+
+    // Materialize REC-01's items once — used for both WOs. Use ::float8 cast
+    // to avoid pulling in bigdecimal/rust_decimal features for a single read.
+    let recipe_items: Vec<(Uuid, f64)> = sqlx::query_as(
+        "SELECT product_id, quantity::float8 FROM recipe_items WHERE recipe_id = $1 ORDER BY created_at ASC",
+    )
+    .bind(rec_01_id)
+    .fetch_all(&mut *tx)
+    .await?;
+
+    if recipe_items.is_empty() {
+        info!("seed_work_orders_demo: REC-01 has no items — skipping WO-DEMO-01/02");
+        tx.commit().await?;
+        return Ok(());
+    }
+
+    // ── 5.5a ─ WO-DEMO-01 (draft, just header + material snapshot) ───
+    let wo_01_exists = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM work_orders WHERE code = 'WO-DEMO-01'",
+    )
+    .fetch_one(&mut *tx)
+    .await?;
+
+    if wo_01_exists == 0 {
+        let wo_01_id = Uuid::new_v4();
+        sqlx::query(
+            "INSERT INTO work_orders
+                 (id, code, recipe_id, fg_product_id, fg_quantity, status,
+                  warehouse_id, work_center_location_id, notes, created_by)
+             VALUES ($1, 'WO-DEMO-01', $2, $3, 1, 'draft',
+                     $4, $5, 'Orden demo en borrador (sin movimientos)', $6)",
+        )
+        .bind(wo_01_id)
+        .bind(rec_01_id)
+        .bind(pue_her_bas_id)
+        .bind(almacen_principal_id)
+        .bind(taller_principal_id)
+        .bind(admin_id)
+        .execute(&mut *tx)
+        .await?;
+
+        for (product_id, quantity) in &recipe_items {
+            sqlx::query(
+                "INSERT INTO work_order_materials
+                     (work_order_id, product_id, quantity_expected, quantity_consumed)
+                 VALUES ($1, $2, $3, 0)
+                 ON CONFLICT (work_order_id, product_id) DO NOTHING",
+            )
+            .bind(wo_01_id)
+            .bind(*product_id)
+            .bind(*quantity)
+            .execute(&mut *tx)
+            .await?;
+        }
+    }
+
+    // ── 5.5b ─ WO-DEMO-02 (completed, full back-flush chain) ─────────
+    let wo_02_exists = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM work_orders WHERE code = 'WO-DEMO-02'",
+    )
+    .fetch_one(&mut *tx)
+    .await?;
+
+    if wo_02_exists == 0 {
+        // For each ingredient, resolve a source location in Almacén Principal
+        // that holds inventory for that SKU. If none exists, top up the
+        // HERRAMIENTAS zone with a small buffer so the issue transfer has a
+        // source (documented deviation from design §3c which expects
+        // pre-existing seed inventory). Design §13 Risk 5 calls this out.
+        let herramientas_id = sqlx::query_scalar::<_, Uuid>(
+            "SELECT id FROM locations
+             WHERE warehouse_id = $1 AND name = 'Herramientas' AND location_type = 'zone'
+             LIMIT 1",
+        )
+        .bind(almacen_principal_id)
+        .fetch_one(&mut *tx)
+        .await?;
+
+        let wo_02_id = Uuid::new_v4();
+        sqlx::query(
+            "INSERT INTO work_orders
+                 (id, code, recipe_id, fg_product_id, fg_quantity, status,
+                  warehouse_id, work_center_location_id, notes, created_by,
+                  created_at, issued_at, completed_at)
+             VALUES ($1, 'WO-DEMO-02', $2, $3, 1, 'completed',
+                     $4, $5, 'Orden demo completada (cadena back-flush sintetizada)', $6,
+                     NOW() - INTERVAL '3 hours',
+                     NOW() - INTERVAL '2 hours',
+                     NOW() - INTERVAL '1 hour')",
+        )
+        .bind(wo_02_id)
+        .bind(rec_01_id)
+        .bind(pue_her_bas_id)
+        .bind(almacen_principal_id)
+        .bind(taller_principal_id)
+        .bind(admin_id)
+        .execute(&mut *tx)
+        .await?;
+
+        // Insert materials with full consumption; emit wo_issue + back_flush
+        // movements per ingredient.
+        for (product_id, quantity) in &recipe_items {
+            let product_id = *product_id;
+            let quantity = *quantity;
+            sqlx::query(
+                "INSERT INTO work_order_materials
+                     (work_order_id, product_id, quantity_expected, quantity_consumed)
+                 VALUES ($1, $2, $3, $3)
+                 ON CONFLICT (work_order_id, product_id) DO NOTHING",
+            )
+            .bind(wo_02_id)
+            .bind(product_id)
+            .bind(quantity)
+            .execute(&mut *tx)
+            .await?;
+
+            // Resolve a source storage location in Almacén Principal.
+            // Skip reception/work_center/finished_good; prefer highest qty.
+            let source_location = sqlx::query_scalar::<_, Uuid>(
+                "SELECT i.location_id FROM inventory i
+                 JOIN locations l ON l.id = i.location_id
+                 WHERE i.product_id = $1
+                   AND l.warehouse_id = $2
+                   AND l.location_type NOT IN ('reception', 'work_center', 'finished_good')
+                   AND i.quantity > 0
+                 ORDER BY i.quantity DESC, l.created_at ASC
+                 LIMIT 1",
+            )
+            .bind(product_id)
+            .bind(almacen_principal_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+
+            let source_location = match source_location {
+                Some(id) => id,
+                None => {
+                    // Top up HERRAMIENTAS with a small buffer so the issue
+                    // transfer has a source (documented deviation from
+                    // design §3c which expects pre-existing seed inventory;
+                    // design §13 Risk 5). ON CONFLICT on the
+                    // (product_id, location_id) unique index keeps the
+                    // operation idempotent across re-runs.
+                    sqlx::query(
+                        "INSERT INTO inventory (product_id, location_id, quantity)
+                         VALUES ($1, $2, 10)
+                         ON CONFLICT (product_id, location_id) DO UPDATE
+                             SET quantity = GREATEST(inventory.quantity, 10)",
+                    )
+                    .bind(product_id)
+                    .bind(herramientas_id)
+                    .execute(&mut *tx)
+                    .await?;
+                    herramientas_id
+                }
+            };
+
+            // Emit wo_issue transfer movement (storage → work_center).
+            sqlx::query(
+                "INSERT INTO movements
+                     (product_id, from_location_id, to_location_id, quantity,
+                      movement_type, user_id, reference, notes, movement_reason,
+                      work_order_id, created_at)
+                 VALUES ($1, $2, $3, $4, 'transfer', $5, 'WO-DEMO-02', NULL,
+                         'wo_issue', $6, NOW() - INTERVAL '2 hours')",
+            )
+            .bind(product_id)
+            .bind(source_location)
+            .bind(taller_principal_id)
+            .bind(quantity)
+            .bind(admin_id)
+            .bind(wo_02_id)
+            .execute(&mut *tx)
+            .await?;
+
+            // Emit back_flush exit movement (work_center → void).
+            sqlx::query(
+                "INSERT INTO movements
+                     (product_id, from_location_id, to_location_id, quantity,
+                      movement_type, user_id, reference, notes, movement_reason,
+                      work_order_id, created_at)
+                 VALUES ($1, $2, NULL, $3, 'exit', $4, 'WO-DEMO-02', NULL,
+                         'back_flush', $5, NOW() - INTERVAL '1 hour')",
+            )
+            .bind(product_id)
+            .bind(taller_principal_id)
+            .bind(quantity)
+            .bind(admin_id)
+            .bind(wo_02_id)
+            .execute(&mut *tx)
+            .await?;
+        }
+
+        // Insert the FG product_lot using the lot_number format the WO
+        // `complete` path generates: `WO-<code>-<YYYYMMDD>`, where the date
+        // mirrors the completion timestamp.
+        let fg_lot_id = Uuid::new_v4();
+        let today = chrono::Utc::now().date_naive();
+        let lot_number = format!("WO-WO-DEMO-02-{}", today.format("%Y%m%d"));
+        sqlx::query(
+            "INSERT INTO product_lots
+                 (id, product_id, lot_number, batch_date, expiration_date,
+                  received_quantity, quality_status, notes)
+             VALUES ($1, $2, $3, $4, NULL, 1, 'pending',
+                     'Lote generado por WO-DEMO-02 (seed)')
+             ON CONFLICT (product_id, lot_number) DO NOTHING",
+        )
+        .bind(fg_lot_id)
+        .bind(pue_her_bas_id)
+        .bind(&lot_number)
+        .bind(today)
+        .execute(&mut *tx)
+        .await?;
+
+        // Re-fetch the FG lot ID in case ON CONFLICT skipped (idempotency
+        // against partial-run state).
+        let fg_lot_id = sqlx::query_scalar::<_, Uuid>(
+            "SELECT id FROM product_lots WHERE product_id = $1 AND lot_number = $2",
+        )
+        .bind(pue_her_bas_id)
+        .bind(&lot_number)
+        .fetch_one(&mut *tx)
+        .await?;
+
+        // inventory_lots + inventory rows for the FG at Producto Terminado.
+        sqlx::query(
+            "INSERT INTO inventory_lots (product_lot_id, location_id, quantity)
+             VALUES ($1, $2, 1)
+             ON CONFLICT (product_lot_id, location_id) DO NOTHING",
+        )
+        .bind(fg_lot_id)
+        .bind(producto_terminado_id)
+        .execute(&mut *tx)
+        .await?;
+
+        sqlx::query(
+            "INSERT INTO inventory (product_id, location_id, quantity)
+             VALUES ($1, $2, 1)
+             ON CONFLICT (product_id, location_id) DO UPDATE
+                 SET quantity = inventory.quantity + 1",
+        )
+        .bind(pue_her_bas_id)
+        .bind(producto_terminado_id)
+        .execute(&mut *tx)
+        .await?;
+
+        // production_output entry movement (void → finished_good).
+        sqlx::query(
+            "INSERT INTO movements
+                 (product_id, from_location_id, to_location_id, quantity,
+                  movement_type, user_id, reference, notes, movement_reason,
+                  work_order_id, created_at)
+             VALUES ($1, NULL, $2, 1, 'entry', $3, 'WO-DEMO-02', NULL,
+                     'production_output', $4, NOW() - INTERVAL '1 hour')",
+        )
+        .bind(pue_her_bas_id)
+        .bind(producto_terminado_id)
+        .bind(admin_id)
+        .bind(wo_02_id)
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    tx.commit().await?;
+    info!("seed_work_orders_demo: phase 5 seed complete");
+    Ok(())
+}
+
+// Helper shared between the Almacén-Principal-present and absent paths of
+// `seed_work_orders_demo`. Performs 5.3 (insert PUE-HER-BAS) and 5.4
+// (ensure REC-01 has items — no-op when the items already exist since the
+// existing `seed_recipes` inserts 6).
+async fn seed_phase5_product_and_recipe(tx: &mut sqlx::Transaction<'_, sqlx::Postgres>) -> Result<()> {
+    // 5.3 — Manufacturable raw_material SKU.
+    // Category lookup: prefer the `Aceros y metales` category seeded in
+    // `seed_core`. If absent (unlikely), fall back to NULL — the products
+    // table allows NULL category_id.
+    let category_id: Option<Uuid> = sqlx::query_scalar(
+        "SELECT id FROM categories WHERE name = 'Aceros y metales' LIMIT 1",
+    )
+    .fetch_optional(&mut **tx)
+    .await?;
+
+    sqlx::query(
+        "INSERT INTO products
+             (name, sku, category_id, unit_of_measure, min_stock, max_stock,
+              product_class, has_expiry, is_manufactured)
+         VALUES ('Puerta herrería básica', 'PUE-HER-BAS', $1, 'piece', 0, 50,
+                 'raw_material', FALSE, TRUE)
+         ON CONFLICT (sku) DO NOTHING",
+    )
+    .bind(category_id)
+    .execute(&mut **tx)
+    .await?;
+
+    // 5.4 — Recipe items guard. The existing `seed_recipes` already
+    // inserts 6 items for REC-01 ('Puerta herrería básica'). This pre-check
+    // is a belt-and-suspenders for the seed-in-isolation case where
+    // recipes may exist (from a prior partial run) but items are missing.
+    // We deliberately do NOT insert items here — the canonical ingredient
+    // set lives in `seed_recipes`. Here we only ASSERT the invariant and
+    // log a warning if it fails, so integration tests catch the gap.
+    let rec_01_id: Option<Uuid> = sqlx::query_scalar(
+        "SELECT id FROM recipes WHERE name = 'Puerta herrería básica' AND deleted_at IS NULL LIMIT 1",
+    )
+    .fetch_optional(&mut **tx)
+    .await?;
+
+    if let Some(rec_01_id) = rec_01_id {
+        let item_count = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM recipe_items WHERE recipe_id = $1",
+        )
+        .bind(rec_01_id)
+        .fetch_one(&mut **tx)
+        .await?;
+
+        if item_count < 3 {
+            // Seed a minimal 3-item fallback using available raw_material /
+            // consumable SKUs. This path only fires if `seed_recipes` did
+            // not run (e.g. partial-seed DB); when it ran, item_count=6.
+            tracing::warn!(
+                "seed_work_orders_demo: REC-01 has only {item_count} items; backfilling 3 minimal items"
+            );
+            // Pick any 3 raw_material SKUs; tool_spare excluded by WHERE.
+            let fallback_items = sqlx::query_as::<_, (Uuid,)>(
+                "SELECT id FROM products
+                 WHERE product_class IN ('raw_material', 'consumable')
+                   AND deleted_at IS NULL
+                   AND sku <> 'PUE-HER-BAS'
+                 ORDER BY created_at ASC
+                 LIMIT 3",
+            )
+            .fetch_all(&mut **tx)
+            .await?;
+
+            for (idx, (product_id,)) in fallback_items.into_iter().enumerate() {
+                let qty = (idx as f64) + 1.0;
+                sqlx::query(
+                    "INSERT INTO recipe_items (recipe_id, product_id, quantity, notes)
+                     VALUES ($1, $2, $3, 'Fallback seed — verifique receta')
+                     ON CONFLICT (recipe_id, product_id) DO NOTHING",
+                )
+                .bind(rec_01_id)
+                .bind(product_id)
+                .bind(qty)
+                .execute(&mut **tx)
+                .await?;
+            }
+        }
+    }
+
+    Ok(())
+}

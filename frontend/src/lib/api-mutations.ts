@@ -1,7 +1,47 @@
 import { useAuthStore } from '@/stores/auth-store';
-import type { ClassLockStatus, Product, ProductClass } from '@/types';
+import type {
+  ClassLockStatus,
+  CompleteWorkOrderInput,
+  CreateWorkOrderInput,
+  IssueWorkOrderInput,
+  PaginatedResponse,
+  Product,
+  ProductClass,
+  WorkOrder,
+  WorkOrderDetail,
+  WorkOrderStatus,
+} from '@/types';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3100';
+
+/**
+ * Rich API error that preserves the HTTP status, the parsed JSON body, and
+ * the typed error `code` emitted by the backend (e.g.
+ * `INSUFFICIENT_WORK_ORDER_STOCK`, `WORK_ORDER_INVALID_TRANSITION`). UI code
+ * can branch on `err.code` to render field-level toasts vs. per-row error
+ * surfaces (design §4 / §8 of work-orders-and-bom).
+ */
+export class ApiError extends Error {
+  readonly status: number;
+  readonly code?: string;
+  readonly body: Record<string, unknown>;
+
+  constructor(status: number, body: Record<string, unknown>) {
+    const message =
+      (typeof body.error === 'string' && body.error) ||
+      (typeof body.message === 'string' && body.message) ||
+      `HTTP ${status}`;
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+    this.code = typeof body.code === 'string' ? body.code : undefined;
+    this.body = body;
+  }
+}
+
+export function isApiError(err: unknown): err is ApiError {
+  return err instanceof ApiError;
+}
 
 async function refreshAndRetry<T>(path: string, options?: RequestInit): Promise<T> {
   // Attempt token refresh
@@ -45,8 +85,10 @@ async function request<T>(
   }
 
   if (!res.ok) {
-    const error = await res.json().catch(() => ({ error: 'Request failed' }));
-    throw new Error(error.error || `HTTP ${res.status}`);
+    const body = (await res
+      .json()
+      .catch(() => ({ error: 'Request failed' }))) as Record<string, unknown>;
+    throw new ApiError(res.status, body);
   }
 
   if (res.status === 204) return undefined as T;
@@ -83,4 +125,59 @@ export function reclassifyProduct(
   product_class: ProductClass,
 ): Promise<Product> {
   return api.patch<Product>(`/products/${id}/class`, { product_class });
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// Work order endpoints (work-orders-and-bom)
+// ──────────────────────────────────────────────────────────────────────
+
+export interface ListWorkOrdersParams {
+  status?: WorkOrderStatus;
+  warehouse_id?: string;
+  work_center_location_id?: string;
+  search?: string;
+  page?: number;
+  per_page?: number;
+}
+
+export function listWorkOrders(
+  params: ListWorkOrdersParams = {},
+): Promise<PaginatedResponse<WorkOrder>> {
+  const qs = new URLSearchParams();
+  if (params.status) qs.set('status', params.status);
+  if (params.warehouse_id) qs.set('warehouse_id', params.warehouse_id);
+  if (params.work_center_location_id)
+    qs.set('work_center_location_id', params.work_center_location_id);
+  if (params.search) qs.set('search', params.search);
+  qs.set('page', String(params.page ?? 1));
+  qs.set('per_page', String(params.per_page ?? 20));
+  return api.get<PaginatedResponse<WorkOrder>>(`/work-orders?${qs}`);
+}
+
+export function getWorkOrder(id: string): Promise<WorkOrderDetail> {
+  return api.get<WorkOrderDetail>(`/work-orders/${id}`);
+}
+
+export function createWorkOrder(
+  body: CreateWorkOrderInput,
+): Promise<WorkOrder> {
+  return api.post<WorkOrder>('/work-orders', body);
+}
+
+export function issueWorkOrder(
+  id: string,
+  body: IssueWorkOrderInput = {},
+): Promise<WorkOrder> {
+  return api.post<WorkOrder>(`/work-orders/${id}/issue`, body);
+}
+
+export function completeWorkOrder(
+  id: string,
+  body: CompleteWorkOrderInput = {},
+): Promise<WorkOrder> {
+  return api.post<WorkOrder>(`/work-orders/${id}/complete`, body);
+}
+
+export function cancelWorkOrder(id: string): Promise<WorkOrder> {
+  return api.post<WorkOrder>(`/work-orders/${id}/cancel`, {});
 }

@@ -92,7 +92,7 @@ function SupplierProductsDialog({
     }
   }, [open, supplier, fetchProducts, fetchAllProducts]);
 
-  const handleLink = async (e: React.FormEvent<HTMLFormElement>) => {
+  const handleLink = async (e: React.SubmitEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!supplier) return;
     setIsLinking(true);
@@ -426,7 +426,7 @@ export default function ProveedoresPage() {
     setFormOpen(true);
   };
 
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (e: React.SubmitEvent<HTMLFormElement>) => {
     e.preventDefault();
     setIsSaving(true);
     try {

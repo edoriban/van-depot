@@ -113,7 +113,7 @@ export default function ConfiguracionStockPage() {
     setEditGlobalOpen(true);
   };
 
-  const handleSaveGlobal = async (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSaveGlobal = async (e: React.SubmitEvent<HTMLFormElement>) => {
     e.preventDefault();
     setIsSavingGlobal(true);
     try {
@@ -137,7 +137,7 @@ export default function ConfiguracionStockPage() {
     }
   };
 
-  const handleAddOverride = async (e: React.FormEvent<HTMLFormElement>) => {
+  const handleAddOverride = async (e: React.SubmitEvent<HTMLFormElement>) => {
     e.preventDefault();
     setIsSavingOverride(true);
     try {

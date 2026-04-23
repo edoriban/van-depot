@@ -195,6 +195,22 @@ impl WarehouseRepository for PgWarehouseRepository {
         .await
         .map_err(map_sqlx_error)?;
 
+        // Work-orders-and-bom (design §D4 / §D5): every warehouse ships with a
+        // system-managed `finished_good` location. Migration 20260423000003
+        // backfills this for pre-existing warehouses, and the seed re-runs an
+        // idempotent upsert at startup — but new warehouses created through
+        // this repo AFTER boot must also land in the valid state so the WO
+        // complete flow can resolve an FG location without operator help.
+        sqlx::query(
+            "INSERT INTO locations \
+                (warehouse_id, location_type, name, label, is_system, pos_x, pos_y, width, height) \
+             VALUES ($1, 'finished_good', 'Producto Terminado', 'PT', true, 0, 0, 100, 100)",
+        )
+        .bind(row.id)
+        .execute(&mut *tx)
+        .await
+        .map_err(map_sqlx_error)?;
+
         tx.commit().await.map_err(map_sqlx_error)?;
 
         Ok(Warehouse::from(row))

@@ -3,6 +3,7 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 use vandepot_domain::error::DomainError;
+use vandepot_domain::models::enums::ProductClass;
 
 use super::shared::map_sqlx_error;
 
@@ -70,6 +71,35 @@ pub async fn create_recipe(
     items: &[(Uuid, f64, Option<String>)],
 ) -> Result<RecipeRow, DomainError> {
     let mut tx = pool.begin().await.map_err(map_sqlx_error)?;
+
+    // Guard (design §6e, spec §3): reject recipes whose items reference a
+    // `tool_spare` product. Runs BEFORE the header INSERT so a rejected
+    // request leaves zero rows in both `recipes` and `recipe_items`. Missing
+    // products produce `NotFound` from the same query so the caller sees a
+    // clear error instead of a foreign-key surprise down the road.
+    for (product_id, _qty, _notes) in items {
+        let class: Option<(ProductClass,)> = sqlx::query_as(
+            "SELECT product_class FROM products WHERE id = $1 AND deleted_at IS NULL",
+        )
+        .bind(product_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(map_sqlx_error)?;
+
+        match class {
+            None => {
+                return Err(DomainError::NotFound(format!(
+                    "Product {product_id} not found"
+                )));
+            }
+            Some((ProductClass::ToolSpare,)) => {
+                return Err(DomainError::RecipeItemRejectsToolSpare {
+                    product_id: *product_id,
+                });
+            }
+            _ => {}
+        }
+    }
 
     let recipe = sqlx::query_as::<_, RecipeRow>(
         "INSERT INTO recipes (name, description, created_by) \
@@ -173,6 +203,32 @@ pub async fn update_recipe(
     items: &[(Uuid, f64, Option<String>)],
 ) -> Result<RecipeRow, DomainError> {
     let mut tx = pool.begin().await.map_err(map_sqlx_error)?;
+
+    // Mirror the create_recipe guard: items must not reference tool_spare
+    // products (design §D11).
+    for (product_id, _qty, _notes) in items {
+        let class: Option<(ProductClass,)> = sqlx::query_as(
+            "SELECT product_class FROM products WHERE id = $1 AND deleted_at IS NULL",
+        )
+        .bind(product_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(map_sqlx_error)?;
+
+        match class {
+            None => {
+                return Err(DomainError::NotFound(format!(
+                    "Product {product_id} not found"
+                )));
+            }
+            Some((ProductClass::ToolSpare,)) => {
+                return Err(DomainError::RecipeItemRejectsToolSpare {
+                    product_id: *product_id,
+                });
+            }
+            _ => {}
+        }
+    }
 
     let recipe = sqlx::query_as::<_, RecipeRow>(
         "UPDATE recipes SET name = $2, description = $3, updated_at = NOW() \

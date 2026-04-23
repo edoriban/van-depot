@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useSearchParams, useRouter, usePathname } from 'next/navigation';
-import { api } from '@/lib/api-mutations';
+import { api, isApiError } from '@/lib/api-mutations';
+import { toast } from 'sonner';
 import type {
   Product,
   Category,
@@ -73,11 +74,15 @@ function ProductsTab({
   fetchCategories: _fetchCategories,
   filterClass,
   setFilterClass,
+  filterManufactured,
+  setFilterManufactured,
 }: {
   categories: Category[];
   fetchCategories: () => void;
   filterClass: ProductClass | null;
   setFilterClass: (value: ProductClass | null) => void;
+  filterManufactured: boolean;
+  setFilterManufactured: (value: boolean) => void;
 }) {
   const [products, setProducts] = useState<Product[]>([]);
   const [total, setTotal] = useState(0);
@@ -99,6 +104,13 @@ function ProductsTab({
   const [formUnit, setFormUnit] = useState<UnitType>('piece');
   const [formClass, setFormClass] = useState<ProductClass>('raw_material');
   const [formHasExpiry, setFormHasExpiry] = useState(false);
+  // Only meaningful when `formClass === 'raw_material'`. Auto-cleared via
+  // `handleFormClassChange` when the user moves to a non-raw_material class.
+  const [formIsManufactured, setFormIsManufactured] = useState(false);
+  // One-shot warning shown when the user switches away from `raw_material`
+  // while `is_manufactured` was true — they lose the flag silently otherwise.
+  const [manufacturedResetWarning, setManufacturedResetWarning] =
+    useState(false);
   const [formMinStock, setFormMinStock] = useState('0');
   const [formMaxStock, setFormMaxStock] = useState('');
   const [isSaving, setIsSaving] = useState(false);
@@ -115,6 +127,7 @@ function ProductsTab({
       s: string,
       catId: string,
       cls: ProductClass | null,
+      onlyManufactured: boolean,
     ) => {
       setIsLoading(true);
       setError(null);
@@ -123,6 +136,7 @@ function ProductsTab({
         if (s) url += `&search=${encodeURIComponent(s)}`;
         if (catId) url += `&category_id=${catId}`;
         if (cls) url += `&class=${cls}`;
+        if (onlyManufactured) url += `&is_manufactured=true`;
         const res = await api.get<PaginatedResponse<Product>>(url);
         setProducts(res.data);
         setTotal(res.total);
@@ -136,8 +150,8 @@ function ProductsTab({
   );
 
   useEffect(() => {
-    fetchProducts(page, search, filterCategoryId, filterClass);
-  }, [page, search, filterCategoryId, filterClass, fetchProducts]);
+    fetchProducts(page, search, filterCategoryId, filterClass, filterManufactured);
+  }, [page, search, filterCategoryId, filterClass, filterManufactured, fetchProducts]);
 
   const getCategoryName = (categoryId?: string) => {
     if (!categoryId) return <span className="text-muted-foreground">-</span>;
@@ -154,6 +168,8 @@ function ProductsTab({
     setFormUnit('piece');
     setFormClass('raw_material');
     setFormHasExpiry(false);
+    setFormIsManufactured(false);
+    setManufacturedResetWarning(false);
     setFormMinStock('0');
     setFormMaxStock('');
     setFormOpen(true);
@@ -168,21 +184,31 @@ function ProductsTab({
     setFormUnit(product.unit_of_measure);
     setFormClass(product.product_class);
     setFormHasExpiry(product.has_expiry);
+    setFormIsManufactured(product.is_manufactured);
+    setManufacturedResetWarning(false);
     setFormMinStock(String(product.min_stock));
     setFormMaxStock(product.max_stock != null ? String(product.max_stock) : '');
     setFormOpen(true);
   };
 
   // Enforce the class/expiry invariant at the form boundary: tool_spare never
-  // allows has_expiry=true.
+  // allows has_expiry=true. Also enforce the class/is_manufactured invariant
+  // — leaving `raw_material` auto-clears the Manufacturable flag, with an
+  // inline warning so the user is not surprised.
   const handleFormClassChange = (next: ProductClass) => {
     setFormClass(next);
     if (next === 'tool_spare') {
       setFormHasExpiry(false);
     }
+    if (next !== 'raw_material' && formIsManufactured) {
+      setFormIsManufactured(false);
+      setManufacturedResetWarning(true);
+    } else {
+      setManufacturedResetWarning(false);
+    }
   };
 
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (e: React.SubmitEvent<HTMLFormElement>) => {
     e.preventDefault();
     setIsSaving(true);
     try {
@@ -190,6 +216,11 @@ function ProductsTab({
       // an out-of-date toggle state might say.
       const hasExpiryForPayload =
         formClass === 'tool_spare' ? false : formHasExpiry;
+      // Normalize is_manufactured: only raw_material can be manufactured.
+      // This mirrors the backend cross-field invariant so the user can't
+      // submit an invalid combo by racing the class change.
+      const isManufacturedForPayload =
+        formClass === 'raw_material' ? formIsManufactured : false;
       const basePayload = {
         name: formName,
         sku: formSku,
@@ -197,6 +228,7 @@ function ProductsTab({
         category_id: formCategoryId || undefined,
         unit_of_measure: formUnit,
         has_expiry: hasExpiryForPayload,
+        is_manufactured: isManufacturedForPayload,
         min_stock: Number(formMinStock),
         max_stock: formMaxStock ? Number(formMaxStock) : undefined,
       };
@@ -216,10 +248,24 @@ function ProductsTab({
         search,
         filterCategoryId,
         filterClass,
+        filterManufactured,
       );
       if (!editingProduct) setPage(1);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error al guardar');
+      // Surface the typed 422 cross-field invariant as a Spanish toast so the
+      // user understands WHY the save failed (the class/is_manufactured combo
+      // is illegal). Other errors fall through to the banner so the form
+      // stays open for retry.
+      if (
+        isApiError(err) &&
+        err.code === 'PRODUCT_MANUFACTURED_REQUIRES_RAW_MATERIAL'
+      ) {
+        toast.error(
+          "No se puede marcar este producto como manufacturable porque su clase no es 'Materia prima'.",
+        );
+      } else {
+        setError(err instanceof Error ? err.message : 'Error al guardar');
+      }
     } finally {
       setIsSaving(false);
     }
@@ -231,7 +277,7 @@ function ProductsTab({
     try {
       await api.del(`/products/${deleteTarget.id}`);
       setDeleteTarget(null);
-      fetchProducts(page, search, filterCategoryId, filterClass);
+      fetchProducts(page, search, filterCategoryId, filterClass, filterManufactured);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error al eliminar');
     } finally {
@@ -272,14 +318,26 @@ function ProductsTab({
       key: 'class',
       header: 'Clase',
       render: (p) => (
-        <Badge
-          variant="outline"
-          className={cn('border-0', PRODUCT_CLASS_BADGE_CLASSES[p.product_class])}
-          data-testid="product-class-badge"
-          data-class={p.product_class}
-        >
-          {PRODUCT_CLASS_LABELS_SHORT[p.product_class]}
-        </Badge>
+        <div className="flex items-center gap-2">
+          <Badge
+            variant="outline"
+            className={cn('border-0', PRODUCT_CLASS_BADGE_CLASSES[p.product_class])}
+            data-testid="product-class-badge"
+            data-class={p.product_class}
+          >
+            {PRODUCT_CLASS_LABELS_SHORT[p.product_class]}
+          </Badge>
+          {p.is_manufactured && (
+            <Badge
+              variant="outline"
+              className="border-0 bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200"
+              data-testid="product-manufactured-badge"
+              title="Este producto es el objetivo de una orden de trabajo"
+            >
+              MFG
+            </Badge>
+          )}
+        </div>
       ),
     },
     {
@@ -341,7 +399,11 @@ function ProductsTab({
   return (
     <div className="space-y-4">
       {/* Class chip-row (URL-bound via ?class=). Keep visually stable even
-          when filters below are interacted with. */}
+          when filters below are interacted with. The Manufacturables chip
+          is separate from the class filter: it sets ?is_manufactured=true
+          without constraining product_class. Even though the backend
+          invariant restricts manufacturables to raw_material, we still let
+          the two filters compose orthogonally so stale data doesn't hide. */}
       <div
         className="flex flex-wrap items-center gap-2"
         role="tablist"
@@ -371,6 +433,26 @@ function ProductsTab({
             </button>
           );
         })}
+        <button
+          type="button"
+          role="tab"
+          aria-selected={filterManufactured}
+          aria-pressed={filterManufactured}
+          onClick={() => {
+            setFilterManufactured(!filterManufactured);
+            setPage(1);
+          }}
+          data-testid="class-chip-manufactured"
+          data-active={filterManufactured ? 'true' : 'false'}
+          className={cn(
+            'inline-flex h-8 items-center rounded-full border px-3 text-sm font-medium transition-colors',
+            filterManufactured
+              ? 'border-orange-500 bg-orange-500 text-white'
+              : 'border-border bg-background text-muted-foreground hover:bg-muted hover:text-foreground',
+          )}
+        >
+          Manufacturables
+        </button>
       </div>
 
       <div className="flex items-center justify-between">
@@ -574,6 +656,53 @@ function ProductsTab({
                 </div>
               )}
             </div>
+            {/* is_manufactured toggle — only meaningful for raw_material.
+                When the class is non-raw_material we render a disabled
+                placeholder so the user understands why the flag is
+                unavailable (class-gated invariant). */}
+            <div className="space-y-2">
+              <Label htmlFor="product-is-manufactured">
+                Manufacturable
+              </Label>
+              {formClass === 'raw_material' ? (
+                <div className="flex flex-col gap-1">
+                  <div className="flex h-9 items-center gap-2">
+                    <input
+                      id="product-is-manufactured"
+                      type="checkbox"
+                      checked={formIsManufactured}
+                      onChange={(e) => setFormIsManufactured(e.target.checked)}
+                      className="size-4 rounded border-input accent-primary"
+                      data-testid="product-is-manufactured-toggle"
+                    />
+                    <label
+                      htmlFor="product-is-manufactured"
+                      className="text-sm text-muted-foreground"
+                    >
+                      Marcar si este producto se fabrica internamente (puede
+                      ser el objetivo de una orden de trabajo).
+                    </label>
+                  </div>
+                </div>
+              ) : (
+                <div
+                  className="flex h-9 items-center text-sm text-muted-foreground"
+                  data-testid="product-is-manufactured-disabled"
+                >
+                  Solo los productos de clase &ldquo;Materia prima&rdquo; pueden
+                  marcarse como manufacturables.
+                </div>
+              )}
+              {manufacturedResetWarning && (
+                <p
+                  className="text-xs text-amber-600 dark:text-amber-400"
+                  data-testid="product-manufactured-reset-warning"
+                >
+                  El indicador &ldquo;Manufacturable&rdquo; se desactiva al
+                  cambiar la clase.
+                </p>
+              )}
+            </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="product-min-stock">Stock minimo</Label>
@@ -702,7 +831,7 @@ function CategoriesTab({
     setFormOpen(true);
   };
 
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (e: React.SubmitEvent<HTMLFormElement>) => {
     e.preventDefault();
     setIsSaving(true);
     try {
@@ -898,6 +1027,9 @@ export default function ProductosPage() {
   const filterClass: ProductClass | null = isProductClass(rawClass)
     ? rawClass
     : null;
+  // URL-bound Manufacturables chip. Binary filter — presence of the param
+  // with value 'true' means filter on, everything else means off.
+  const filterManufactured = searchParams.get('is_manufactured') === 'true';
 
   const handleTabChange = (value: string) => {
     const sp = new URLSearchParams(searchParams.toString());
@@ -912,6 +1044,20 @@ export default function ProductosPage() {
         sp.delete('class');
       } else {
         sp.set('class', next);
+      }
+      const qs = sp.toString();
+      router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+    },
+    [searchParams, pathname, router],
+  );
+
+  const setFilterManufactured = useCallback(
+    (next: boolean) => {
+      const sp = new URLSearchParams(searchParams.toString());
+      if (next) {
+        sp.set('is_manufactured', 'true');
+      } else {
+        sp.delete('is_manufactured');
       }
       const qs = sp.toString();
       router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
@@ -961,6 +1107,8 @@ export default function ProductosPage() {
             fetchCategories={fetchCategories}
             filterClass={filterClass}
             setFilterClass={setFilterClass}
+            filterManufactured={filterManufactured}
+            setFilterManufactured={setFilterManufactured}
           />
         </TabsContent>
 

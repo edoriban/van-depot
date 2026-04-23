@@ -19,6 +19,7 @@ pub mod tool_instances_repo;
 pub mod user_repo;
 pub mod warehouse_map_repo;
 pub mod warehouse_repo;
+pub mod work_orders_repo;
 
 pub use category_repo::PgCategoryRepository;
 pub use cycle_count_repo::PgCycleCountRepository;
@@ -30,3 +31,4 @@ pub use purchase_return_repo::PgPurchaseReturnRepository;
 pub use supplier_repo::PgSupplierRepository;
 pub use user_repo::PgUserRepository;
 pub use warehouse_repo::PgWarehouseRepository;
+pub use work_orders_repo::PgWorkOrderRepository;

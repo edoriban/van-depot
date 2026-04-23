@@ -34,7 +34,7 @@ function LoginForm() {
     if (user) router.replace(redirectTo);
   }, [user, router, redirectTo]);
 
-  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+  async function handleSubmit(e: React.SubmitEvent<HTMLFormElement>) {
     e.preventDefault();
     setError('');
     setIsSubmitting(true);

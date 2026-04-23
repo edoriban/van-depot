@@ -24,6 +24,7 @@ import {
   ClipboardIcon,
   CheckListIcon,
   TaskDaily01Icon,
+  FactoryIcon,
   Alert02Icon,
   Notification03Icon,
   Analytics01Icon,
@@ -77,9 +78,10 @@ const navGroups: NavGroup[] = [
   {
     label: 'Operaciones',
     items: [
-      { title: 'Movimientos', href: '/movimientos', icon: ArrowDataTransferHorizontalIcon },
       { title: 'Conteos Ciclicos', href: '/conteos-ciclicos', icon: CheckListIcon },
       { title: 'Recetas', href: '/recetas', icon: TaskDaily01Icon },
+      { title: 'Ordenes de trabajo', href: '/ordenes-de-trabajo', icon: FactoryIcon },
+      { title: 'Movimientos', href: '/movimientos', icon: ArrowDataTransferHorizontalIcon },
     ],
   },
   {

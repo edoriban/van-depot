@@ -71,6 +71,10 @@ const LOCATION_TYPE_LABELS: Record<LocationType, string> = {
   shelf: 'Estante',
   position: 'Posicion',
   bin: 'Contenedor',
+  reception: 'Recepcion',
+  storage: 'Almacenamiento',
+  work_center: 'Centro de trabajo',
+  finished_good: 'Producto terminado',
 };
 
 const LOCATION_TYPE_DESCRIPTIONS: Record<LocationType, string> = {
@@ -79,6 +83,10 @@ const LOCATION_TYPE_DESCRIPTIONS: Record<LocationType, string> = {
   shelf: 'Nivel o repisa dentro de un rack (ej: Nivel superior, Nivel medio)',
   position: 'Espacio especifico dentro de un estante (ej: Posicion izquierda, centro)',
   bin: 'Contenedor o caja dentro de una posicion (ej: Caja 01, Contenedor azul)',
+  reception: 'Zona de recepcion del almacen (creada automaticamente)',
+  storage: 'Ubicacion generica de almacenamiento',
+  work_center: 'Centro de trabajo donde se consumen materiales de las ordenes de trabajo',
+  finished_good: 'Ubicacion reservada para producto terminado (creada automaticamente)',
 };
 
 const LOCATION_TYPE_STYLES: Record<LocationType, string> = {
@@ -87,6 +95,10 @@ const LOCATION_TYPE_STYLES: Record<LocationType, string> = {
   shelf: 'bg-indigo-100 text-indigo-800 border-indigo-300 dark:bg-indigo-900/30 dark:text-indigo-300 dark:border-indigo-700',
   position: 'bg-purple-100 text-purple-800 border-purple-300 dark:bg-purple-900/30 dark:text-purple-300 dark:border-purple-700',
   bin: 'bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-700',
+  reception: 'bg-slate-100 text-slate-800 border-slate-300 dark:bg-slate-900/30 dark:text-slate-300 dark:border-slate-700',
+  storage: 'bg-stone-100 text-stone-800 border-stone-300 dark:bg-stone-900/30 dark:text-stone-300 dark:border-stone-700',
+  work_center: 'bg-orange-100 text-orange-800 border-orange-300 dark:bg-orange-900/30 dark:text-orange-300 dark:border-orange-700',
+  finished_good: 'bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-900/30 dark:text-emerald-300 dark:border-emerald-700',
 };
 
 const LOCATION_TYPES: LocationType[] = ['zone', 'rack', 'shelf', 'position', 'bin'];
@@ -424,7 +436,7 @@ function LocationsTab({ warehouseId }: { warehouseId: string }) {
     setFormOpen(true);
   };
 
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (e: React.SubmitEvent<HTMLFormElement>) => {
     e.preventDefault();
     setIsSaving(true);
     try {

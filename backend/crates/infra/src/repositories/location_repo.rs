@@ -285,4 +285,59 @@ impl LocationRepository for PgLocationRepository {
 
         Ok(row.map(Location::from))
     }
+
+    async fn find_finished_good_by_warehouse(
+        &self,
+        warehouse_id: Uuid,
+    ) -> Result<Option<Location>, DomainError> {
+        // The partial unique index `idx_one_finished_good_per_warehouse`
+        // guarantees at most one system row per warehouse — the `LIMIT 1` is
+        // belt-and-suspenders against future schema drift.
+        let row = sqlx::query_as::<_, LocationRow>(
+            "SELECT id, warehouse_id, parent_id, location_type, name, label, is_active, is_system, pos_x, pos_y, width, height, created_at, updated_at \
+             FROM locations \
+             WHERE warehouse_id = $1 AND location_type = 'finished_good' AND is_system = true \
+             LIMIT 1",
+        )
+        .bind(warehouse_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(map_sqlx_error)?;
+
+        Ok(row.map(Location::from))
+    }
+
+    async fn list_work_centers_by_warehouse(
+        &self,
+        warehouse_id: Uuid,
+    ) -> Result<Vec<Location>, DomainError> {
+        let rows = sqlx::query_as::<_, LocationRow>(
+            "SELECT id, warehouse_id, parent_id, location_type, name, label, is_active, is_system, pos_x, pos_y, width, height, created_at, updated_at \
+             FROM locations \
+             WHERE warehouse_id = $1 AND location_type = 'work_center' \
+             ORDER BY created_at ASC",
+        )
+        .bind(warehouse_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(map_sqlx_error)?;
+
+        Ok(rows.into_iter().map(Location::from).collect())
+    }
+
+    async fn count_work_centers_by_warehouse(
+        &self,
+        warehouse_id: Uuid,
+    ) -> Result<i64, DomainError> {
+        let row: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM locations \
+             WHERE warehouse_id = $1 AND location_type = 'work_center'",
+        )
+        .bind(warehouse_id)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(map_sqlx_error)?;
+
+        Ok(row.0)
+    }
 }

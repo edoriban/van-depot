@@ -19,11 +19,13 @@ pub struct ClassLockStatus {
 #[async_trait]
 pub trait ProductRepository: Send + Sync {
     async fn find_by_id(&self, id: Uuid) -> Result<Option<Product>, DomainError>;
+    #[allow(clippy::too_many_arguments)]
     async fn list(
         &self,
         search: Option<&str>,
         category_id: Option<Uuid>,
         product_class: Option<ProductClass>,
+        is_manufactured: Option<bool>,
         limit: i64,
         offset: i64,
     ) -> Result<(Vec<Product>, i64), DomainError>;
@@ -37,6 +39,7 @@ pub trait ProductRepository: Send + Sync {
         unit_of_measure: UnitType,
         product_class: ProductClass,
         has_expiry: bool,
+        is_manufactured: bool,
         min_stock: f64,
         max_stock: Option<f64>,
         created_by: Option<Uuid>,
@@ -51,6 +54,7 @@ pub trait ProductRepository: Send + Sync {
         category_id: Option<Option<Uuid>>,
         unit_of_measure: Option<UnitType>,
         has_expiry: Option<bool>,
+        is_manufactured: Option<bool>,
         min_stock: Option<f64>,
         max_stock: Option<Option<f64>>,
         updated_by: Option<Uuid>,

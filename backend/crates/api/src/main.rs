@@ -25,6 +25,7 @@ async fn main() -> anyhow::Result<()> {
     // Seed superadmin and demo data
     vandepot_infra::seed::seed_superadmin(&pool).await?;
     vandepot_infra::seed::seed_demo_data(&pool).await?;
+    vandepot_infra::seed::seed_work_orders_demo(&pool).await?;
 
     let state = state::AppState {
         pool,

@@ -31,7 +31,7 @@ export default function RecuperarPage() {
   }, [cooldown]);
 
   const handleSubmit = useCallback(
-    async (e: React.FormEvent<HTMLFormElement>) => {
+    async (e: React.SubmitEvent<HTMLFormElement>) => {
       e.preventDefault();
       setError('');
 

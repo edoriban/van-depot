@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use chrono::{DateTime, NaiveDate, Utc};
-use sqlx::PgPool;
+use sqlx::{PgPool, Postgres, Transaction};
 use uuid::Uuid;
 
 use vandepot_domain::error::DomainError;
@@ -29,6 +29,7 @@ struct MovementRow {
     notes: Option<String>,
     supplier_id: Option<Uuid>,
     movement_reason: Option<String>,
+    work_order_id: Option<Uuid>,
     created_at: DateTime<Utc>,
 }
 
@@ -47,6 +48,7 @@ impl From<MovementRow> for Movement {
             supplier_id: row.supplier_id,
             movement_reason: row.movement_reason,
             purchase_order_id: None,
+            work_order_id: row.work_order_id,
             created_at: row.created_at,
         }
     }
@@ -85,7 +87,7 @@ impl From<InventoryItemRow> for InventoryItem {
 
 const MOVEMENT_COLUMNS: &str = "id, product_id, from_location_id, to_location_id, \
                                 quantity::float8, movement_type, user_id, reference, \
-                                notes, supplier_id, movement_reason, created_at";
+                                notes, supplier_id, movement_reason, work_order_id, created_at";
 
 const INVENTORY_ITEM_SELECT: &str = "\
     i.id, i.product_id, p.name AS product_name, p.sku AS product_sku, \
@@ -381,6 +383,10 @@ impl InventoryService for PgInventoryService {
             idx += 1;
             where_clauses.push(format!("created_at <= ${idx}"));
         }
+        if filters.work_order_id.is_some() {
+            idx += 1;
+            where_clauses.push(format!("work_order_id = ${idx}"));
+        }
 
         let where_sql = where_clauses.join(" AND ");
 
@@ -401,6 +407,9 @@ impl InventoryService for PgInventoryService {
         }
         if let Some(ed) = filters.end_date {
             count_query = count_query.bind(ed);
+        }
+        if let Some(woid) = filters.work_order_id {
+            count_query = count_query.bind(woid);
         }
 
         let total = count_query
@@ -436,6 +445,9 @@ impl InventoryService for PgInventoryService {
         }
         if let Some(ed) = filters.end_date {
             data_query = data_query.bind(ed);
+        }
+        if let Some(woid) = filters.work_order_id {
+            data_query = data_query.bind(woid);
         }
         data_query = data_query.bind(limit).bind(offset);
 
@@ -732,4 +744,160 @@ pub async fn opening_balance(
 
     tx.commit().await.map_err(map_sqlx_error)?;
     Ok(())
+}
+
+// ── FEFO consumption helper (work-orders-and-bom design §6c) ─────────
+//
+// `pick_for_consumption` is the single choke-point used by
+// `work_orders_repo::complete` to back-flush materials at COMPLETE time. It
+// is shared by any future flow that needs FEFO consumption against a
+// lot-tracked + direct-inventory mixed stock.
+//
+// Ordering — FEFO: earliest `expiration_date` first, `NULLS LAST`, ties broken
+// by `product_lots.created_at ASC`, then by `inventory_lots.id ASC` as the
+// final deterministic tiebreak. Greedy fills the requested `quantity` from
+// lots first, then falls through to the direct (non-lot) `inventory` row.
+//
+// Critical accounting rule (design §6c "critical note"): the `inventory` row
+// is the SUM of lot-backed + direct quantity at that (product, location). So
+// when we fall through to direct inventory we MUST subtract the lot-backed
+// sum we already picked from the inventory row's total to avoid
+// double-counting.
+//
+// Locking: issues `SELECT ... FOR UPDATE` on both `inventory_lots` and
+// `inventory` so the caller's tx holds row locks until commit. The tx is
+// passed in (not owned) because the caller (complete) has other work in the
+// same tx that must be atomic with the pick plan.
+
+/// One unit of FEFO back-flush draw. `lot_id`/`product_lot_id` carry the lot
+/// identity when the pick came from an `inventory_lots` row; both are `None`
+/// when the pick came from the direct (non-lot) `inventory` row.
+#[derive(Debug, Clone)]
+pub struct LotPick {
+    /// `inventory_lots.id` for the decremented row. `None` means a direct
+    /// (non-lot) inventory draw — the caller's replay only touches
+    /// `inventory` for those picks.
+    pub lot_id: Option<Uuid>,
+    /// `product_lots.id` — carried out so the caller can write this into the
+    /// back-flush movement row (for traceability).
+    pub product_lot_id: Option<Uuid>,
+    /// Units drawn for this pick. Sum across a `Full` outcome equals the
+    /// requested `quantity`.
+    pub quantity: f64,
+}
+
+/// Outcome of a `pick_for_consumption` dry-run. `Full` means the greedy plan
+/// satisfied the entire request; `Short` means the request exceeds the total
+/// available (lots + direct) at this (product, location) and the caller MUST
+/// treat the WO as insufficient-stock. In neither case does this function
+/// mutate inventory — the caller replays the plan from `Full(picks)` under
+/// the same transaction to actually decrement.
+#[derive(Debug, Clone)]
+pub enum PickOutcome {
+    Full(Vec<LotPick>),
+    Short {
+        picks: Vec<LotPick>,
+        shortfall: f64,
+    },
+}
+
+/// FEFO-greedy consumption plan for `(product_id, location_id)` totalling
+/// `quantity`. Runs inside the caller's transaction; takes row locks via
+/// `FOR UPDATE` so the caller retains serializability across the eventual
+/// execute phase. DOES NOT mutate inventory.
+///
+/// See design §6c for the full ordering + accounting contract.
+pub async fn pick_for_consumption(
+    tx: &mut Transaction<'_, Postgres>,
+    product_id: Uuid,
+    location_id: Uuid,
+    quantity: f64,
+) -> Result<PickOutcome, DomainError> {
+    if quantity <= 0.0 {
+        // Degenerate input — return a trivially full plan so callers can
+        // treat zero-quantity BOM rows uniformly without a special case.
+        return Ok(PickOutcome::Full(Vec::new()));
+    }
+
+    // Step 1: FEFO-order `inventory_lots` at the location for this product.
+    // `quantity > 0` filter skips already-depleted lot rows. `FOR UPDATE` on
+    // both the `il` alias (the mutable target) keeps the caller's tx
+    // serializable against concurrent picks.
+    //
+    // `_exp` and `_created_at` are carried only for the ORDER BY side-effect
+    // (Postgres requires the sort key columns to be in the projection when
+    // `DISTINCT` is used — we're not using DISTINCT here, but pulling them
+    // out keeps the code future-proof if the query ever gains grouping).
+    let lot_rows: Vec<(Uuid, Uuid, f64, Option<NaiveDate>, DateTime<Utc>)> = sqlx::query_as(
+        r#"
+        SELECT il.id, pl.id, il.quantity::float8, pl.expiration_date, pl.created_at
+        FROM inventory_lots il
+        JOIN product_lots pl ON pl.id = il.product_lot_id
+        WHERE il.location_id = $2 AND pl.product_id = $1 AND il.quantity > 0
+        ORDER BY pl.expiration_date NULLS LAST, pl.created_at ASC, il.id ASC
+        FOR UPDATE OF il
+        "#,
+    )
+    .bind(product_id)
+    .bind(location_id)
+    .fetch_all(&mut **tx)
+    .await
+    .map_err(map_sqlx_error)?;
+
+    let mut picks: Vec<LotPick> = Vec::new();
+    let mut remaining = quantity;
+
+    for (il_id, pl_id, il_qty, _exp, _created_at) in lot_rows {
+        if remaining <= 0.0 {
+            break;
+        }
+        let take = remaining.min(il_qty);
+        if take > 0.0 {
+            picks.push(LotPick {
+                lot_id: Some(il_id),
+                product_lot_id: Some(pl_id),
+                quantity: take,
+            });
+            remaining -= take;
+        }
+    }
+
+    // Step 2: fall through to the direct (non-lot) inventory row if still
+    // short. The lot-backed sum picked in Step 1 has already been attributed
+    // to the `inventory` row's total (see "critical accounting rule" above),
+    // so the non-lot availability = `inventory.quantity - sum(picks)`.
+    if remaining > 0.0 {
+        let direct: Option<(f64,)> = sqlx::query_as(
+            "SELECT quantity::float8 FROM inventory \
+             WHERE product_id = $1 AND location_id = $2 FOR UPDATE",
+        )
+        .bind(product_id)
+        .bind(location_id)
+        .fetch_optional(&mut **tx)
+        .await
+        .map_err(map_sqlx_error)?;
+
+        if let Some((qty,)) = direct {
+            let lot_sum: f64 = picks.iter().map(|p| p.quantity).sum();
+            let non_lot_available = (qty - lot_sum).max(0.0);
+            let take = remaining.min(non_lot_available);
+            if take > 0.0 {
+                picks.push(LotPick {
+                    lot_id: None,
+                    product_lot_id: None,
+                    quantity: take,
+                });
+                remaining -= take;
+            }
+        }
+    }
+
+    if remaining > 0.0 {
+        Ok(PickOutcome::Short {
+            picks,
+            shortfall: remaining,
+        })
+    } else {
+        Ok(PickOutcome::Full(picks))
+    }
 }

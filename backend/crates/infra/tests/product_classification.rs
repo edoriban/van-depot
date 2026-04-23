@@ -110,6 +110,7 @@ impl TestData {
                 UnitType::Piece,
                 class,
                 has_expiry,
+                false, // is_manufactured (Batch 2: existing tests do not assert on this flag)
                 min_stock,
                 None,
                 Some(self.user_id),
@@ -237,7 +238,8 @@ async fn test_6_2_create_rejects_tool_spare_with_expiry() {
             None,
             UnitType::Piece,
             ProductClass::ToolSpare,
-            true, // invalid: tool_spare may never have has_expiry = true
+            true,  // invalid: tool_spare may never have has_expiry = true
+            false, // is_manufactured
             0.0,
             None,
             Some(td.user_id),

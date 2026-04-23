@@ -53,6 +53,10 @@ pub struct MovementFilters {
     pub movement_type: Option<MovementType>,
     pub start_date: Option<DateTime<Utc>>,
     pub end_date: Option<DateTime<Utc>>,
+    /// Exact match on `movements.work_order_id`. Powers the
+    /// `GET /movements?work_order_id=<uuid>` filter used by the WO detail page
+    /// (spec §6, design §6d).
+    pub work_order_id: Option<Uuid>,
 }
 
 pub struct InventoryFilters {

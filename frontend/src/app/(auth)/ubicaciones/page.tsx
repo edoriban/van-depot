@@ -32,6 +32,10 @@ const LOCATION_TYPE_LABELS: Record<LocationType, string> = {
   shelf: 'Estante',
   position: 'Posicion',
   bin: 'Contenedor',
+  reception: 'Recepcion',
+  storage: 'Almacenamiento',
+  work_center: 'Centro de trabajo',
+  finished_good: 'Producto terminado',
 };
 
 const LOCATION_TYPES: LocationType[] = ['zone', 'rack', 'shelf', 'position', 'bin'];
@@ -149,7 +153,7 @@ export default function UbicacionesPage() {
     setFormOpen(true);
   };
 
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (e: React.SubmitEvent<HTMLFormElement>) => {
     e.preventDefault();
     setIsSaving(true);
     try {

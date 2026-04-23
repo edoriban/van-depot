@@ -208,6 +208,7 @@ impl ProductRepository for PgProductRepository {
         search: Option<&str>,
         category_id: Option<Uuid>,
         product_class: Option<ProductClass>,
+        is_manufactured: Option<bool>,
         limit: i64,
         offset: i64,
     ) -> Result<(Vec<Product>, i64), DomainError> {
@@ -229,6 +230,10 @@ impl ProductRepository for PgProductRepository {
             idx += 1;
             where_clauses.push(format!("product_class = ${idx}"));
         }
+        if is_manufactured.is_some() {
+            idx += 1;
+            where_clauses.push(format!("is_manufactured = ${idx}"));
+        }
 
         let where_sql = where_clauses.join(" AND ");
 
@@ -243,6 +248,9 @@ impl ProductRepository for PgProductRepository {
         }
         if let Some(ref pc) = product_class {
             count_query = count_query.bind(pc);
+        }
+        if let Some(im) = is_manufactured {
+            count_query = count_query.bind(im);
         }
         let total = count_query
             .fetch_one(&self.pool)
@@ -268,6 +276,9 @@ impl ProductRepository for PgProductRepository {
         if let Some(ref pc) = product_class {
             data_query = data_query.bind(pc);
         }
+        if let Some(im) = is_manufactured {
+            data_query = data_query.bind(im);
+        }
         data_query = data_query.bind(limit).bind(offset);
 
         let rows = data_query
@@ -287,6 +298,7 @@ impl ProductRepository for PgProductRepository {
         unit_of_measure: UnitType,
         product_class: ProductClass,
         has_expiry: bool,
+        is_manufactured: bool,
         min_stock: f64,
         max_stock: Option<f64>,
         created_by: Option<Uuid>,
@@ -299,11 +311,25 @@ impl ProductRepository for PgProductRepository {
             ));
         }
 
+        // Cross-field invariant (design §D3, spec §1): `is_manufactured = true`
+        // requires `product_class = raw_material`. We pre-validate here for a
+        // clean typed error; the DB-layer CHECK (migration
+        // 20260423000001_add_is_manufactured_to_products.sql) is the backstop.
+        if is_manufactured && !matches!(product_class, ProductClass::RawMaterial) {
+            // `product_id` is unknown at create time — we pass Uuid::nil() so
+            // the API layer still emits the stable error `code`. The spec
+            // scenario (§1) asserts only on the code and the absence of a
+            // persisted row.
+            return Err(DomainError::ProductIsManufacturedRequiresRawMaterial {
+                product_id: Uuid::nil(),
+            });
+        }
+
         let sql = format!(
             "INSERT INTO products (name, sku, description, category_id, unit_of_measure, \
-                                   product_class, has_expiry, \
+                                   product_class, has_expiry, is_manufactured, \
                                    min_stock, max_stock, created_by) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) \
              RETURNING {}",
             PRODUCT_COLUMNS
         );
@@ -315,6 +341,7 @@ impl ProductRepository for PgProductRepository {
             .bind(&unit_of_measure)
             .bind(&product_class)
             .bind(has_expiry)
+            .bind(is_manufactured)
             .bind(min_stock)
             .bind(max_stock)
             .bind(created_by)
@@ -334,10 +361,36 @@ impl ProductRepository for PgProductRepository {
         category_id: Option<Option<Uuid>>,
         unit_of_measure: Option<UnitType>,
         has_expiry: Option<bool>,
+        is_manufactured: Option<bool>,
         min_stock: Option<f64>,
         max_stock: Option<Option<f64>>,
         updated_by: Option<Uuid>,
     ) -> Result<Product, DomainError> {
+        // Cross-field guard: if the incoming patch flips is_manufactured=true,
+        // the resulting product MUST have product_class=raw_material. Since
+        // update() does NOT accept product_class (reclassify lives on
+        // PATCH /products/{id}/class), we resolve the *current* class of the
+        // row and reject the combination here. Mirrors design §D3 / spec §1.
+        if let Some(true) = is_manufactured {
+            let current: Option<(ProductClass,)> = sqlx::query_as(
+                "SELECT product_class FROM products WHERE id = $1 AND deleted_at IS NULL",
+            )
+            .bind(id)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(map_sqlx_error)?;
+
+            match current {
+                None => return Err(DomainError::NotFound("Product not found".to_string())),
+                Some((class,)) if !matches!(class, ProductClass::RawMaterial) => {
+                    return Err(DomainError::ProductIsManufacturedRequiresRawMaterial {
+                        product_id: id,
+                    });
+                }
+                _ => {}
+            }
+        }
+
         let sql = format!(
             "UPDATE products SET \
                 name = COALESCE($2, name), \
@@ -346,9 +399,10 @@ impl ProductRepository for PgProductRepository {
                 category_id = CASE WHEN $6 THEN $7 ELSE category_id END, \
                 unit_of_measure = COALESCE($8, unit_of_measure), \
                 has_expiry = COALESCE($9, has_expiry), \
-                min_stock = COALESCE($10, min_stock), \
-                max_stock = CASE WHEN $11 THEN $12 ELSE max_stock END, \
-                updated_by = COALESCE($13, updated_by), \
+                is_manufactured = COALESCE($10, is_manufactured), \
+                min_stock = COALESCE($11, min_stock), \
+                max_stock = CASE WHEN $12 THEN $13 ELSE max_stock END, \
+                updated_by = COALESCE($14, updated_by), \
                 updated_at = NOW() \
              WHERE id = $1 AND deleted_at IS NULL \
              RETURNING {}",
@@ -364,6 +418,7 @@ impl ProductRepository for PgProductRepository {
             .bind(category_id.flatten())
             .bind(unit_of_measure)
             .bind(has_expiry)
+            .bind(is_manufactured)
             .bind(min_stock)
             .bind(max_stock.is_some())
             .bind(max_stock.flatten())
@@ -412,23 +467,34 @@ impl ProductRepository for PgProductRepository {
             });
         }
 
-        // 2. Fetch current has_expiry so we can enforce the class/expiry
-        //    invariant without a second mutating statement. The CHECK
-        //    constraint on the table is the ultimate backstop, but surfacing
-        //    a nicer domain error matches the `create` path's behavior.
-        let current: Option<(bool,)> =
-            sqlx::query_as("SELECT has_expiry FROM products WHERE id = $1 AND deleted_at IS NULL")
-                .bind(id)
-                .fetch_optional(&mut *tx)
-                .await
-                .map_err(map_sqlx_error)?;
-        let has_expiry = current
-            .ok_or_else(|| DomainError::NotFound("Product not found".to_string()))?
-            .0;
+        // 2. Fetch current has_expiry + is_manufactured so we can enforce
+        //    (a) the class/expiry invariant and (b) the
+        //    is_manufactured→raw_material cross-field invariant without a
+        //    second mutating statement. The CHECK constraint on the table is
+        //    the ultimate backstop, but surfacing nicer domain errors matches
+        //    the `create` path's behavior.
+        let current: Option<(bool, bool)> = sqlx::query_as(
+            "SELECT has_expiry, is_manufactured \
+             FROM products WHERE id = $1 AND deleted_at IS NULL",
+        )
+        .bind(id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(map_sqlx_error)?;
+        let (has_expiry, is_manufactured) = current
+            .ok_or_else(|| DomainError::NotFound("Product not found".to_string()))?;
         if matches!(new_class, ProductClass::ToolSpare) && has_expiry {
             return Err(DomainError::Validation(
                 "Cannot reclassify to tool_spare while has_expiry is true".to_string(),
             ));
+        }
+        // Block moving OUT of `raw_material` while `is_manufactured = true`
+        // (design §D3, spec §1). Operator must first clear the flag via
+        // PATCH /products/{id} setting is_manufactured=false, then reclassify.
+        if is_manufactured && !matches!(new_class, ProductClass::RawMaterial) {
+            return Err(DomainError::ProductIsManufacturedRequiresRawMaterial {
+                product_id: id,
+            });
         }
 
         // 3. Apply the update and commit.

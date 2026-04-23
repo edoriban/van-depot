@@ -1,8 +1,9 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import Link from 'next/link';
 import { useSearchParams, useRouter, usePathname } from 'next/navigation';
-import { api } from '@/lib/api-mutations';
+import { api, getWorkOrder } from '@/lib/api-mutations';
 import type {
   Movement,
   MovementType,
@@ -15,6 +16,7 @@ import type {
   PurchaseOrder,
   PurchaseOrderLine,
   ReceiveLotResponse,
+  WorkOrder,
 } from '@/types';
 import { Textarea } from '@/components/ui/textarea';
 import { DataTable, type ColumnDef } from '@/components/shared/data-table';
@@ -65,6 +67,9 @@ const REASON_LABELS: Record<MovementReason, string> = {
   production_output: 'Produccion (salida)',
   manual_adjustment: 'Ajuste manual',
   cycle_count: 'Conteo ciclico',
+  wo_issue: 'OT — Entrega de material',
+  back_flush: 'OT — Consumo (back-flush)',
+  wo_cancel_reversal: 'Reversa por cancelacion',
 };
 
 const REASON_COLORS: Record<MovementReason, string> = {
@@ -78,6 +83,9 @@ const REASON_COLORS: Record<MovementReason, string> = {
   production_output: 'bg-cyan-100 text-cyan-800 dark:bg-cyan-900 dark:text-cyan-200',
   manual_adjustment: 'bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200',
   cycle_count: 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200',
+  wo_issue: 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200',
+  back_flush: 'bg-cyan-100 text-cyan-800 dark:bg-cyan-900 dark:text-cyan-200',
+  wo_cancel_reversal: 'bg-slate-100 text-slate-800 dark:bg-slate-900 dark:text-slate-200',
 };
 
 const PER_PAGE = 20;
@@ -264,7 +272,7 @@ function EntryForm({ products, warehouses, suppliers, onSuccess }: {
   const [saving, setSaving] = useState(false);
   const locations = useLocations(warehouseId);
 
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (e: React.SubmitEvent<HTMLFormElement>) => {
     e.preventDefault();
     setSaving(true);
     try {
@@ -395,7 +403,7 @@ function EntryWithLotForm({ onSuccess }: { onSuccess: () => void }) {
     setNotes('');
   };
 
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (e: React.SubmitEvent<HTMLFormElement>) => {
     e.preventDefault();
     setSaving(true);
     try {
@@ -637,7 +645,7 @@ function EntryWithPOForm({ onSuccess }: { onSuccess: () => void }) {
     setNotes('');
   };
 
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (e: React.SubmitEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!selectedPO || !selectedLineId) return;
     const selectedLine = poLines.find((l) => l.id === selectedLineId);
@@ -963,7 +971,7 @@ function ExitForm({ products, warehouses, onSuccess }: {
   const [saving, setSaving] = useState(false);
   const locations = useLocations(warehouseId);
 
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (e: React.SubmitEvent<HTMLFormElement>) => {
     e.preventDefault();
     setSaving(true);
     try {
@@ -1064,7 +1072,7 @@ function TransferForm({ products, warehouses, onSuccess }: {
   const fromLocations = useLocations(fromWarehouseId);
   const toLocations = useLocations(toWarehouseId);
 
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (e: React.SubmitEvent<HTMLFormElement>) => {
     e.preventDefault();
     setSaving(true);
     try {
@@ -1191,7 +1199,7 @@ function AdjustmentForm({ products, warehouses, onSuccess }: {
   const [saving, setSaving] = useState(false);
   const locations = useLocations(warehouseId);
 
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (e: React.SubmitEvent<HTMLFormElement>) => {
     e.preventDefault();
     setSaving(true);
     try {
@@ -1325,6 +1333,10 @@ export default function MovementsPage() {
   const router = useRouter();
   const pathname = usePathname();
   const activeTab = searchParams.get('tab') || 'entry';
+  // URL-scoped filter for movements tied to a specific work order. Source of
+  // truth is the URL — deep-linking from the WO detail page sets it, and
+  // clearing the breadcrumb chip strips the param.
+  const workOrderIdParam = searchParams.get('work_order_id') ?? '';
 
   const handleTabChange = (value: string) => {
     const sp = new URLSearchParams(searchParams.toString());
@@ -1332,9 +1344,37 @@ export default function MovementsPage() {
     router.replace(`${pathname}?${sp.toString()}`, { scroll: false });
   };
 
+  const clearWorkOrderFilter = () => {
+    const sp = new URLSearchParams(searchParams.toString());
+    sp.delete('work_order_id');
+    const qs = sp.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+  };
+
   const products = useProducts();
   const warehouses = useWarehouses();
   const suppliers = useSuppliers();
+
+  // Lightweight secondary fetch to resolve the WO code for the breadcrumb
+  // chip. Fires only when a `work_order_id` is present in the URL.
+  const [filterWorkOrder, setFilterWorkOrder] = useState<WorkOrder | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    if (!workOrderIdParam) {
+      setFilterWorkOrder(null);
+      return;
+    }
+    getWorkOrder(workOrderIdParam)
+      .then((wo) => {
+        if (!cancelled) setFilterWorkOrder(wo);
+      })
+      .catch(() => {
+        if (!cancelled) setFilterWorkOrder(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [workOrderIdParam]);
 
   // History state
   const [movements, setMovements] = useState<MovementWithDetails[]>([]);
@@ -1344,29 +1384,33 @@ export default function MovementsPage() {
   const [filterType, setFilterType] = useState<string>('');
   const [highlightNew, setHighlightNew] = useState(false);
 
-  const fetchMovements = useCallback(async (p: number, typeFilter: string) => {
-    setIsLoading(true);
-    try {
-      const params = new URLSearchParams({ page: String(p), per_page: String(PER_PAGE) });
-      if (typeFilter) params.set('movement_type', typeFilter);
-      const res = await api.get<PaginatedResponse<MovementWithDetails>>(`/movements?${params}`);
-      setMovements(res.data);
-      setTotal(res.total);
-    } catch {
-      toast.error('Error al cargar historial de movimientos');
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
+  const fetchMovements = useCallback(
+    async (p: number, typeFilter: string, workOrderId: string) => {
+      setIsLoading(true);
+      try {
+        const params = new URLSearchParams({ page: String(p), per_page: String(PER_PAGE) });
+        if (typeFilter) params.set('movement_type', typeFilter);
+        if (workOrderId) params.set('work_order_id', workOrderId);
+        const res = await api.get<PaginatedResponse<MovementWithDetails>>(`/movements?${params}`);
+        setMovements(res.data);
+        setTotal(res.total);
+      } catch {
+        toast.error('Error al cargar historial de movimientos');
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
-    fetchMovements(page, filterType);
-  }, [page, filterType, fetchMovements]);
+    fetchMovements(page, filterType, workOrderIdParam);
+  }, [page, filterType, workOrderIdParam, fetchMovements]);
 
   const handleSuccess = () => {
     setPage(1);
     setHighlightNew(true);
-    fetchMovements(1, filterType);
+    fetchMovements(1, filterType, workOrderIdParam);
     setTimeout(() => setHighlightNew(false), 2000);
   };
 
@@ -1507,6 +1551,30 @@ export default function MovementsPage() {
 
       {/* Section 2: Movement History */}
       <div className="space-y-4">
+        {workOrderIdParam && (
+          <div
+            className="flex items-center gap-3 rounded-3xl border border-primary/40 bg-primary/5 px-4 py-3"
+            data-testid="work-order-filter-chip"
+          >
+            <span className="text-sm text-muted-foreground">Filtrado por Orden:</span>
+            <Link
+              href={`/ordenes-de-trabajo/${workOrderIdParam}`}
+              className="font-mono text-sm font-semibold text-primary hover:underline"
+              data-testid="work-order-filter-code"
+            >
+              {filterWorkOrder?.code ?? workOrderIdParam.slice(0, 8) + '…'}
+            </Link>
+            <button
+              type="button"
+              onClick={clearWorkOrderFilter}
+              className="ml-auto rounded-full p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+              aria-label="Quitar filtro de orden de trabajo"
+              data-testid="clear-work-order-filter"
+            >
+              <span aria-hidden="true">✕</span>
+            </button>
+          </div>
+        )}
         <div className="flex items-center justify-between">
           <h2 className="text-xl font-semibold">Historial de movimientos</h2>
           <div className="flex items-center gap-2">

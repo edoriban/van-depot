@@ -13,7 +13,16 @@ export interface LoginRequest {
 export type UserRole = 'superadmin' | 'owner' | 'warehouse_manager' | 'operator';
 export type UnitType = 'piece' | 'kg' | 'gram' | 'liter' | 'ml' | 'meter' | 'cm' | 'box' | 'pack';
 export type MovementType = 'entry' | 'exit' | 'transfer' | 'adjustment';
-export type LocationType = 'zone' | 'rack' | 'shelf' | 'position' | 'bin';
+export type LocationType =
+  | 'zone'
+  | 'rack'
+  | 'shelf'
+  | 'position'
+  | 'bin'
+  | 'reception'
+  | 'storage'
+  | 'work_center'
+  | 'finished_good';
 export type CycleCountStatus = 'draft' | 'in_progress' | 'completed' | 'cancelled';
 export type ProductClass = 'raw_material' | 'consumable' | 'tool_spare';
 
@@ -114,6 +123,12 @@ export interface Product {
   unit_of_measure: UnitType;
   product_class: ProductClass;
   has_expiry: boolean;
+  /**
+   * Marks the product as internally-manufactured: it can be the finished-good
+   * target of a work order. Backend invariant: only products with
+   * `product_class === 'raw_material'` can carry `is_manufactured = true`.
+   */
+  is_manufactured: boolean;
   min_stock: number;
   max_stock?: number;
   is_active: boolean;
@@ -140,6 +155,7 @@ export interface CreateProductInput {
   unit_of_measure: UnitType;
   product_class: ProductClass;
   has_expiry: boolean;
+  is_manufactured?: boolean;
   min_stock: number;
   max_stock?: number;
 }
@@ -151,6 +167,7 @@ export interface UpdateProductInput {
   category_id?: string;
   unit_of_measure?: UnitType;
   has_expiry?: boolean;
+  is_manufactured?: boolean;
   min_stock?: number;
   max_stock?: number;
 }
@@ -166,7 +183,20 @@ export interface Supplier {
   updated_at: string;
 }
 
-export type MovementReason = 'purchase_receive' | 'purchase_return' | 'quality_reject' | 'scrap' | 'loss_theft' | 'loss_damage' | 'production_input' | 'production_output' | 'manual_adjustment' | 'cycle_count';
+export type MovementReason =
+  | 'purchase_receive'
+  | 'purchase_return'
+  | 'quality_reject'
+  | 'scrap'
+  | 'loss_theft'
+  | 'loss_damage'
+  | 'production_input'
+  | 'production_output'
+  | 'manual_adjustment'
+  | 'cycle_count'
+  | 'wo_issue'
+  | 'back_flush'
+  | 'wo_cancel_reversal';
 
 export interface Movement {
   id: string;
@@ -615,3 +645,132 @@ export interface StockConfig {
   created_at: string;
   updated_at: string;
 }
+
+// ──────────────────────────────────────────────────────────────────────
+// Work Orders (work-orders-and-bom)
+// ──────────────────────────────────────────────────────────────────────
+
+export type WorkOrderStatus = 'draft' | 'in_progress' | 'completed' | 'cancelled';
+
+export const WORK_ORDER_STATUS_VALUES: ReadonlyArray<WorkOrderStatus> = [
+  'draft',
+  'in_progress',
+  'completed',
+  'cancelled',
+] as const;
+
+export const WORK_ORDER_STATUS_LABELS: Record<WorkOrderStatus, string> = {
+  draft: 'Borrador',
+  in_progress: 'En proceso',
+  completed: 'Completada',
+  cancelled: 'Cancelada',
+};
+
+/**
+ * Status → Tailwind class mapping for badges. Matches the design §8 color
+ * guidance: draft neutral, in_progress blue, completed emerald, cancelled
+ * slate (distinct from draft via darker shade).
+ */
+export const WORK_ORDER_STATUS_BADGE_CLASSES: Record<WorkOrderStatus, string> = {
+  draft:
+    'bg-zinc-100 text-zinc-800 dark:bg-zinc-800 dark:text-zinc-200',
+  in_progress:
+    'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200',
+  completed:
+    'bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200',
+  cancelled:
+    'bg-slate-200 text-slate-600 line-through dark:bg-slate-700 dark:text-slate-300',
+};
+
+export interface WorkOrderMaterial {
+  id: string;
+  work_order_id: string;
+  product_id: string;
+  /** Populated via JOIN on `list_materials` — not a snapshot column. */
+  product_name?: string;
+  /** Populated via JOIN on `list_materials` — not a snapshot column. */
+  product_sku?: string;
+  quantity_expected: number;
+  quantity_consumed: number;
+  notes?: string | null;
+}
+
+export interface WorkOrder {
+  id: string;
+  code: string;
+  recipe_id: string;
+  fg_product_id: string;
+  fg_quantity: number;
+  status: WorkOrderStatus;
+  warehouse_id: string;
+  work_center_location_id: string;
+  notes?: string | null;
+  created_by: string;
+  created_at: string;
+  issued_at?: string | null;
+  completed_at?: string | null;
+  cancelled_at?: string | null;
+  updated_at: string;
+  /** Only populated on the detail endpoint. */
+  materials?: WorkOrderMaterial[];
+}
+
+export interface MissingMaterial {
+  product_id: string;
+  expected: number;
+  available: number;
+  shortfall: number;
+}
+
+export interface CreateWorkOrderInput {
+  recipe_id: string;
+  fg_product_id: string;
+  fg_quantity: number;
+  warehouse_id: string;
+  work_center_location_id: string;
+  notes?: string;
+}
+
+export interface MaterialSourceOverride {
+  product_id: string;
+  location_id: string;
+}
+
+export interface IssueWorkOrderInput {
+  material_sources?: MaterialSourceOverride[];
+}
+
+export interface CompleteWorkOrderInput {
+  fg_expiration_date?: string;
+  notes?: string;
+}
+
+export interface WorkOrderDetail extends WorkOrder {
+  materials: WorkOrderMaterial[];
+  /**
+   * Optional lot info populated by the backend for completed WOs. Shape may
+   * vary; we keep this as a loose object until the backend finalizes the
+   * response envelope (current backend returns only `WorkOrderResponse`, so
+   * the FG lot is fetched via `/lots` filtered by product + lot_number).
+   */
+  fg_lot?: {
+    id: string;
+    lot_number: string;
+    quality_status: QualityStatus;
+    expiration_date: string | null;
+  } | null;
+}
+
+/**
+ * Labels for movement reasons that belong to the work-order chain. Merged
+ * into the movements page's existing `REASON_LABELS` map so the history
+ * table can render `wo_issue`, `back_flush`, `wo_cancel_reversal` rows with
+ * Spanish copy when filtering by `work_order_id`.
+ */
+export const WORK_ORDER_MOVEMENT_REASON_LABELS: Partial<
+  Record<MovementReason, string>
+> = {
+  wo_issue: 'OT — Entrega de material',
+  back_flush: 'OT — Consumo (back-flush)',
+  wo_cancel_reversal: 'Reversa por cancelación',
+};

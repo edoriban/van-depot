@@ -185,7 +185,7 @@ export default function ProductDetailPage() {
     load();
   }, [params.id, populateForm]);
 
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (e: React.SubmitEvent<HTMLFormElement>) => {
     e.preventDefault();
     setIsSaving(true);
     try {

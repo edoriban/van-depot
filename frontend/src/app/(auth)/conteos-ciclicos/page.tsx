@@ -130,7 +130,7 @@ export default function CycleCountsPage() {
     return wh ? wh.name : warehouseId;
   };
 
-  const handleCreate = async (e: React.FormEvent<HTMLFormElement>) => {
+  const handleCreate = async (e: React.SubmitEvent<HTMLFormElement>) => {
     e.preventDefault();
     setIsSaving(true);
     try {

@@ -111,6 +111,30 @@ pub enum WorkOrderStatus {
     Cancelled,
 }
 
+impl WorkOrderStatus {
+    /// Legal state transitions for a work order. Any combination NOT listed
+    /// below is rejected by `PgWorkOrderRepository::{issue,complete,cancel}`
+    /// with a `DomainError::WorkOrderInvalidTransition`.
+    ///
+    /// Legal transitions (design §3a-d):
+    ///   draft        → in_progress  (issue)
+    ///   draft        → cancelled    (cancel)
+    ///   in_progress  → completed    (complete)
+    ///   in_progress  → cancelled    (cancel w/ reversal)
+    ///
+    /// All other combinations (including same-state no-ops like draft→draft)
+    /// are illegal.
+    pub fn can_transition_to(&self, target: &Self) -> bool {
+        matches!(
+            (self, target),
+            (Self::Draft, Self::InProgress)
+                | (Self::Draft, Self::Cancelled)
+                | (Self::InProgress, Self::Completed)
+                | (Self::InProgress, Self::Cancelled)
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     //! Task 6.1 — `ProductClass` serde round-trip.
@@ -173,5 +197,113 @@ mod tests {
             let back: ProductClass = serde_json::from_str(&json).unwrap();
             assert_eq!(variant, back);
         }
+    }
+
+    // ─── Task 6.1 — WorkOrderStatus serde + transition legality ─────────
+    //
+    // (a) per-variant serde round-trip (snake_case stability).
+    // (b) 16-cell transition legality matrix (4 legal + 12 illegal).
+    //
+    // These are the wire-level contracts both the frontend (status chips,
+    // action buttons) and the backend (repo guards) depend on. A silent
+    // rename or an off-by-one in the transition table would break either a
+    // state-machine assertion or a UI chip label — catch it here.
+    use super::WorkOrderStatus;
+
+    #[test]
+    fn work_order_status_serde_round_trip_draft() {
+        let v = WorkOrderStatus::Draft;
+        assert_eq!(serde_json::to_string(&v).unwrap(), "\"draft\"");
+        let back: WorkOrderStatus = serde_json::from_str("\"draft\"").unwrap();
+        assert_eq!(back, v);
+    }
+
+    #[test]
+    fn work_order_status_serde_round_trip_in_progress() {
+        let v = WorkOrderStatus::InProgress;
+        assert_eq!(serde_json::to_string(&v).unwrap(), "\"in_progress\"");
+        let back: WorkOrderStatus = serde_json::from_str("\"in_progress\"").unwrap();
+        assert_eq!(back, v);
+    }
+
+    #[test]
+    fn work_order_status_serde_round_trip_completed() {
+        let v = WorkOrderStatus::Completed;
+        assert_eq!(serde_json::to_string(&v).unwrap(), "\"completed\"");
+        let back: WorkOrderStatus = serde_json::from_str("\"completed\"").unwrap();
+        assert_eq!(back, v);
+    }
+
+    #[test]
+    fn work_order_status_serde_round_trip_cancelled() {
+        let v = WorkOrderStatus::Cancelled;
+        assert_eq!(serde_json::to_string(&v).unwrap(), "\"cancelled\"");
+        let back: WorkOrderStatus = serde_json::from_str("\"cancelled\"").unwrap();
+        assert_eq!(back, v);
+    }
+
+    #[test]
+    fn work_order_status_rejects_unknown_variant() {
+        let err = serde_json::from_str::<WorkOrderStatus>("\"pending\"");
+        assert!(err.is_err(), "unknown WO status must fail to deserialize");
+    }
+
+    #[test]
+    fn work_order_status_transition_matrix_legal_cells() {
+        // 4 legal cells (design §3a-d).
+        assert!(WorkOrderStatus::Draft.can_transition_to(&WorkOrderStatus::InProgress));
+        assert!(WorkOrderStatus::Draft.can_transition_to(&WorkOrderStatus::Cancelled));
+        assert!(WorkOrderStatus::InProgress.can_transition_to(&WorkOrderStatus::Completed));
+        assert!(WorkOrderStatus::InProgress.can_transition_to(&WorkOrderStatus::Cancelled));
+    }
+
+    #[test]
+    fn work_order_status_transition_matrix_illegal_cells() {
+        // 12 illegal cells, including all same-state no-ops and terminal
+        // forward-moves.
+        let all = [
+            WorkOrderStatus::Draft,
+            WorkOrderStatus::InProgress,
+            WorkOrderStatus::Completed,
+            WorkOrderStatus::Cancelled,
+        ];
+        let legal: &[(WorkOrderStatus, WorkOrderStatus)] = &[
+            (WorkOrderStatus::Draft, WorkOrderStatus::InProgress),
+            (WorkOrderStatus::Draft, WorkOrderStatus::Cancelled),
+            (WorkOrderStatus::InProgress, WorkOrderStatus::Completed),
+            (WorkOrderStatus::InProgress, WorkOrderStatus::Cancelled),
+        ];
+        for from in &all {
+            for to in &all {
+                let is_legal = legal.iter().any(|(f, t)| f == from && t == to);
+                if !is_legal {
+                    assert!(
+                        !from.can_transition_to(to),
+                        "expected {from:?}→{to:?} to be illegal"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn work_order_status_full_matrix_matches_expected() {
+        // Sanity: count legal transitions to 4 exactly. A regression that
+        // adds a 5th legal path would break downstream repo assumptions.
+        let all = [
+            WorkOrderStatus::Draft,
+            WorkOrderStatus::InProgress,
+            WorkOrderStatus::Completed,
+            WorkOrderStatus::Cancelled,
+        ];
+        let mut legal_count = 0;
+        for from in &all {
+            for to in &all {
+                if from.can_transition_to(to) {
+                    legal_count += 1;
+                }
+            }
+        }
+        assert_eq!(legal_count, 4, "expected exactly 4 legal transitions");
     }
 }
