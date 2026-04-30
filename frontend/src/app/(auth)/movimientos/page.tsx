@@ -165,7 +165,9 @@ function WarehouseLocationSelector({
   onLocationChange,
   locations,
   excludeLocationId,
+  excludeReception,
   label,
+  locationHelpText,
   locationTestId,
   warehouseTestId,
 }: {
@@ -176,13 +178,19 @@ function WarehouseLocationSelector({
   onLocationChange: (id: string) => void;
   locations: Location[];
   excludeLocationId?: string;
+  excludeReception?: boolean;
   label: string;
+  locationHelpText?: string;
   locationTestId: string;
   warehouseTestId: string;
 }) {
-  const filteredLocations = excludeLocationId
-    ? locations.filter(l => l.id !== excludeLocationId)
-    : locations;
+  let filteredLocations = locations;
+  if (excludeLocationId) {
+    filteredLocations = filteredLocations.filter((l) => l.id !== excludeLocationId);
+  }
+  if (excludeReception) {
+    filteredLocations = filteredLocations.filter((l) => l.location_type !== 'reception');
+  }
   return (
     <>
       <div className="space-y-2" data-testid={warehouseTestId}>
@@ -208,6 +216,9 @@ function WarehouseLocationSelector({
           placeholder={warehouseId ? "Seleccionar ubicacion" : "Selecciona un almacen primero"}
           searchPlaceholder="Buscar ubicacion..."
         />
+        {locationHelpText && (
+          <p className="text-xs text-muted-foreground">{locationHelpText}</p>
+        )}
       </div>
     </>
   );
@@ -320,7 +331,9 @@ function EntryForm({ products, warehouses, suppliers, onSuccess }: {
         locationId={toLocationId}
         onLocationChange={setToLocationId}
         locations={locations}
+        excludeReception
         label="Ubicacion destino"
+        locationHelpText="Para recibir material en Recepción, usa la pestaña 'Con lote' o 'Con orden de compra'."
         locationTestId="entry-to-location"
         warehouseTestId="entry-warehouse"
       />
