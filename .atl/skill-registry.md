@@ -77,6 +77,7 @@
 | File | Path |
 |------|------|
 | `CLAUDE.md` | `/root/projects/vandev/van-depot/CLAUDE.md` |
+| `frontend/src/CONVENTIONS.md` | `/root/projects/vandev/van-depot/frontend/src/CONVENTIONS.md` |
 
 ## Notes
 
