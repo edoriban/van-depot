@@ -1,0 +1,95 @@
+# VanSkills Lock File
+# Auto-generated - do not edit manually
+# To update: run ~/vanskills/bin/install again
+
+generated: 2026-04-04T13:56:19-06:00
+vanskills_version: 06a4507
+mode: symlink
+
+skills:
+  - name: ai-sdk-5
+    version: "1.0"
+  - name: api-security-best-practices
+    version: "1.0.0"
+  - name: django-drf
+    version: "1.0"
+  - name: efficientad
+    version: "1.0"
+  - name: frontend-design
+    version: "1.0.0"
+  - name: git-convention
+    version: "1.0"
+  - name: github-project-setup
+    version: "1.0"
+  - name: gqty-best-practices
+    version: "1.0.0"
+  - name: marketing-psychology
+    version: "1.0.0"
+  - name: nextjs-15
+    version: "1.0"
+  - name: playwright
+    version: "1.0"
+  - name: project-standards
+    version: "1.0"
+  - name: pytest
+    version: "1.0"
+  - name: python
+    version: "1.0"
+  - name: react-19
+    version: "1.0"
+  - name: react-native-architecture
+    version: "1.0"
+  - name: react-native-design
+    version: "1.0"
+  - name: remotion-best-practices
+    version: "1.0.0"
+  - name: rust
+    version: "1.0.0"
+  - name: sdd-apply
+    version: "2.0"
+  - name: sdd-archive
+    version: "2.0"
+  - name: sdd-design
+    version: "2.0"
+  - name: sdd-explore
+    version: "2.0"
+  - name: sdd-init
+    version: "2.0"
+  - name: sdd-orchestrator
+    version: "2.0"
+  - name: sdd-propose
+    version: "2.0"
+  - name: sdd-spec
+    version: "2.0"
+  - name: sdd-tasks
+    version: "2.0"
+  - name: sdd-verify
+    version: "2.0"
+  - name: seo-audit
+    version: "1.0.0"
+  - name: skill-creator
+    version: "1.0"
+  - name: skill-sync
+    version: "1.0"
+  - name: supabase-postgres-best-practices
+    version: "1.0.0"
+  - name: tailwind-4
+    version: "1.0"
+  - name: threejs-best-practices
+    version: "1.0.0"
+  - name: typescript
+    version: "1.0"
+  - name: ui-ux-pro-max
+    version: "2.0.0"
+  - name: veeam-cdp-best-practices
+    version: "1.0.0"
+  - name: vercel-react-best-practices
+    version: "1.0.0"
+  - name: web-design-guidelines
+    version: "1.0.0"
+  - name: yolo
+    version: "1.0"
+  - name: zod-4
+    version: "1.0"
+  - name: zustand-5
+    version: "1.0"
