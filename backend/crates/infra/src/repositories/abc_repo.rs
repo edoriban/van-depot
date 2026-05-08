@@ -1,4 +1,4 @@
-use sqlx::PgPool;
+use sqlx::PgConnection;
 use uuid::Uuid;
 
 use vandepot_domain::error::DomainError;
@@ -21,7 +21,7 @@ pub struct AbcItemRow {
 // ── Queries ─────────────────────────────────────────────────────────
 
 pub async fn get_abc_classification(
-    pool: &PgPool,
+    conn: &mut PgConnection,
     period_days: i64,
     warehouse_id: Option<Uuid>,
 ) -> Result<Vec<AbcItemRow>, DomainError> {
@@ -66,7 +66,7 @@ pub async fn get_abc_classification(
         )
         .bind(period_days as f64)
         .bind(wid)
-        .fetch_all(pool)
+        .fetch_all(&mut *conn)
         .await
         .map_err(map_sqlx_error)?
     } else {
@@ -106,7 +106,7 @@ pub async fn get_abc_classification(
             "#,
         )
         .bind(period_days as f64)
-        .fetch_all(pool)
+        .fetch_all(&mut *conn)
         .await
         .map_err(map_sqlx_error)?
     };

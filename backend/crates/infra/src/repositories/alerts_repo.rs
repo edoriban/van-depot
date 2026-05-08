@@ -1,4 +1,4 @@
-use sqlx::PgPool;
+use sqlx::PgConnection;
 use uuid::Uuid;
 
 use vandepot_domain::error::DomainError;
@@ -32,7 +32,7 @@ pub struct AlertSummaryRow {
 // ── Queries ─────────────────────────────────────────────────────────
 
 pub async fn get_stock_alerts(
-    pool: &PgPool,
+    conn: &mut PgConnection,
     warehouse_ids: Option<&[Uuid]>,
     warehouse_filter: Option<Uuid>,
 ) -> Result<Vec<StockAlertRow>, DomainError> {
@@ -60,7 +60,7 @@ pub async fn get_stock_alerts(
                 "#,
             )
             .bind(wf)
-            .fetch_all(pool)
+            .fetch_all(&mut *conn)
             .await
             .map_err(map_sqlx_error)?
         } else {
@@ -82,7 +82,7 @@ pub async fn get_stock_alerts(
                 "#,
             )
             .bind(wids)
-            .fetch_all(pool)
+            .fetch_all(&mut *conn)
             .await
             .map_err(map_sqlx_error)?
         }
@@ -107,7 +107,7 @@ pub async fn get_stock_alerts(
                 "#,
             )
             .bind(wf)
-            .fetch_all(pool)
+            .fetch_all(&mut *conn)
             .await
             .map_err(map_sqlx_error)?
         } else {
@@ -127,7 +127,7 @@ pub async fn get_stock_alerts(
                 ORDER BY (i.quantity / NULLIF(p.min_stock, 0)) ASC
                 "#,
             )
-            .fetch_all(pool)
+            .fetch_all(&mut *conn)
             .await
             .map_err(map_sqlx_error)?
         }
@@ -137,7 +137,7 @@ pub async fn get_stock_alerts(
 }
 
 pub async fn get_alert_summary(
-    pool: &PgPool,
+    conn: &mut PgConnection,
     warehouse_ids: Option<&[Uuid]>,
 ) -> Result<AlertSummaryRow, DomainError> {
     let row = if let Some(wids) = warehouse_ids {
@@ -159,7 +159,7 @@ pub async fn get_alert_summary(
             "#,
         )
         .bind(wids)
-        .fetch_one(pool)
+        .fetch_one(&mut *conn)
         .await
         .map_err(map_sqlx_error)?
     } else {
@@ -179,7 +179,7 @@ pub async fn get_alert_summary(
               AND p.min_stock > 0 AND i.quantity <= p.min_stock
             "#,
         )
-        .fetch_one(pool)
+        .fetch_one(&mut *conn)
         .await
         .map_err(map_sqlx_error)?
     };

@@ -1,17 +1,33 @@
-use async_trait::async_trait;
+//! Warehouse repository — free functions over `&mut PgConnection`.
+//!
+//! Phase B batch 1 (multi-tenant-foundation, design §5.4) collapsed the
+//! struct-with-pool + trait shape into free functions. Every function takes
+//! `&mut PgConnection` as the first parameter and `tenant_id: Uuid` as the
+//! second — the canonical signature documented in
+//! `sdd/multi-tenant-foundation/apply-progress` and replicated by B2..B8.
+//!
+//! Defense-in-depth: every query carries a `WHERE tenant_id = $N` predicate
+//! even though Phase C will add Postgres RLS on top. The duplicate check
+//! costs effectively nothing (the index `idx_warehouses_tenant` covers it)
+//! and protects us during the window between B-end and C-land.
+//!
+//! Identity correctness: `update`/`soft_delete` filter on BOTH `id` and
+//! `tenant_id`. A leaked or guessed UUID belonging to another tenant
+//! resolves to "row not found" rather than mutating the wrong row.
+
 use chrono::{DateTime, Utc};
-use sqlx::PgPool;
+use sqlx::{Connection, PgConnection};
 use uuid::Uuid;
 
 use vandepot_domain::error::DomainError;
 use vandepot_domain::models::warehouse::Warehouse;
-use vandepot_domain::ports::warehouse_repository::WarehouseRepository;
 
 use super::shared::map_sqlx_error;
 
 #[derive(sqlx::FromRow)]
 pub struct WarehouseWithStatsRow {
     pub id: Uuid,
+    pub tenant_id: Uuid,
     pub name: String,
     pub address: Option<String>,
     pub is_active: bool,
@@ -30,6 +46,7 @@ pub struct WarehouseWithStatsRow {
 #[derive(sqlx::FromRow)]
 struct WarehouseRow {
     id: Uuid,
+    tenant_id: Uuid,
     name: String,
     address: Option<String>,
     is_active: bool,
@@ -44,6 +61,7 @@ impl From<WarehouseRow> for Warehouse {
     fn from(row: WarehouseRow) -> Self {
         Warehouse {
             id: row.id,
+            tenant_id: row.tenant_id,
             name: row.name,
             address: row.address,
             is_active: row.is_active,
@@ -56,204 +74,229 @@ impl From<WarehouseRow> for Warehouse {
     }
 }
 
-pub struct PgWarehouseRepository {
-    pool: PgPool,
-}
+const SELECT_COLUMNS: &str =
+    "id, tenant_id, name, address, is_active, canvas_width, canvas_height, created_at, updated_at, deleted_at";
 
-impl PgWarehouseRepository {
-    pub fn new(pool: PgPool) -> Self {
-        Self { pool }
-    }
-}
-
-impl PgWarehouseRepository {
-    pub async fn list_with_stats(
-        &self,
-        limit: i64,
-        offset: i64,
-    ) -> Result<(Vec<WarehouseWithStatsRow>, i64), DomainError> {
-        let total: (i64,) =
-            sqlx::query_as("SELECT COUNT(*) FROM warehouses WHERE deleted_at IS NULL")
-                .fetch_one(&self.pool)
-                .await
-                .map_err(map_sqlx_error)?;
-
-        let rows: Vec<WarehouseWithStatsRow> = sqlx::query_as(
-            r#"
-            SELECT
-                w.id, w.name, w.address, w.is_active,
-                w.canvas_width, w.canvas_height,
-                w.created_at, w.updated_at,
-                COALESCE(loc.cnt, 0) AS locations_count,
-                COALESCE(inv.product_cnt, 0) AS products_count,
-                COALESCE(inv.total_qty, 0.0) AS total_quantity,
-                COALESCE(inv.low_cnt, 0) AS low_stock_count,
-                COALESCE(inv.critical_cnt, 0) AS critical_count,
-                mov.last_at AS last_movement_at
-            FROM warehouses w
-            LEFT JOIN (
-                SELECT warehouse_id, COUNT(*) AS cnt
-                FROM locations
-                WHERE parent_id IS NULL
-                GROUP BY warehouse_id
-            ) loc ON loc.warehouse_id = w.id
-            LEFT JOIN (
-                SELECT l.warehouse_id,
-                       COUNT(DISTINCT i.product_id) AS product_cnt,
-                       COALESCE(SUM(i.quantity), 0)::float8 AS total_qty,
-                       COUNT(*) FILTER (WHERE i.quantity <= p.min_stock AND i.quantity > 0 AND p.min_stock > 0) AS low_cnt,
-                       COUNT(*) FILTER (WHERE i.quantity <= 0) AS critical_cnt
-                FROM inventory i
-                JOIN locations l ON l.id = i.location_id
-                JOIN products p ON p.id = i.product_id
-                GROUP BY l.warehouse_id
-            ) inv ON inv.warehouse_id = w.id
-            LEFT JOIN (
-                SELECT l.warehouse_id, MAX(m.created_at) AS last_at
-                FROM movements m
-                JOIN locations l ON l.id = COALESCE(m.to_location_id, m.from_location_id)
-                GROUP BY l.warehouse_id
-            ) mov ON mov.warehouse_id = w.id
-            WHERE w.deleted_at IS NULL
-            ORDER BY w.name
-            LIMIT $1 OFFSET $2
-            "#,
-        )
-        .bind(limit)
-        .bind(offset)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(map_sqlx_error)?;
-
-        Ok((rows, total.0))
-    }
-}
-
-#[async_trait]
-impl WarehouseRepository for PgWarehouseRepository {
-    async fn find_by_id(&self, id: Uuid) -> Result<Option<Warehouse>, DomainError> {
-        let row = sqlx::query_as::<_, WarehouseRow>(
-            "SELECT id, name, address, is_active, canvas_width, canvas_height, created_at, updated_at, deleted_at \
-             FROM warehouses WHERE id = $1 AND deleted_at IS NULL",
-        )
+pub async fn find_by_id(
+    conn: &mut PgConnection,
+    tenant_id: Uuid,
+    id: Uuid,
+) -> Result<Option<Warehouse>, DomainError> {
+    let sql = format!(
+        "SELECT {SELECT_COLUMNS} FROM warehouses \
+         WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL"
+    );
+    let row = sqlx::query_as::<_, WarehouseRow>(&sql)
         .bind(id)
-        .fetch_optional(&self.pool)
+        .bind(tenant_id)
+        .fetch_optional(&mut *conn)
         .await
         .map_err(map_sqlx_error)?;
 
-        Ok(row.map(Warehouse::from))
-    }
+    Ok(row.map(Warehouse::from))
+}
 
-    async fn list(&self, limit: i64, offset: i64) -> Result<(Vec<Warehouse>, i64), DomainError> {
-        let total: (i64,) =
-            sqlx::query_as("SELECT COUNT(*) FROM warehouses WHERE deleted_at IS NULL")
-                .fetch_one(&self.pool)
-                .await
-                .map_err(map_sqlx_error)?;
+pub async fn list(
+    conn: &mut PgConnection,
+    tenant_id: Uuid,
+    limit: i64,
+    offset: i64,
+) -> Result<(Vec<Warehouse>, i64), DomainError> {
+    let total: (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM warehouses \
+         WHERE tenant_id = $1 AND deleted_at IS NULL",
+    )
+    .bind(tenant_id)
+    .fetch_one(&mut *conn)
+    .await
+    .map_err(map_sqlx_error)?;
 
-        let rows: Vec<WarehouseRow> = sqlx::query_as(
-            "SELECT id, name, address, is_active, canvas_width, canvas_height, created_at, updated_at, deleted_at \
-             FROM warehouses WHERE deleted_at IS NULL \
-             ORDER BY created_at DESC LIMIT $1 OFFSET $2",
-        )
+    let sql = format!(
+        "SELECT {SELECT_COLUMNS} FROM warehouses \
+         WHERE tenant_id = $1 AND deleted_at IS NULL \
+         ORDER BY created_at DESC LIMIT $2 OFFSET $3"
+    );
+    let rows: Vec<WarehouseRow> = sqlx::query_as(&sql)
+        .bind(tenant_id)
         .bind(limit)
         .bind(offset)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *conn)
         .await
         .map_err(map_sqlx_error)?;
 
-        Ok((rows.into_iter().map(Into::into).collect(), total.0))
-    }
+    Ok((rows.into_iter().map(Into::into).collect(), total.0))
+}
 
-    async fn create(&self, name: &str, address: Option<&str>) -> Result<Warehouse, DomainError> {
-        // Atomic insert: the warehouse row AND its system-managed Recepción
-        // location land together. If either INSERT fails, the tx rolls back
-        // and no orphan warehouse survives.
-        let mut tx = self.pool.begin().await.map_err(map_sqlx_error)?;
+pub async fn list_with_stats(
+    conn: &mut PgConnection,
+    tenant_id: Uuid,
+    limit: i64,
+    offset: i64,
+) -> Result<(Vec<WarehouseWithStatsRow>, i64), DomainError> {
+    let total: (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM warehouses \
+         WHERE tenant_id = $1 AND deleted_at IS NULL",
+    )
+    .bind(tenant_id)
+    .fetch_one(&mut *conn)
+    .await
+    .map_err(map_sqlx_error)?;
 
-        let row = sqlx::query_as::<_, WarehouseRow>(
-            "INSERT INTO warehouses (name, address) \
-             VALUES ($1, $2) \
-             RETURNING id, name, address, is_active, canvas_width, canvas_height, created_at, updated_at, deleted_at",
-        )
+    let rows: Vec<WarehouseWithStatsRow> = sqlx::query_as(
+        r#"
+        SELECT
+            w.id, w.tenant_id, w.name, w.address, w.is_active,
+            w.canvas_width, w.canvas_height,
+            w.created_at, w.updated_at,
+            COALESCE(loc.cnt, 0) AS locations_count,
+            COALESCE(inv.product_cnt, 0) AS products_count,
+            COALESCE(inv.total_qty, 0.0) AS total_quantity,
+            COALESCE(inv.low_cnt, 0) AS low_stock_count,
+            COALESCE(inv.critical_cnt, 0) AS critical_count,
+            mov.last_at AS last_movement_at
+        FROM warehouses w
+        LEFT JOIN (
+            SELECT warehouse_id, COUNT(*) AS cnt
+            FROM locations
+            WHERE parent_id IS NULL
+            GROUP BY warehouse_id
+        ) loc ON loc.warehouse_id = w.id
+        LEFT JOIN (
+            SELECT l.warehouse_id,
+                   COUNT(DISTINCT i.product_id) AS product_cnt,
+                   COALESCE(SUM(i.quantity), 0)::float8 AS total_qty,
+                   COUNT(*) FILTER (WHERE i.quantity <= p.min_stock AND i.quantity > 0 AND p.min_stock > 0) AS low_cnt,
+                   COUNT(*) FILTER (WHERE i.quantity <= 0) AS critical_cnt
+            FROM inventory i
+            JOIN locations l ON l.id = i.location_id
+            JOIN products p ON p.id = i.product_id
+            GROUP BY l.warehouse_id
+        ) inv ON inv.warehouse_id = w.id
+        LEFT JOIN (
+            SELECT l.warehouse_id, MAX(m.created_at) AS last_at
+            FROM movements m
+            JOIN locations l ON l.id = COALESCE(m.to_location_id, m.from_location_id)
+            GROUP BY l.warehouse_id
+        ) mov ON mov.warehouse_id = w.id
+        WHERE w.tenant_id = $1 AND w.deleted_at IS NULL
+        ORDER BY w.name
+        LIMIT $2 OFFSET $3
+        "#,
+    )
+    .bind(tenant_id)
+    .bind(limit)
+    .bind(offset)
+    .fetch_all(&mut *conn)
+    .await
+    .map_err(map_sqlx_error)?;
+
+    Ok((rows, total.0))
+}
+
+/// Atomically inserts a warehouse AND its system-managed `reception` and
+/// `finished_good` locations. The whole operation runs inside a sqlx
+/// transaction owned by this function so a partial failure rolls back
+/// cleanly. Phase C will fold this into the per-request transaction; for
+/// Phase B we keep the local tx because the caller passes a plain
+/// connection.
+pub async fn create(
+    conn: &mut PgConnection,
+    tenant_id: Uuid,
+    name: &str,
+    address: Option<&str>,
+) -> Result<Warehouse, DomainError> {
+    let mut tx = conn.begin().await.map_err(map_sqlx_error)?;
+
+    let insert_sql = format!(
+        "INSERT INTO warehouses (tenant_id, name, address) \
+         VALUES ($1, $2, $3) \
+         RETURNING {SELECT_COLUMNS}"
+    );
+    let row = sqlx::query_as::<_, WarehouseRow>(&insert_sql)
+        .bind(tenant_id)
         .bind(name)
         .bind(address)
         .fetch_one(&mut *tx)
         .await
         .map_err(map_sqlx_error)?;
 
-        // Default position (0,0) and 100x100 size match the migration backfill
-        // for existing warehouses; the frontend renders a "not positioned"
-        // hint until the operator drags it on the canvas.
-        sqlx::query(
-            "INSERT INTO locations \
-                (warehouse_id, location_type, name, label, is_system, pos_x, pos_y, width, height) \
-             VALUES ($1, 'reception', 'Recepción', 'RCP', true, 0, 0, 100, 100)",
-        )
-        .bind(row.id)
-        .execute(&mut *tx)
-        .await
-        .map_err(map_sqlx_error)?;
+    // System-managed Recepción row (see initial_schema migration / design §D5
+    // for context). The composite FK on locations(tenant_id, warehouse_id)
+    // means we MUST bind tenant_id explicitly — leaving it NULL would fail
+    // the `tenant_id NOT NULL` check.
+    sqlx::query(
+        "INSERT INTO locations \
+            (tenant_id, warehouse_id, location_type, name, label, is_system, pos_x, pos_y, width, height) \
+         VALUES ($1, $2, 'reception', 'Recepción', 'RCP', true, 0, 0, 100, 100)",
+    )
+    .bind(tenant_id)
+    .bind(row.id)
+    .execute(&mut *tx)
+    .await
+    .map_err(map_sqlx_error)?;
 
-        // Work-orders-and-bom (design §D4 / §D5): every warehouse ships with a
-        // system-managed `finished_good` location. Migration 20260423000003
-        // backfills this for pre-existing warehouses, and the seed re-runs an
-        // idempotent upsert at startup — but new warehouses created through
-        // this repo AFTER boot must also land in the valid state so the WO
-        // complete flow can resolve an FG location without operator help.
-        sqlx::query(
-            "INSERT INTO locations \
-                (warehouse_id, location_type, name, label, is_system, pos_x, pos_y, width, height) \
-             VALUES ($1, 'finished_good', 'Producto Terminado', 'PT', true, 0, 0, 100, 100)",
-        )
-        .bind(row.id)
-        .execute(&mut *tx)
-        .await
-        .map_err(map_sqlx_error)?;
+    sqlx::query(
+        "INSERT INTO locations \
+            (tenant_id, warehouse_id, location_type, name, label, is_system, pos_x, pos_y, width, height) \
+         VALUES ($1, $2, 'finished_good', 'Producto Terminado', 'PT', true, 0, 0, 100, 100)",
+    )
+    .bind(tenant_id)
+    .bind(row.id)
+    .execute(&mut *tx)
+    .await
+    .map_err(map_sqlx_error)?;
 
-        tx.commit().await.map_err(map_sqlx_error)?;
+    tx.commit().await.map_err(map_sqlx_error)?;
 
-        Ok(Warehouse::from(row))
-    }
+    Ok(Warehouse::from(row))
+}
 
-    async fn update(
-        &self,
-        id: Uuid,
-        name: Option<&str>,
-        address: Option<Option<&str>>,
-    ) -> Result<Warehouse, DomainError> {
-        let row = sqlx::query_as::<_, WarehouseRow>(
-            "UPDATE warehouses SET \
-                name = COALESCE($2, name), \
-                address = CASE WHEN $3 THEN $4 ELSE address END, \
-                updated_at = NOW() \
-             WHERE id = $1 AND deleted_at IS NULL \
-             RETURNING id, name, address, is_active, canvas_width, canvas_height, created_at, updated_at, deleted_at",
-        )
+pub async fn update(
+    conn: &mut PgConnection,
+    tenant_id: Uuid,
+    id: Uuid,
+    name: Option<&str>,
+    address: Option<Option<&str>>,
+) -> Result<Warehouse, DomainError> {
+    let sql = format!(
+        "UPDATE warehouses SET \
+            name = COALESCE($3, name), \
+            address = CASE WHEN $4 THEN $5 ELSE address END, \
+            updated_at = NOW() \
+         WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL \
+         RETURNING {SELECT_COLUMNS}"
+    );
+    let row = sqlx::query_as::<_, WarehouseRow>(&sql)
         .bind(id)
+        .bind(tenant_id)
         .bind(name)
         .bind(address.is_some())
         .bind(address.flatten())
-        .fetch_one(&self.pool)
+        .fetch_one(&mut *conn)
         .await
         .map_err(map_sqlx_error)?;
 
-        Ok(Warehouse::from(row))
+    Ok(Warehouse::from(row))
+}
+
+pub async fn soft_delete(
+    conn: &mut PgConnection,
+    tenant_id: Uuid,
+    id: Uuid,
+) -> Result<(), DomainError> {
+    let result = sqlx::query(
+        "UPDATE warehouses SET deleted_at = NOW() \
+         WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL",
+    )
+    .bind(id)
+    .bind(tenant_id)
+    .execute(&mut *conn)
+    .await
+    .map_err(map_sqlx_error)?;
+
+    if result.rows_affected() == 0 {
+        return Err(DomainError::NotFound("Warehouse not found".to_string()));
     }
 
-    async fn soft_delete(&self, id: Uuid) -> Result<(), DomainError> {
-        let result = sqlx::query(
-            "UPDATE warehouses SET deleted_at = NOW() WHERE id = $1 AND deleted_at IS NULL",
-        )
-        .bind(id)
-        .execute(&self.pool)
-        .await
-        .map_err(map_sqlx_error)?;
-
-        if result.rows_affected() == 0 {
-            return Err(DomainError::NotFound("Warehouse not found".to_string()));
-        }
-
-        Ok(())
-    }
+    Ok(())
 }

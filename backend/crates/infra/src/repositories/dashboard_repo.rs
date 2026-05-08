@@ -1,5 +1,5 @@
 use chrono::{DateTime, NaiveDate, Utc};
-use sqlx::PgPool;
+use sqlx::PgConnection;
 use uuid::Uuid;
 
 use vandepot_domain::error::DomainError;
@@ -70,7 +70,7 @@ pub struct StockByCategoryRow {
 // ── Queries ─────────────────────────────────────────────────────────
 
 pub async fn get_dashboard_stats(
-    pool: &PgPool,
+    conn: &mut PgConnection,
     warehouse_ids: Option<&[Uuid]>,
 ) -> Result<DashboardStats, DomainError> {
     // When warehouse_ids is None, superadmin sees all.
@@ -103,7 +103,7 @@ pub async fn get_dashboard_stats(
             "#,
         )
         .bind(wids)
-        .fetch_one(pool)
+        .fetch_one(&mut *conn)
         .await
         .map_err(map_sqlx_error)?
     } else {
@@ -122,7 +122,7 @@ pub async fn get_dashboard_stats(
                 (SELECT COUNT(*) FROM movements WHERE created_at >= CURRENT_DATE - INTERVAL '7 days') as movements_this_week
             "#,
         )
-        .fetch_one(pool)
+        .fetch_one(&mut *conn)
         .await
         .map_err(map_sqlx_error)?
     };
@@ -131,7 +131,7 @@ pub async fn get_dashboard_stats(
 }
 
 pub async fn get_recent_movements(
-    pool: &PgPool,
+    conn: &mut PgConnection,
     warehouse_ids: Option<&[Uuid]>,
 ) -> Result<Vec<RecentMovementRow>, DomainError> {
     let rows = if let Some(wids) = warehouse_ids {
@@ -153,7 +153,7 @@ pub async fn get_recent_movements(
             "#,
         )
         .bind(wids)
-        .fetch_all(pool)
+        .fetch_all(&mut *conn)
         .await
         .map_err(map_sqlx_error)?
     } else {
@@ -173,7 +173,7 @@ pub async fn get_recent_movements(
             LIMIT 10
             "#,
         )
-        .fetch_all(pool)
+        .fetch_all(&mut *conn)
         .await
         .map_err(map_sqlx_error)?
     };
@@ -182,7 +182,7 @@ pub async fn get_recent_movements(
 }
 
 pub async fn get_low_stock(
-    pool: &PgPool,
+    conn: &mut PgConnection,
     warehouse_ids: Option<&[Uuid]>,
     limit: i64,
     offset: i64,
@@ -205,7 +205,7 @@ pub async fn get_low_stock(
         .bind(wids)
         .bind(limit)
         .bind(offset)
-        .fetch_all(pool)
+        .fetch_all(&mut *conn)
         .await
         .map_err(map_sqlx_error)?;
 
@@ -220,7 +220,7 @@ pub async fn get_low_stock(
             "#,
         )
         .bind(wids)
-        .fetch_one(pool)
+        .fetch_one(&mut *conn)
         .await
         .map_err(map_sqlx_error)?;
 
@@ -242,7 +242,7 @@ pub async fn get_low_stock(
         )
         .bind(limit)
         .bind(offset)
-        .fetch_all(pool)
+        .fetch_all(&mut *conn)
         .await
         .map_err(map_sqlx_error)?;
 
@@ -255,7 +255,7 @@ pub async fn get_low_stock(
             AND p.deleted_at IS NULL
             "#,
         )
-        .fetch_one(pool)
+        .fetch_one(&mut *conn)
         .await
         .map_err(map_sqlx_error)?;
 
@@ -266,7 +266,7 @@ pub async fn get_low_stock(
 }
 
 pub async fn get_movements_summary(
-    pool: &PgPool,
+    conn: &mut PgConnection,
     start_date: NaiveDate,
     end_date: NaiveDate,
     warehouse_id: Option<Uuid>,
@@ -291,7 +291,7 @@ pub async fn get_movements_summary(
         .bind(start_date)
         .bind(end_date)
         .bind(wid)
-        .fetch_one(pool)
+        .fetch_one(&mut *conn)
         .await
         .map_err(map_sqlx_error)?
     } else {
@@ -310,7 +310,7 @@ pub async fn get_movements_summary(
         )
         .bind(start_date)
         .bind(end_date)
-        .fetch_one(pool)
+        .fetch_one(&mut *conn)
         .await
         .map_err(map_sqlx_error)?
     };
@@ -319,7 +319,7 @@ pub async fn get_movements_summary(
 }
 
 pub async fn get_stock_by_category(
-    pool: &PgPool,
+    conn: &mut PgConnection,
     warehouse_ids: Option<&[Uuid]>,
 ) -> Result<Vec<StockByCategoryRow>, DomainError> {
     let rows = if let Some(wids) = warehouse_ids {
@@ -337,7 +337,7 @@ pub async fn get_stock_by_category(
             "#,
         )
         .bind(wids)
-        .fetch_all(pool)
+        .fetch_all(&mut *conn)
         .await
         .map_err(map_sqlx_error)?
     } else {
@@ -353,7 +353,7 @@ pub async fn get_stock_by_category(
             ORDER BY total_quantity DESC
             "#,
         )
-        .fetch_all(pool)
+        .fetch_all(&mut *conn)
         .await
         .map_err(map_sqlx_error)?
     };

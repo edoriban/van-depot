@@ -1,4 +1,4 @@
-use sqlx::PgPool;
+use sqlx::PgConnection;
 use uuid::Uuid;
 
 use vandepot_domain::error::DomainError;
@@ -46,7 +46,7 @@ pub struct CanvasDimensionsRow {
 // ── Queries ─────────────────────────────────────────────────────────
 
 pub async fn get_warehouse_map(
-    pool: &PgPool,
+    conn: &mut PgConnection,
     warehouse_id: Uuid,
 ) -> Result<Vec<ZoneHealthRow>, DomainError> {
     let rows = sqlx::query_as::<_, ZoneHealthRow>(
@@ -116,7 +116,7 @@ pub async fn get_warehouse_map(
         "#,
     )
     .bind(warehouse_id)
-    .fetch_all(pool)
+    .fetch_all(&mut *conn)
     .await
     .map_err(map_sqlx_error)?;
 
@@ -124,14 +124,14 @@ pub async fn get_warehouse_map(
 }
 
 pub async fn get_canvas_dimensions(
-    pool: &PgPool,
+    conn: &mut PgConnection,
     warehouse_id: Uuid,
 ) -> Result<CanvasDimensionsRow, DomainError> {
     let row = sqlx::query_as::<_, CanvasDimensionsRow>(
         "SELECT canvas_width, canvas_height FROM warehouses WHERE id = $1 AND deleted_at IS NULL",
     )
     .bind(warehouse_id)
-    .fetch_optional(pool)
+    .fetch_optional(&mut *conn)
     .await
     .map_err(map_sqlx_error)?;
 
@@ -141,13 +141,12 @@ pub async fn get_canvas_dimensions(
 // ── Layout update (T05) ────────────────────────────────────────────
 
 pub async fn update_layout(
-    pool: &PgPool,
+    conn: &mut PgConnection,
     warehouse_id: Uuid,
     canvas_width: Option<f32>,
     canvas_height: Option<f32>,
     locations: &[(Uuid, f32, f32, f32, f32)],
 ) -> Result<u64, DomainError> {
-    let mut tx = pool.begin().await.map_err(map_sqlx_error)?;
 
     // Update canvas dimensions if provided
     if canvas_width.is_some() || canvas_height.is_some() {
@@ -161,7 +160,7 @@ pub async fn update_layout(
         .bind(warehouse_id)
         .bind(canvas_width)
         .bind(canvas_height)
-        .execute(&mut *tx)
+        .execute(&mut *conn)
         .await
         .map_err(map_sqlx_error)?;
     }
@@ -179,14 +178,13 @@ pub async fn update_layout(
         .bind(w)
         .bind(h)
         .bind(warehouse_id)
-        .execute(&mut *tx)
+        .execute(&mut *conn)
         .await
         .map_err(map_sqlx_error)?;
 
         updated += result.rows_affected();
     }
 
-    tx.commit().await.map_err(map_sqlx_error)?;
 
     Ok(updated)
 }
@@ -194,7 +192,7 @@ pub async fn update_layout(
 // ── Map search (T21) ──────────────────────────────────────────────
 
 pub async fn search_map(
-    pool: &PgPool,
+    conn: &mut PgConnection,
     warehouse_id: Uuid,
     query: &str,
 ) -> Result<Vec<MapSearchResultRow>, DomainError> {
@@ -239,7 +237,7 @@ pub async fn search_map(
     )
     .bind(warehouse_id)
     .bind(&pattern)
-    .fetch_all(pool)
+    .fetch_all(&mut *conn)
     .await
     .map_err(map_sqlx_error)?;
 
