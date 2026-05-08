@@ -22,11 +22,13 @@ pub trait UserRepository: Send + Sync {
     ) -> Result<(Vec<User>, i64), DomainError>;
 
     /// Update user fields. Only provided (Some) values are changed.
+    ///
+    /// Note: per-tenant role is updated via the membership repository
+    /// (`user_tenant_repo`) — never on the user aggregate itself.
     async fn update(
         &self,
         id: Uuid,
         name: Option<&str>,
-        role: Option<&crate::models::enums::UserRole>,
         is_active: Option<bool>,
     ) -> Result<User, DomainError>;
 
@@ -36,14 +38,10 @@ pub trait UserRepository: Send + Sync {
     /// Update the password hash for a user.
     async fn change_password(&self, id: Uuid, password_hash: &str) -> Result<(), DomainError>;
 
-    /// Assign a user to a warehouse.
-    async fn assign_warehouse(&self, user_id: Uuid, warehouse_id: Uuid) -> Result<(), DomainError>;
-
-    /// Revoke a user's access to a warehouse.
-    async fn revoke_warehouse(&self, user_id: Uuid, warehouse_id: Uuid) -> Result<(), DomainError>;
-
-    /// List warehouse IDs assigned to a user.
-    async fn list_user_warehouses(&self, user_id: Uuid) -> Result<Vec<Uuid>, DomainError>;
+    // B8.4: warehouse assignment (`assign_warehouse` / `revoke_warehouse` /
+    // `list_user_warehouses`) moved to `user_warehouse_repo` (free-function
+    // shape, takes `tenant_id` explicitly). Use `user_warehouse_repo::*` for
+    // those operations.
 
     /// Activate an invited user by clearing the invite fields and setting a real password.
     async fn activate_invite(&self, id: Uuid, new_password_hash: &str) -> Result<(), DomainError>;

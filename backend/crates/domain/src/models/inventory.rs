@@ -5,6 +5,7 @@ use uuid::Uuid;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Inventory {
     pub id: Uuid,
+    pub tenant_id: Uuid,
     pub product_id: Uuid,
     pub location_id: Uuid,
     pub quantity: f64,

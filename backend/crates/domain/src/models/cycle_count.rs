@@ -15,6 +15,7 @@ pub enum CycleCountStatus {
 #[derive(Debug, Clone, Serialize)]
 pub struct CycleCount {
     pub id: Uuid,
+    pub tenant_id: Uuid,
     pub warehouse_id: Uuid,
     pub name: String,
     pub status: CycleCountStatus,
@@ -28,6 +29,7 @@ pub struct CycleCount {
 #[derive(Debug, Clone, Serialize)]
 pub struct CycleCountItem {
     pub id: Uuid,
+    pub tenant_id: Uuid,
     pub cycle_count_id: Uuid,
     pub product_id: Uuid,
     pub location_id: Uuid,

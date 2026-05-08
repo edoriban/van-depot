@@ -7,6 +7,7 @@ use super::enums::{PurchaseReturnReason, PurchaseReturnStatus};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PurchaseReturn {
     pub id: Uuid,
+    pub tenant_id: Uuid,
     pub purchase_order_id: Uuid,
     pub return_number: String,
     pub status: PurchaseReturnStatus,
@@ -27,6 +28,7 @@ pub struct PurchaseReturn {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PurchaseReturnItem {
     pub id: Uuid,
+    pub tenant_id: Uuid,
     pub purchase_return_id: Uuid,
     pub product_id: Uuid,
     pub quantity_returned: f64,

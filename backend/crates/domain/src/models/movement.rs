@@ -7,6 +7,7 @@ use super::enums::MovementType;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Movement {
     pub id: Uuid,
+    pub tenant_id: Uuid,
     pub product_id: Uuid,
     pub from_location_id: Option<Uuid>,
     pub to_location_id: Option<Uuid>,

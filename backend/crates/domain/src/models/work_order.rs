@@ -7,6 +7,9 @@ use super::enums::WorkOrderStatus;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkOrder {
     pub id: Uuid,
+    /// Phase B B5 — tenant ownership column. NOT NULL since
+    /// 20260508000005_tenant_id_recipes_work_orders.
+    pub tenant_id: Uuid,
     pub code: String,
     pub recipe_id: Uuid,
     pub fg_product_id: Uuid,
@@ -61,6 +64,7 @@ mod tests {
     fn sample_wo() -> WorkOrder {
         WorkOrder {
             id: Uuid::nil(),
+            tenant_id: Uuid::nil(),
             code: "WO-20260423-ABCDEF".to_string(),
             recipe_id: Uuid::nil(),
             fg_product_id: Uuid::nil(),

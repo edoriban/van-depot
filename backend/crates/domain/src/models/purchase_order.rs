@@ -7,6 +7,7 @@ use super::enums::PurchaseOrderStatus;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PurchaseOrder {
     pub id: Uuid,
+    pub tenant_id: Uuid,
     pub supplier_id: Uuid,
     pub supplier_name: Option<String>,
     pub order_number: String,

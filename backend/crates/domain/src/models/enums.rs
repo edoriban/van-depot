@@ -13,16 +13,6 @@ pub enum PurchaseOrderStatus {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
 #[serde(rename_all = "snake_case")]
-#[sqlx(type_name = "user_role", rename_all = "snake_case")]
-pub enum UserRole {
-    Superadmin,
-    Owner,
-    WarehouseManager,
-    Operator,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
-#[serde(rename_all = "snake_case")]
 #[sqlx(type_name = "unit_type", rename_all = "snake_case")]
 pub enum UnitType {
     Piece,

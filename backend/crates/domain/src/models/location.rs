@@ -7,6 +7,10 @@ use super::enums::LocationType;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Location {
     pub id: Uuid,
+    /// Owning tenant. Added in Phase B batch 1 (multi-tenant-foundation).
+    /// Always equals `warehouse.tenant_id` (enforced by composite FK on
+    /// `(tenant_id, warehouse_id)` referencing `warehouses(tenant_id, id)`).
+    pub tenant_id: Uuid,
     pub warehouse_id: Uuid,
     pub parent_id: Option<Uuid>,
     pub location_type: LocationType,

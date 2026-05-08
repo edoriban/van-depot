@@ -4,6 +4,7 @@ use uuid::Uuid;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PurchaseOrderLine {
     pub id: Uuid,
+    pub tenant_id: Uuid,
     pub purchase_order_id: Uuid,
     pub product_id: Uuid,
     pub product_name: Option<String>,

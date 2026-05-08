@@ -18,4 +18,5 @@ pub mod stock_configuration;
 pub mod purchase_order;
 pub mod purchase_order_line;
 pub mod purchase_return;
+pub mod tenant;
 pub mod work_order;

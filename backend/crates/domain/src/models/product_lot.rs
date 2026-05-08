@@ -7,6 +7,7 @@ use super::enums::QualityStatus;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProductLot {
     pub id: Uuid,
+    pub tenant_id: Uuid,
     pub product_id: Uuid,
     pub lot_number: String,
     pub batch_date: Option<NaiveDate>,
