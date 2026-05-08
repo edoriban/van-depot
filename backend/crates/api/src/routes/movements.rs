@@ -13,9 +13,11 @@ use vandepot_domain::models::inventory_params::{
 };
 use vandepot_domain::models::movement::Movement;
 use vandepot_infra::auth::jwt::Claims;
-use vandepot_infra::repositories::inventory_repo::PgInventoryService;
+use vandepot_infra::repositories::inventory_repo;
 
 use crate::error::ApiError;
+use crate::extractors::claims::tenant_context_from_claims;
+use crate::extractors::tenant::Tenant;
 use crate::extractors::warehouse_access::ensure_warehouse_access;
 use crate::pagination::{PaginatedResponse, PaginationParams};
 use crate::state::AppState;
@@ -112,19 +114,34 @@ impl From<Movement> for MovementResponse {
 
 // ── Helpers ───────────────────────────────────────────────────────────
 
-/// Fetch `(warehouse_id, location_type)` for a location, erroring if it doesn't
-/// exist. Used by generic movement routes to reject Recepción endpoints — all
-/// inbound flows MUST go through `/lots/receive` and outbound-from-Reception
-/// through `/lots/{id}/distribute`, so generic movements cannot touch Reception.
+/// Resolves the active tenant_id from the caller's claims, or returns 422
+/// for superadmin tokens that haven't selected a tenant. Mirrors the B1/B2/B3
+/// per-route helper convention.
+fn require_tenant_for_movements(claims: &Claims) -> Result<Uuid, ApiError> {
+    let ctx = tenant_context_from_claims(claims);
+    ctx.require_tenant().map_err(|_| {
+        ApiError(DomainError::Validation(
+            "tenant_id required for movement operations (superadmin must select a tenant)"
+                .to_string(),
+        ))
+    })
+}
+
+/// Fetch `(warehouse_id, location_type)` for a location WITHIN the caller's
+/// tenant, erroring with 404 when missing. Cross-tenant location_ids
+/// resolve to NotFound here — they cannot be probed for type information.
 async fn get_location_meta(
-    pool: &sqlx::PgPool,
+    conn: &mut sqlx::PgConnection,
+    tenant_id: Uuid,
     location_id: Uuid,
 ) -> Result<(Uuid, LocationType), ApiError> {
     let row: Option<(Uuid, LocationType)> = sqlx::query_as(
-        "SELECT warehouse_id, location_type FROM locations WHERE id = $1",
+        "SELECT warehouse_id, location_type FROM locations \
+         WHERE id = $1 AND tenant_id = $2",
     )
     .bind(location_id)
-    .fetch_optional(pool)
+    .bind(tenant_id)
+    .fetch_optional(&mut *conn)
     .await
     .map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
 
@@ -146,7 +163,8 @@ pub fn movement_routes() -> Router<AppState> {
 // ── Handlers ──────────────────────────────────────────────────────────
 
 async fn record_entry(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
     claims: Claims,
     Json(payload): Json<EntryRequest>,
 ) -> Result<(StatusCode, Json<MovementResponse>), ApiError> {
@@ -156,19 +174,21 @@ async fn record_entry(
         )));
     }
 
+    let tenant_id = require_tenant_for_movements(&claims)?;
+
     let (warehouse_id, loc_type) =
-        get_location_meta(&state.pool, payload.to_location_id).await?;
+        get_location_meta(&mut *tt.tx, tenant_id, payload.to_location_id).await?;
     if matches!(loc_type, LocationType::Reception) {
         return Err(ApiError(DomainError::Validation(
             "Entries cannot target a Reception location — use POST /lots/receive"
                 .to_string(),
         )));
     }
-    ensure_warehouse_access(&claims, &warehouse_id)?;
+    ensure_warehouse_access(&mut *tt.tx, &claims, &warehouse_id).await?;
 
-    let svc = PgInventoryService::new(state.pool.clone());
-    let movement = vandepot_domain::ports::inventory_service::InventoryService::record_entry(
-        &svc,
+    let movement = inventory_repo::record_entry(
+        &mut *tt.tx,
+        tenant_id,
         EntryParams {
             product_id: payload.product_id,
             to_location_id: payload.to_location_id,
@@ -181,11 +201,13 @@ async fn record_entry(
     )
     .await?;
 
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok((StatusCode::CREATED, Json(MovementResponse::from(movement))))
 }
 
 async fn record_exit(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
     claims: Claims,
     Json(payload): Json<ExitRequest>,
 ) -> Result<(StatusCode, Json<MovementResponse>), ApiError> {
@@ -195,8 +217,10 @@ async fn record_exit(
         )));
     }
 
+    let tenant_id = require_tenant_for_movements(&claims)?;
+
     let (warehouse_id, loc_type) =
-        get_location_meta(&state.pool, payload.from_location_id).await?;
+        get_location_meta(&mut *tt.tx, tenant_id, payload.from_location_id).await?;
     if matches!(loc_type, LocationType::Reception) {
         return Err(ApiError(DomainError::Validation(
             "Exits cannot come from a Reception location — \
@@ -204,11 +228,11 @@ async fn record_exit(
                 .to_string(),
         )));
     }
-    ensure_warehouse_access(&claims, &warehouse_id)?;
+    ensure_warehouse_access(&mut *tt.tx, &claims, &warehouse_id).await?;
 
-    let svc = PgInventoryService::new(state.pool.clone());
-    let movement = vandepot_domain::ports::inventory_service::InventoryService::record_exit(
-        &svc,
+    let movement = inventory_repo::record_exit(
+        &mut *tt.tx,
+        tenant_id,
         ExitParams {
             product_id: payload.product_id,
             from_location_id: payload.from_location_id,
@@ -220,11 +244,13 @@ async fn record_exit(
     )
     .await?;
 
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok((StatusCode::CREATED, Json(MovementResponse::from(movement))))
 }
 
 async fn record_transfer(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
     claims: Claims,
     Json(payload): Json<TransferRequest>,
 ) -> Result<(StatusCode, Json<MovementResponse>), ApiError> {
@@ -240,10 +266,12 @@ async fn record_transfer(
         )));
     }
 
+    let tenant_id = require_tenant_for_movements(&claims)?;
+
     let (from_warehouse_id, from_type) =
-        get_location_meta(&state.pool, payload.from_location_id).await?;
+        get_location_meta(&mut *tt.tx, tenant_id, payload.from_location_id).await?;
     let (to_warehouse_id, to_type) =
-        get_location_meta(&state.pool, payload.to_location_id).await?;
+        get_location_meta(&mut *tt.tx, tenant_id, payload.to_location_id).await?;
     if matches!(from_type, LocationType::Reception)
         || matches!(to_type, LocationType::Reception)
     {
@@ -253,12 +281,12 @@ async fn record_transfer(
                 .to_string(),
         )));
     }
-    ensure_warehouse_access(&claims, &from_warehouse_id)?;
-    ensure_warehouse_access(&claims, &to_warehouse_id)?;
+    ensure_warehouse_access(&mut *tt.tx, &claims, &from_warehouse_id).await?;
+    ensure_warehouse_access(&mut *tt.tx, &claims, &to_warehouse_id).await?;
 
-    let svc = PgInventoryService::new(state.pool.clone());
-    let movement = vandepot_domain::ports::inventory_service::InventoryService::record_transfer(
-        &svc,
+    let movement = inventory_repo::record_transfer(
+        &mut *tt.tx,
+        tenant_id,
         TransferParams {
             product_id: payload.product_id,
             from_location_id: payload.from_location_id,
@@ -271,11 +299,13 @@ async fn record_transfer(
     )
     .await?;
 
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok((StatusCode::CREATED, Json(MovementResponse::from(movement))))
 }
 
 async fn record_adjustment(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
     claims: Claims,
     Json(payload): Json<AdjustmentRequest>,
 ) -> Result<(StatusCode, Json<MovementResponse>), ApiError> {
@@ -285,18 +315,20 @@ async fn record_adjustment(
         )));
     }
 
+    let tenant_id = require_tenant_for_movements(&claims)?;
+
     let (warehouse_id, loc_type) =
-        get_location_meta(&state.pool, payload.location_id).await?;
+        get_location_meta(&mut *tt.tx, tenant_id, payload.location_id).await?;
     if matches!(loc_type, LocationType::Reception) {
         return Err(ApiError(DomainError::Validation(
             "Adjustments cannot target a Reception location".to_string(),
         )));
     }
-    ensure_warehouse_access(&claims, &warehouse_id)?;
+    ensure_warehouse_access(&mut *tt.tx, &claims, &warehouse_id).await?;
 
-    let svc = PgInventoryService::new(state.pool.clone());
-    let movement = vandepot_domain::ports::inventory_service::InventoryService::record_adjustment(
-        &svc,
+    let movement = inventory_repo::record_adjustment(
+        &mut *tt.tx,
+        tenant_id,
         AdjustmentParams {
             product_id: payload.product_id,
             location_id: payload.location_id,
@@ -308,14 +340,18 @@ async fn record_adjustment(
     )
     .await?;
 
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok((StatusCode::CREATED, Json(MovementResponse::from(movement))))
 }
 
 async fn list_movements(
-    State(state): State<AppState>,
-    _claims: Claims,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
+    claims: Claims,
     Query(params): Query<MovementQueryParams>,
 ) -> Result<Json<PaginatedResponse<MovementResponse>>, ApiError> {
+    let tenant_id = require_tenant_for_movements(&claims)?;
+
     let pagination = PaginationParams {
         page: params.page,
         per_page: params.per_page,
@@ -330,16 +366,16 @@ async fn list_movements(
         work_order_id: params.work_order_id,
     };
 
-    let svc = PgInventoryService::new(state.pool.clone());
-    let (movements, total) =
-        vandepot_domain::ports::inventory_service::InventoryService::list_movements(
-            &svc,
-            filters,
-            pagination.limit(),
-            pagination.offset(),
-        )
-        .await?;
+        let (movements, total) = inventory_repo::list_movements(
+        &mut *tt.tx,
+        tenant_id,
+        filters,
+        pagination.limit(),
+        pagination.offset(),
+    )
+    .await?;
 
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok(Json(PaginatedResponse {
         data: movements.into_iter().map(MovementResponse::from).collect(),
         total,
@@ -349,16 +385,17 @@ async fn list_movements(
 }
 
 async fn get_movement(
-    State(state): State<AppState>,
-    _claims: Claims,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
+    claims: Claims,
     Path(id): Path<Uuid>,
 ) -> Result<Json<MovementResponse>, ApiError> {
-    let svc = PgInventoryService::new(state.pool.clone());
-    let movement = vandepot_domain::ports::inventory_service::InventoryService::find_movement_by_id(
-        &svc, id,
-    )
-    .await?
-    .ok_or_else(|| ApiError(DomainError::NotFound("Movement not found".to_string())))?;
+    let tenant_id = require_tenant_for_movements(&claims)?;
 
+        let movement = inventory_repo::find_movement_by_id(&mut *tt.tx, tenant_id, id)
+        .await?
+        .ok_or_else(|| ApiError(DomainError::NotFound("Movement not found".to_string())))?;
+
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok(Json(MovementResponse::from(movement)))
 }

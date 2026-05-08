@@ -13,7 +13,10 @@ use vandepot_infra::auth::jwt::Claims;
 use vandepot_infra::repositories::lots_repo;
 
 use crate::error::ApiError;
-use crate::extractors::role_guard::require_role;
+use crate::extractors::claims::tenant_context_from_claims;
+use crate::extractors::tenant::Tenant;
+use crate::extractors::role_guard::require_role_claims;
+use vandepot_infra::auth::tenant_context::TenantRole;
 use crate::state::AppState;
 
 // ── DTOs ──────────────────────────────────────────────────────────────
@@ -138,6 +141,21 @@ pub struct MovementResponse {
     pub created_at: DateTime<Utc>,
 }
 
+// ── Helpers ───────────────────────────────────────────────────────────
+
+/// Resolves the active tenant_id from the caller's claims, or returns 422
+/// for superadmin tokens that haven't selected a tenant. Mirrors the B1/B2/B3
+/// per-route helper convention.
+fn require_tenant_for_lots(claims: &Claims) -> Result<Uuid, ApiError> {
+    let ctx = tenant_context_from_claims(claims);
+    ctx.require_tenant().map_err(|_| {
+        ApiError(DomainError::Validation(
+            "tenant_id required for lot operations (superadmin must select a tenant)"
+                .to_string(),
+        ))
+    })
+}
+
 // ── Routes ────────────────────────────────────────────────────────────
 
 pub fn lot_routes() -> Router<AppState> {
@@ -155,11 +173,14 @@ pub fn lot_routes() -> Router<AppState> {
 // ── Handlers ──────────────────────────────────────────────────────────
 
 async fn list_lots(
-    State(state): State<AppState>,
-    _claims: Claims,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
+    claims: Claims,
     Path(product_id): Path<Uuid>,
 ) -> Result<Json<Vec<LotWithInventoryResponse>>, ApiError> {
-    let rows = lots_repo::list_lots_by_product(&state.pool, product_id).await?;
+    let tenant_id = require_tenant_for_lots(&claims)?;
+
+        let rows = lots_repo::list_lots_by_product(&mut *tt.tx, tenant_id, product_id).await?;
 
     let data = rows
         .into_iter()
@@ -179,16 +200,21 @@ async fn list_lots(
         })
         .collect();
 
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok(Json(data))
 }
 
 async fn get_lot(
-    State(state): State<AppState>,
-    _claims: Claims,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
+    claims: Claims,
     Path(id): Path<Uuid>,
 ) -> Result<Json<ProductLotResponse>, ApiError> {
-    let row = lots_repo::get_lot(&state.pool, id).await?;
+    let tenant_id = require_tenant_for_lots(&claims)?;
 
+        let row = lots_repo::get_lot(&mut *tt.tx, tenant_id, id).await?;
+
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok(Json(ProductLotResponse {
         id: row.id,
         product_id: row.product_id,
@@ -206,11 +232,14 @@ async fn get_lot(
 }
 
 async fn get_lot_inventory(
-    State(state): State<AppState>,
-    _claims: Claims,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
+    claims: Claims,
     Path(id): Path<Uuid>,
 ) -> Result<Json<Vec<InventoryLotResponse>>, ApiError> {
-    let rows = lots_repo::get_lot_inventory(&state.pool, id).await?;
+    let tenant_id = require_tenant_for_lots(&claims)?;
+
+        let rows = lots_repo::get_lot_inventory(&mut *tt.tx, tenant_id, id).await?;
 
     let data = rows
         .into_iter()
@@ -225,19 +254,23 @@ async fn get_lot_inventory(
         })
         .collect();
 
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok(Json(data))
 }
 
 async fn update_quality_status(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
     claims: Claims,
     Path(id): Path<Uuid>,
     Json(payload): Json<UpdateQualityRequest>,
 ) -> Result<Json<ProductLotResponse>, ApiError> {
-    require_role(&claims, &["superadmin", "owner", "warehouse_manager"])?;
+    require_role_claims(&claims, &[TenantRole::Owner, TenantRole::Manager])?;
+    let tenant_id = require_tenant_for_lots(&claims)?;
 
     let row = lots_repo::update_quality_status(
-        &state.pool,
+        &mut *tt.tx,
+        tenant_id,
         id,
         payload.quality_status,
         claims.sub,
@@ -245,6 +278,7 @@ async fn update_quality_status(
     )
     .await?;
 
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok(Json(ProductLotResponse {
         id: row.id,
         product_id: row.product_id,
@@ -262,15 +296,18 @@ async fn update_quality_status(
 }
 
 async fn transfer_lot(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
     claims: Claims,
     Path(id): Path<Uuid>,
     Json(payload): Json<TransferLotRequest>,
 ) -> Result<StatusCode, ApiError> {
-    require_role(&claims, &["superadmin", "owner", "warehouse_manager"])?;
+    require_role_claims(&claims, &[TenantRole::Owner, TenantRole::Manager])?;
+    let tenant_id = require_tenant_for_lots(&claims)?;
 
     lots_repo::transfer_lot(
-        &state.pool,
+        &mut *tt.tx,
+        tenant_id,
         id,
         payload.from_location_id,
         payload.to_location_id,
@@ -280,19 +317,23 @@ async fn transfer_lot(
     )
     .await?;
 
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok(StatusCode::NO_CONTENT)
 }
 
 async fn distribute_lot(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
     claims: Claims,
     Path(id): Path<Uuid>,
     Json(payload): Json<DistributeLotRequest>,
 ) -> Result<Json<Vec<InventoryLotResponse>>, ApiError> {
-    require_role(&claims, &["superadmin", "owner", "warehouse_manager"])?;
+    require_role_claims(&claims, &[TenantRole::Owner, TenantRole::Manager])?;
+    let tenant_id = require_tenant_for_lots(&claims)?;
 
     lots_repo::distribute_lot(
-        &state.pool,
+        &mut *tt.tx,
+        tenant_id,
         id,
         payload.to_location_id,
         payload.quantity,
@@ -303,7 +344,7 @@ async fn distribute_lot(
 
     // Return the lot's updated per-location distribution so the client can
     // re-render without issuing a follow-up GET.
-    let rows = lots_repo::get_lot_inventory(&state.pool, id).await?;
+        let rows = lots_repo::get_lot_inventory(&mut *tt.tx, tenant_id, id).await?;
     let data = rows
         .into_iter()
         .map(|row| InventoryLotResponse {
@@ -317,15 +358,19 @@ async fn distribute_lot(
         })
         .collect();
 
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok(Json(data))
 }
 
 async fn get_lot_movements(
-    State(state): State<AppState>,
-    _claims: Claims,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
+    claims: Claims,
     Path(id): Path<Uuid>,
 ) -> Result<Json<Vec<MovementResponse>>, ApiError> {
-    let rows = lots_repo::get_lot_movements(&state.pool, id).await?;
+    let tenant_id = require_tenant_for_lots(&claims)?;
+
+        let rows = lots_repo::get_lot_movements(&mut *tt.tx, tenant_id, id).await?;
 
     let data = rows
         .into_iter()
@@ -345,15 +390,18 @@ async fn get_lot_movements(
         })
         .collect();
 
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok(Json(data))
 }
 
 async fn receive_lot(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
     claims: Claims,
     Json(payload): Json<ReceiveLotRequest>,
 ) -> Result<(StatusCode, Json<ReceiveResponse>), ApiError> {
-    require_role(&claims, &["superadmin", "owner", "warehouse_manager"])?;
+    require_role_claims(&claims, &[TenantRole::Owner, TenantRole::Manager])?;
+    let tenant_id = require_tenant_for_lots(&claims)?;
 
     if payload.good_quantity < 0.0 {
         return Err(ApiError(DomainError::Validation(
@@ -375,7 +423,8 @@ async fn receive_lot(
     }
 
     let outcome = lots_repo::receive_lot(
-        &state.pool,
+        &mut *tt.tx,
+        tenant_id,
         payload.product_id,
         &payload.lot_number,
         payload.warehouse_id,
@@ -423,5 +472,6 @@ async fn receive_lot(
         },
     };
 
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok((StatusCode::CREATED, Json(body)))
 }

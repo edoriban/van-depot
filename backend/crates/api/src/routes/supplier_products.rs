@@ -6,11 +6,15 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use vandepot_domain::error::DomainError;
 use vandepot_infra::auth::jwt::Claims;
 use vandepot_infra::repositories::supplier_products_repo;
 
 use crate::error::ApiError;
-use crate::extractors::role_guard::require_role;
+use crate::extractors::claims::tenant_context_from_claims;
+use crate::extractors::tenant::Tenant;
+use crate::extractors::role_guard::require_role_claims;
+use vandepot_infra::auth::tenant_context::TenantRole;
 use crate::state::AppState;
 
 // ── DTOs ──────────────────────────────────────────────────────────────
@@ -83,18 +87,43 @@ pub fn supplier_product_routes() -> Router<AppState> {
         )
 }
 
+// ── Helpers ───────────────────────────────────────────────────────────
+
+/// Resolves the active tenant_id from the caller's claims, or returns 422
+/// for superadmin tokens that haven't selected a tenant. Mirrors the B2
+/// per-route helper convention.
+fn require_tenant_for_supplier_products(claims: &Claims) -> Result<Uuid, ApiError> {
+    let ctx = tenant_context_from_claims(claims);
+    ctx.require_tenant().map_err(|_| {
+        ApiError(DomainError::Validation(
+            "tenant_id required for supplier-product operations \
+             (superadmin must select a tenant)"
+                .to_string(),
+        ))
+    })
+}
+
 // ── Handlers ──────────────────────────────────────────────────────────
 
 async fn create(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
     claims: Claims,
     Path(supplier_id): Path<Uuid>,
     Json(payload): Json<CreateSupplierProductRequest>,
 ) -> Result<(StatusCode, Json<SupplierProductResponse>), ApiError> {
-    require_role(&claims, &["superadmin", "owner", "warehouse_manager"])?;
+    require_role_claims(&claims, &[TenantRole::Owner, TenantRole::Manager])?;
+    let tenant_id = require_tenant_for_supplier_products(&claims)?;
 
+        // Cross-tenant supplier_id or product_id surfaces as a 23503 FK
+    // violation on `supplier_products_supplier_tenant_fk` /
+    // `supplier_products_product_tenant_fk` (composite). map_sqlx_error
+    // converts it to 409 Conflict — the body trusts the caller's
+    // path/body, but the composite FK guarantees both refs match the
+    // active tenant.
     let row = supplier_products_repo::create_supplier_product(
-        &state.pool,
+        &mut *tt.tx,
+        tenant_id,
         supplier_id,
         payload.product_id,
         payload.supplier_sku.as_deref(),
@@ -105,6 +134,7 @@ async fn create(
     )
     .await?;
 
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok((
         StatusCode::CREATED,
         Json(SupplierProductResponse {
@@ -126,11 +156,15 @@ async fn create(
 }
 
 async fn list_by_supplier(
-    State(state): State<AppState>,
-    _claims: Claims,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
+    claims: Claims,
     Path(supplier_id): Path<Uuid>,
 ) -> Result<Json<Vec<SupplierProductResponse>>, ApiError> {
-    let rows = supplier_products_repo::list_by_supplier(&state.pool, supplier_id).await?;
+    let tenant_id = require_tenant_for_supplier_products(&claims)?;
+
+        let rows =
+        supplier_products_repo::list_by_supplier(&mut *tt.tx, tenant_id, supplier_id).await?;
 
     let data = rows
         .into_iter()
@@ -151,15 +185,20 @@ async fn list_by_supplier(
         })
         .collect();
 
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok(Json(data))
 }
 
 async fn list_by_product(
-    State(state): State<AppState>,
-    _claims: Claims,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
+    claims: Claims,
     Path(product_id): Path<Uuid>,
 ) -> Result<Json<Vec<SupplierProductWithSupplierResponse>>, ApiError> {
-    let rows = supplier_products_repo::list_by_product(&state.pool, product_id).await?;
+    let tenant_id = require_tenant_for_supplier_products(&claims)?;
+
+        let rows =
+        supplier_products_repo::list_by_product(&mut *tt.tx, tenant_id, product_id).await?;
 
     let data = rows
         .into_iter()
@@ -179,19 +218,23 @@ async fn list_by_product(
         })
         .collect();
 
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok(Json(data))
 }
 
 async fn update(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
     claims: Claims,
     Path(id): Path<Uuid>,
     Json(payload): Json<UpdateSupplierProductRequest>,
 ) -> Result<Json<SupplierProductResponse>, ApiError> {
-    require_role(&claims, &["superadmin", "owner", "warehouse_manager"])?;
+    require_role_claims(&claims, &[TenantRole::Owner, TenantRole::Manager])?;
+    let tenant_id = require_tenant_for_supplier_products(&claims)?;
 
-    let row = supplier_products_repo::update_supplier_product(
-        &state.pool,
+        let row = supplier_products_repo::update_supplier_product(
+        &mut *tt.tx,
+        tenant_id,
         id,
         payload.supplier_sku.as_ref().map(|s| s.as_deref()),
         payload.unit_cost,
@@ -202,6 +245,7 @@ async fn update(
     )
     .await?;
 
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok(Json(SupplierProductResponse {
         id: row.id,
         supplier_id: row.supplier_id,
@@ -220,13 +264,16 @@ async fn update(
 }
 
 async fn delete(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
     claims: Claims,
     Path(id): Path<Uuid>,
 ) -> Result<StatusCode, ApiError> {
-    require_role(&claims, &["superadmin", "owner"])?;
+    require_role_claims(&claims, &[TenantRole::Owner])?;
+    let tenant_id = require_tenant_for_supplier_products(&claims)?;
 
-    supplier_products_repo::delete_supplier_product(&state.pool, id).await?;
+        supplier_products_repo::delete_supplier_product(&mut *tt.tx, tenant_id, id).await?;
 
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok(StatusCode::NO_CONTENT)
 }

@@ -5,10 +5,13 @@ use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use vandepot_domain::error::DomainError;
 use vandepot_infra::auth::jwt::Claims;
-use vandepot_infra::repositories::dashboard_repo;
+use vandepot_infra::repositories::{dashboard_repo, user_warehouse_repo};
 
 use crate::error::ApiError;
+use crate::extractors::claims::tenant_context_from_claims;
+use crate::extractors::tenant::Tenant;
 use crate::pagination::{PaginatedResponse, PaginationParams};
 use crate::state::AppState;
 
@@ -100,24 +103,40 @@ pub fn dashboard_routes() -> Router<AppState> {
 // ── Helpers ─────────────────────────────────────────────────────────
 
 /// Returns `None` for superadmin (sees all), `Some(ids)` for scoped users.
-fn warehouse_scope(claims: &Claims) -> Option<Vec<Uuid>> {
-    if claims.role.eq_ignore_ascii_case("superadmin") {
-        None
-    } else {
-        Some(claims.warehouse_ids.clone())
+///
+/// Post-B8.1, `user_warehouse_repo::list_for_user` filters on
+/// `(tenant_id, user_id)` and the rows themselves carry a tenant_id matching
+/// the active claim, so the returned warehouse_ids are tenant-correct by
+/// construction.
+async fn warehouse_scope(
+    conn: &mut sqlx::PgConnection,
+    claims: &Claims,
+) -> Result<Option<Vec<Uuid>>, ApiError> {
+    if claims.is_superadmin {
+        return Ok(None);
     }
+    let ctx = tenant_context_from_claims(claims);
+    let tenant_id = ctx.require_tenant().map_err(|_| {
+        ApiError(DomainError::Validation(
+            "tenant_id required (stale or non-tenant token)".to_string(),
+        ))
+    })?;
+    let ids = user_warehouse_repo::list_for_user(&mut *conn, tenant_id, claims.sub).await?;
+    Ok(Some(ids))
 }
 
 // ── Handlers ────────────────────────────────────────────────────────
 
 async fn dashboard_stats(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
     claims: Claims,
 ) -> Result<Json<DashboardStatsResponse>, ApiError> {
-    let scope = warehouse_scope(&claims);
+    let scope = warehouse_scope(&mut *tt.tx, &claims).await?;
     let stats =
-        dashboard_repo::get_dashboard_stats(&state.pool, scope.as_deref()).await?;
+        dashboard_repo::get_dashboard_stats(&mut *tt.tx, scope.as_deref()).await?;
 
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok(Json(DashboardStatsResponse {
         total_products: stats.total_products,
         total_warehouses: stats.total_warehouses,
@@ -130,12 +149,13 @@ async fn dashboard_stats(
 }
 
 async fn recent_movements(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
     claims: Claims,
 ) -> Result<Json<Vec<RecentMovementResponse>>, ApiError> {
-    let scope = warehouse_scope(&claims);
+    let scope = warehouse_scope(&mut *tt.tx, &claims).await?;
     let rows =
-        dashboard_repo::get_recent_movements(&state.pool, scope.as_deref()).await?;
+        dashboard_repo::get_recent_movements(&mut *tt.tx, scope.as_deref()).await?;
 
     let items = rows
         .into_iter()
@@ -157,22 +177,24 @@ async fn recent_movements(
         })
         .collect();
 
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok(Json(items))
 }
 
 async fn low_stock_report(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
     claims: Claims,
     Query(params): Query<LowStockQueryParams>,
 ) -> Result<Json<PaginatedResponse<LowStockItemResponse>>, ApiError> {
-    let scope = warehouse_scope(&claims);
+    let scope = warehouse_scope(&mut *tt.tx, &claims).await?;
     let pagination = PaginationParams {
         page: params.page,
         per_page: params.per_page,
     };
 
     let (rows, total) = dashboard_repo::get_low_stock(
-        &state.pool,
+        &mut *tt.tx,
         scope.as_deref(),
         pagination.limit(),
         pagination.offset(),
@@ -193,6 +215,7 @@ async fn low_stock_report(
         })
         .collect();
 
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok(Json(PaginatedResponse {
         data,
         total,
@@ -202,29 +225,31 @@ async fn low_stock_report(
 }
 
 async fn movements_summary(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
     claims: Claims,
     Query(params): Query<MovementsSummaryParams>,
 ) -> Result<Json<MovementsSummaryResponse>, ApiError> {
-    // If a specific warehouse is requested, verify access
+    // If a specific warehouse is requested, verify access via the per-request
+    // DB lookup (the JWT no longer carries `warehouse_ids`).
     if let Some(wid) = params.warehouse_id {
-        if !claims.role.eq_ignore_ascii_case("superadmin")
-            && !claims.warehouse_ids.contains(&wid)
-        {
-            return Err(ApiError(vandepot_domain::error::DomainError::Forbidden(
-                "Access denied to this warehouse".to_string(),
-            )));
-        }
+        crate::extractors::warehouse_access::ensure_warehouse_access(
+            &mut *tt.tx,
+            &claims,
+            &wid,
+        )
+        .await?;
     }
 
     let row = dashboard_repo::get_movements_summary(
-        &state.pool,
+        &mut *tt.tx,
         params.start_date,
         params.end_date,
         params.warehouse_id,
     )
     .await?;
 
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok(Json(MovementsSummaryResponse {
         entries_count: row.entries_count,
         exits_count: row.exits_count,
@@ -236,12 +261,13 @@ async fn movements_summary(
 }
 
 async fn stock_by_category(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
     claims: Claims,
 ) -> Result<Json<Vec<StockByCategoryResponse>>, ApiError> {
-    let scope = warehouse_scope(&claims);
+    let scope = warehouse_scope(&mut *tt.tx, &claims).await?;
     let rows =
-        dashboard_repo::get_stock_by_category(&state.pool, scope.as_deref()).await?;
+        dashboard_repo::get_stock_by_category(&mut *tt.tx, scope.as_deref()).await?;
 
     let items = rows
         .into_iter()
@@ -253,5 +279,6 @@ async fn stock_by_category(
         })
         .collect();
 
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok(Json(items))
 }

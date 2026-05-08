@@ -7,6 +7,13 @@
 //   POST /work-orders, POST /work-orders/{id}/issue,
 //   POST /work-orders/{id}/complete, POST /work-orders/{id}/cancel
 //
+// Phase B B5 — every handler also calls `require_tenant_for_work_orders`
+// to extract the active tenant_id from the caller's claims (422 if a
+// superadmin token has not selected one), then threads tenant_id into
+// every repo call. The free-function repo enforces `WHERE tenant_id`
+// on every query, and the composite FKs installed by 20260508000005
+// reject any cross-tenant INSERT/UPDATE at the DB layer.
+//
 // Structured 409 + 422 error bodies flow automatically through
 // `ApiError::into_response` (see `crates/api/src/error.rs`).
 
@@ -21,16 +28,19 @@ use uuid::Uuid;
 use vandepot_domain::error::DomainError;
 use vandepot_domain::models::enums::WorkOrderStatus;
 use vandepot_domain::models::work_order::{WorkOrder, WorkOrderMaterial};
-use vandepot_domain::ports::work_order_repository::{
-    CreateWorkOrderParams, MaterialSourceOverride, WorkOrderFilters, WorkOrderRepository,
-};
 use vandepot_infra::auth::jwt::Claims;
-use vandepot_infra::repositories::work_orders_repo::PgWorkOrderRepository;
+use vandepot_infra::repositories::work_orders_repo;
+use vandepot_infra::repositories::work_orders_repo::{
+    CreateWorkOrderParams, MaterialSourceOverride, WorkOrderFilters,
+};
 
 use crate::error::ApiError;
-use crate::extractors::role_guard::require_role;
+use crate::extractors::claims::tenant_context_from_claims;
+use crate::extractors::tenant::Tenant;
+use crate::extractors::role_guard::require_role_claims;
 use crate::pagination::{PaginatedResponse, PaginationParams};
 use crate::state::AppState;
+use vandepot_infra::auth::tenant_context::TenantRole;
 
 // ── DTOs ──────────────────────────────────────────────────────────────
 
@@ -164,6 +174,21 @@ impl From<WorkOrderMaterial> for WorkOrderMaterialResponse {
     }
 }
 
+// ── Helpers ───────────────────────────────────────────────────────────
+
+/// Resolves the active tenant_id from the caller's claims, or returns 422
+/// for superadmin tokens that haven't selected a tenant. Mirrors the
+/// B1/B2/B3/B4 per-route helper convention.
+fn require_tenant_for_work_orders(claims: &Claims) -> Result<Uuid, ApiError> {
+    let ctx = tenant_context_from_claims(claims);
+    ctx.require_tenant().map_err(|_| {
+        ApiError(DomainError::Validation(
+            "tenant_id required for work order operations (superadmin must select a tenant)"
+                .to_string(),
+        ))
+    })
+}
+
 // ── Routes ────────────────────────────────────────────────────────────
 
 pub fn work_order_routes() -> Router<AppState> {
@@ -181,14 +206,13 @@ pub fn work_order_routes() -> Router<AppState> {
 // ── Handlers ──────────────────────────────────────────────────────────
 
 async fn create_work_order(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
     claims: Claims,
     Json(payload): Json<CreateWorkOrderRequest>,
 ) -> Result<(StatusCode, Json<WorkOrderResponse>), ApiError> {
-    require_role(
-        &claims,
-        &["superadmin", "owner", "warehouse_manager", "operator"],
-    )?;
+    require_role_claims(&claims, &[TenantRole::Owner, TenantRole::Manager, TenantRole::Operator])?;
+    let tenant_id = require_tenant_for_work_orders(&claims)?;
 
     if payload.fg_quantity <= 0.0 {
         return Err(ApiError(DomainError::Validation(
@@ -203,9 +227,10 @@ async fn create_work_order(
         }
     }
 
-    let repo = PgWorkOrderRepository::new(state.pool.clone());
-    let wo = repo
-        .create(CreateWorkOrderParams {
+    let wo = work_orders_repo::create(
+        &mut *tt.tx,
+        tenant_id,
+        CreateWorkOrderParams {
             recipe_id: payload.recipe_id,
             fg_product_id: payload.fg_product_id,
             fg_quantity: payload.fg_quantity,
@@ -213,12 +238,13 @@ async fn create_work_order(
             work_center_location_id: payload.work_center_location_id,
             notes: payload.notes,
             created_by: claims.sub,
-        })
-        .await?;
+        },
+    )
+    .await?;
 
     // Hydrate materials inline on the 201 response so the client can render
     // the BOM snapshot without a follow-up fetch.
-    let materials = repo.list_materials(wo.id).await?;
+        let materials = work_orders_repo::list_materials(&mut *tt.tx, tenant_id, wo.id).await?;
     let mut response = WorkOrderResponse::from(wo);
     response.materials = Some(
         materials
@@ -227,14 +253,18 @@ async fn create_work_order(
             .collect(),
     );
 
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok((StatusCode::CREATED, Json(response)))
 }
 
 async fn list_work_orders(
-    State(state): State<AppState>,
-    _claims: Claims,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
+    claims: Claims,
     Query(params): Query<WorkOrderListParams>,
 ) -> Result<Json<PaginatedResponse<WorkOrderResponse>>, ApiError> {
+    let tenant_id = require_tenant_for_work_orders(&claims)?;
+
     let pagination = PaginationParams {
         page: params.page,
         per_page: params.per_page,
@@ -247,11 +277,16 @@ async fn list_work_orders(
         search: params.search,
     };
 
-    let repo = PgWorkOrderRepository::new(state.pool.clone());
-    let (orders, total) = repo
-        .list(filters, pagination.limit(), pagination.offset())
-        .await?;
+        let (orders, total) = work_orders_repo::list(
+        &mut *tt.tx,
+        tenant_id,
+        filters,
+        pagination.limit(),
+        pagination.offset(),
+    )
+    .await?;
 
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok(Json(PaginatedResponse {
         data: orders.into_iter().map(WorkOrderResponse::from).collect(),
         total,
@@ -261,18 +296,18 @@ async fn list_work_orders(
 }
 
 async fn get_work_order(
-    State(state): State<AppState>,
-    _claims: Claims,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
+    claims: Claims,
     Path(id): Path<Uuid>,
 ) -> Result<Json<WorkOrderResponse>, ApiError> {
-    let repo = PgWorkOrderRepository::new(state.pool.clone());
+    let tenant_id = require_tenant_for_work_orders(&claims)?;
 
-    let wo = repo
-        .find_by_id(id)
+        let wo = work_orders_repo::find_by_id(&mut *tt.tx, tenant_id, id)
         .await?
         .ok_or_else(|| ApiError(DomainError::NotFound("Work order not found".to_string())))?;
 
-    let materials = repo.list_materials(id).await?;
+    let materials = work_orders_repo::list_materials(&mut *tt.tx, tenant_id, id).await?;
 
     let mut response = WorkOrderResponse::from(wo);
     response.materials = Some(
@@ -282,19 +317,19 @@ async fn get_work_order(
             .collect(),
     );
 
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok(Json(response))
 }
 
 async fn issue_work_order(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
     claims: Claims,
     Path(id): Path<Uuid>,
     Json(payload): Json<IssueWorkOrderRequest>,
 ) -> Result<Json<WorkOrderResponse>, ApiError> {
-    require_role(
-        &claims,
-        &["superadmin", "owner", "warehouse_manager", "operator"],
-    )?;
+    require_role_claims(&claims, &[TenantRole::Owner, TenantRole::Manager, TenantRole::Operator])?;
+    let tenant_id = require_tenant_for_work_orders(&claims)?;
 
     let overrides: Vec<MaterialSourceOverride> = payload
         .material_sources
@@ -303,10 +338,9 @@ async fn issue_work_order(
         .map(MaterialSourceOverride::from)
         .collect();
 
-    let repo = PgWorkOrderRepository::new(state.pool.clone());
-    let result = repo.issue(id, claims.sub, overrides).await?;
+    let result = work_orders_repo::issue(&mut *tt.tx, tenant_id, id, claims.sub, overrides).await?;
 
-    let materials = repo.list_materials(result.work_order.id).await?;
+        let materials = work_orders_repo::list_materials(&mut *tt.tx, tenant_id, result.work_order.id).await?;
     let mut response = WorkOrderResponse::from(result.work_order);
     response.materials = Some(
         materials
@@ -315,19 +349,19 @@ async fn issue_work_order(
             .collect(),
     );
 
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok(Json(response))
 }
 
 async fn complete_work_order(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
     claims: Claims,
     Path(id): Path<Uuid>,
     Json(payload): Json<CompleteWorkOrderRequest>,
 ) -> Result<Json<WorkOrderResponse>, ApiError> {
-    require_role(
-        &claims,
-        &["superadmin", "owner", "warehouse_manager", "operator"],
-    )?;
+    require_role_claims(&claims, &[TenantRole::Owner, TenantRole::Manager, TenantRole::Operator])?;
+    let tenant_id = require_tenant_for_work_orders(&claims)?;
 
     if let Some(ref notes) = payload.notes {
         if notes.len() > 2000 {
@@ -337,12 +371,16 @@ async fn complete_work_order(
         }
     }
 
-    let repo = PgWorkOrderRepository::new(state.pool.clone());
-    let result = repo
-        .complete(id, claims.sub, payload.fg_expiration_date)
-        .await?;
+    let result = work_orders_repo::complete(
+        &mut *tt.tx,
+        tenant_id,
+        id,
+        claims.sub,
+        payload.fg_expiration_date,
+    )
+    .await?;
 
-    let materials = repo.list_materials(result.work_order.id).await?;
+        let materials = work_orders_repo::list_materials(&mut *tt.tx, tenant_id, result.work_order.id).await?;
     let mut response = WorkOrderResponse::from(result.work_order);
     response.materials = Some(
         materials
@@ -351,28 +389,27 @@ async fn complete_work_order(
             .collect(),
     );
 
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok(Json(response))
 }
 
 async fn cancel_work_order(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
     claims: Claims,
     Path(id): Path<Uuid>,
     // Accept an optional empty body — axum's Json extractor would reject
     // missing bodies, so we extract via Option<Json<..>> with a default.
     body: Option<Json<CancelWorkOrderRequest>>,
 ) -> Result<Json<WorkOrderResponse>, ApiError> {
-    require_role(
-        &claims,
-        &["superadmin", "owner", "warehouse_manager", "operator"],
-    )?;
+    require_role_claims(&claims, &[TenantRole::Owner, TenantRole::Manager, TenantRole::Operator])?;
+    let tenant_id = require_tenant_for_work_orders(&claims)?;
 
     let _ = body;
 
-    let repo = PgWorkOrderRepository::new(state.pool.clone());
-    let result = repo.cancel(id, claims.sub).await?;
+    let result = work_orders_repo::cancel(&mut *tt.tx, tenant_id, id, claims.sub).await?;
 
-    let materials = repo.list_materials(result.work_order.id).await?;
+        let materials = work_orders_repo::list_materials(&mut *tt.tx, tenant_id, result.work_order.id).await?;
     let mut response = WorkOrderResponse::from(result.work_order);
     response.materials = Some(
         materials
@@ -381,5 +418,6 @@ async fn cancel_work_order(
             .collect(),
     );
 
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok(Json(response))
 }

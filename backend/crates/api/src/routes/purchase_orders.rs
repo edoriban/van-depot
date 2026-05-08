@@ -10,14 +10,14 @@ use vandepot_domain::error::DomainError;
 use vandepot_domain::models::enums::PurchaseOrderStatus;
 use vandepot_domain::models::purchase_order::PurchaseOrder;
 use vandepot_domain::models::purchase_order_line::PurchaseOrderLine;
-use vandepot_domain::ports::purchase_order_repository::{
-    PurchaseOrderFilters, PurchaseOrderRepository,
-};
 use vandepot_infra::auth::jwt::Claims;
-use vandepot_infra::repositories::purchase_order_repo::PgPurchaseOrderRepository;
+use vandepot_infra::auth::tenant_context::TenantRole;
+use vandepot_infra::repositories::purchase_order_repo::{self, PurchaseOrderFilters};
 
 use crate::error::ApiError;
-use crate::extractors::role_guard::require_role;
+use crate::extractors::claims::tenant_context_from_claims;
+use crate::extractors::tenant::Tenant;
+use crate::extractors::role_guard::require_role_claims;
 use crate::pagination::PaginatedResponse;
 use crate::state::AppState;
 
@@ -150,6 +150,21 @@ fn generate_order_number() -> String {
     format!("PO-{}-{}", date, suffix)
 }
 
+// ── Helpers ───────────────────────────────────────────────────────────
+
+/// Resolves the active tenant_id from the caller's claims, or returns 422
+/// for superadmin tokens that haven't selected a tenant. Mirrors the
+/// B1..B5 per-route helper convention.
+fn require_tenant_for_purchase_orders(claims: &Claims) -> Result<Uuid, ApiError> {
+    let ctx = tenant_context_from_claims(claims);
+    ctx.require_tenant().map_err(|_| {
+        ApiError(DomainError::Validation(
+            "tenant_id required for purchase order operations (superadmin must select a tenant)"
+                .to_string(),
+        ))
+    })
+}
+
 // ── Routes ────────────────────────────────────────────────────────────
 
 pub fn purchase_order_routes() -> Router<AppState> {
@@ -177,11 +192,13 @@ pub fn purchase_order_routes() -> Router<AppState> {
 // ── Handlers ──────────────────────────────────────────────────────────
 
 async fn create_purchase_order(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
     claims: Claims,
     Json(payload): Json<CreatePurchaseOrderRequest>,
 ) -> Result<(StatusCode, Json<PurchaseOrderResponse>), ApiError> {
-    require_role(&claims, &["superadmin", "owner", "warehouse_manager"])?;
+    require_role_claims(&claims, &[TenantRole::Owner, TenantRole::Manager])?;
+    let tenant_id = require_tenant_for_purchase_orders(&claims)?;
 
     if let Some(ref notes) = payload.notes {
         if notes.len() > 2000 {
@@ -192,34 +209,46 @@ async fn create_purchase_order(
     }
 
     let order_number = generate_order_number();
-    let repo = PgPurchaseOrderRepository::new(state.pool.clone());
-    let po = repo
-        .create(
-            payload.supplier_id,
-            &order_number,
-            payload.expected_delivery_date,
-            payload.notes.as_deref(),
-            claims.sub,
-        )
-        .await?;
+    let po = purchase_order_repo::create(
+        &mut *tt.tx,
+        tenant_id,
+        payload.supplier_id,
+        &order_number,
+        payload.expected_delivery_date,
+        payload.notes.as_deref(),
+        claims.sub,
+    )
+    .await?;
 
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok((StatusCode::CREATED, Json(PurchaseOrderResponse::from(po))))
 }
 
 async fn list_purchase_orders(
-    State(state): State<AppState>,
-    _claims: Claims,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
+    claims: Claims,
     Query(params): Query<PurchaseOrderQueryParams>,
 ) -> Result<Json<PaginatedResponse<PurchaseOrderResponse>>, ApiError> {
-    let repo = PgPurchaseOrderRepository::new(state.pool.clone());
+    let tenant_id = require_tenant_for_purchase_orders(&claims)?;
+
     let filters = PurchaseOrderFilters {
         status: params.status.clone(),
         supplier_id: params.supplier_id,
         from_date: params.from_date,
         to_date: params.to_date,
     };
-    let (orders, total) = repo.list(filters, params.limit(), params.offset()).await?;
 
+        let (orders, total) = purchase_order_repo::list(
+        &mut *tt.tx,
+        tenant_id,
+        filters,
+        params.limit(),
+        params.offset(),
+    )
+    .await?;
+
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok(Json(PaginatedResponse {
         data: orders
             .into_iter()
@@ -232,18 +261,18 @@ async fn list_purchase_orders(
 }
 
 async fn get_purchase_order(
-    State(state): State<AppState>,
-    _claims: Claims,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
+    claims: Claims,
     Path(id): Path<Uuid>,
 ) -> Result<Json<PurchaseOrderResponse>, ApiError> {
-    let repo = PgPurchaseOrderRepository::new(state.pool.clone());
+    let tenant_id = require_tenant_for_purchase_orders(&claims)?;
 
-    let po = repo
-        .find_by_id(id)
+        let po = purchase_order_repo::find_by_id(&mut *tt.tx, tenant_id, id)
         .await?
         .ok_or_else(|| ApiError(DomainError::NotFound("Purchase order not found".to_string())))?;
 
-    let lines = repo.get_lines(id).await?;
+    let lines = purchase_order_repo::get_lines(&mut *tt.tx, tenant_id, id).await?;
 
     let mut response = PurchaseOrderResponse::from(po);
     response.lines = Some(
@@ -253,16 +282,19 @@ async fn get_purchase_order(
             .collect(),
     );
 
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok(Json(response))
 }
 
 async fn update_purchase_order(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
     claims: Claims,
     Path(id): Path<Uuid>,
     Json(payload): Json<UpdatePurchaseOrderRequest>,
 ) -> Result<Json<PurchaseOrderResponse>, ApiError> {
-    require_role(&claims, &["superadmin", "owner", "warehouse_manager"])?;
+    require_role_claims(&claims, &[TenantRole::Owner, TenantRole::Manager])?;
+    let tenant_id = require_tenant_for_purchase_orders(&claims)?;
 
     if let Some(Some(ref notes)) = payload.notes {
         if notes.len() > 2000 {
@@ -272,54 +304,61 @@ async fn update_purchase_order(
         }
     }
 
-    let repo = PgPurchaseOrderRepository::new(state.pool.clone());
-    let po = repo
-        .update(
-            id,
-            payload.expected_delivery_date,
-            payload
-                .notes
-                .as_ref()
-                .map(|n| n.as_ref().map(|s| s.as_str())),
-        )
-        .await?;
+    let po = purchase_order_repo::update(
+        &mut *tt.tx,
+        tenant_id,
+        id,
+        payload.expected_delivery_date,
+        payload
+            .notes
+            .as_ref()
+            .map(|n| n.as_ref().map(|s| s.as_str())),
+    )
+    .await?;
 
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok(Json(PurchaseOrderResponse::from(po)))
 }
 
 async fn send_purchase_order(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
     claims: Claims,
     Path(id): Path<Uuid>,
 ) -> Result<Json<PurchaseOrderResponse>, ApiError> {
-    require_role(&claims, &["superadmin", "owner", "warehouse_manager"])?;
+    require_role_claims(&claims, &[TenantRole::Owner, TenantRole::Manager])?;
+    let tenant_id = require_tenant_for_purchase_orders(&claims)?;
 
-    let repo = PgPurchaseOrderRepository::new(state.pool.clone());
-    let po = repo.send(id).await?;
+    let po = purchase_order_repo::send(&mut *tt.tx, tenant_id, id).await?;
 
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok(Json(PurchaseOrderResponse::from(po)))
 }
 
 async fn cancel_purchase_order(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
     claims: Claims,
     Path(id): Path<Uuid>,
 ) -> Result<Json<PurchaseOrderResponse>, ApiError> {
-    require_role(&claims, &["superadmin", "owner"])?;
+    require_role_claims(&claims, &[TenantRole::Owner])?;
+    let tenant_id = require_tenant_for_purchase_orders(&claims)?;
 
-    let repo = PgPurchaseOrderRepository::new(state.pool.clone());
-    let po = repo.cancel(id).await?;
+    let po = purchase_order_repo::cancel(&mut *tt.tx, tenant_id, id).await?;
 
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok(Json(PurchaseOrderResponse::from(po)))
 }
 
 async fn add_line(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
     claims: Claims,
     Path(id): Path<Uuid>,
     Json(payload): Json<AddLineRequest>,
 ) -> Result<(StatusCode, Json<PurchaseOrderLineResponse>), ApiError> {
-    require_role(&claims, &["superadmin", "owner", "warehouse_manager"])?;
+    require_role_claims(&claims, &[TenantRole::Owner, TenantRole::Manager])?;
+    let tenant_id = require_tenant_for_purchase_orders(&claims)?;
 
     if payload.quantity_ordered <= 0.0 {
         return Err(ApiError(DomainError::Validation(
@@ -339,10 +378,8 @@ async fn add_line(
         }
     }
 
-    // Verify PO is in draft status
-    let repo = PgPurchaseOrderRepository::new(state.pool.clone());
-    let po = repo
-        .find_by_id(id)
+    // Verify PO is in draft status (tenant-scoped probe — cross-tenant id → 404).
+        let po = purchase_order_repo::find_by_id(&mut *tt.tx, tenant_id, id)
         .await?
         .ok_or_else(|| ApiError(DomainError::NotFound("Purchase order not found".to_string())))?;
 
@@ -352,26 +389,30 @@ async fn add_line(
         )));
     }
 
-    let line = repo
-        .add_line(
-            id,
-            payload.product_id,
-            payload.quantity_ordered,
-            payload.unit_price,
-            payload.notes.as_deref(),
-        )
-        .await?;
+    let line = purchase_order_repo::add_line(
+        &mut *tt.tx,
+        tenant_id,
+        id,
+        payload.product_id,
+        payload.quantity_ordered,
+        payload.unit_price,
+        payload.notes.as_deref(),
+    )
+    .await?;
 
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok((StatusCode::CREATED, Json(PurchaseOrderLineResponse::from(line))))
 }
 
 async fn update_line(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
     claims: Claims,
     Path((id, line_id)): Path<(Uuid, Uuid)>,
     Json(payload): Json<UpdateLineRequest>,
 ) -> Result<Json<PurchaseOrderLineResponse>, ApiError> {
-    require_role(&claims, &["superadmin", "owner", "warehouse_manager"])?;
+    require_role_claims(&claims, &[TenantRole::Owner, TenantRole::Manager])?;
+    let tenant_id = require_tenant_for_purchase_orders(&claims)?;
 
     if let Some(qty) = payload.quantity_ordered {
         if qty <= 0.0 {
@@ -395,10 +436,8 @@ async fn update_line(
         }
     }
 
-    // Verify PO is in draft status
-    let repo = PgPurchaseOrderRepository::new(state.pool.clone());
-    let po = repo
-        .find_by_id(id)
+    // Verify PO is in draft status (tenant-scoped).
+        let po = purchase_order_repo::find_by_id(&mut *tt.tx, tenant_id, id)
         .await?
         .ok_or_else(|| ApiError(DomainError::NotFound("Purchase order not found".to_string())))?;
 
@@ -408,32 +447,34 @@ async fn update_line(
         )));
     }
 
-    let line = repo
-        .update_line(
-            line_id,
-            payload.quantity_ordered,
-            payload.unit_price,
-            payload
-                .notes
-                .as_ref()
-                .map(|n| n.as_ref().map(|s| s.as_str())),
-        )
-        .await?;
+    let line = purchase_order_repo::update_line(
+        &mut *tt.tx,
+        tenant_id,
+        line_id,
+        payload.quantity_ordered,
+        payload.unit_price,
+        payload
+            .notes
+            .as_ref()
+            .map(|n| n.as_ref().map(|s| s.as_str())),
+    )
+    .await?;
 
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok(Json(PurchaseOrderLineResponse::from(line)))
 }
 
 async fn delete_line(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
     claims: Claims,
     Path((id, line_id)): Path<(Uuid, Uuid)>,
 ) -> Result<StatusCode, ApiError> {
-    require_role(&claims, &["superadmin", "owner", "warehouse_manager"])?;
+    require_role_claims(&claims, &[TenantRole::Owner, TenantRole::Manager])?;
+    let tenant_id = require_tenant_for_purchase_orders(&claims)?;
 
-    // Verify PO is in draft status
-    let repo = PgPurchaseOrderRepository::new(state.pool.clone());
-    let po = repo
-        .find_by_id(id)
+    // Verify PO is in draft status (tenant-scoped).
+        let po = purchase_order_repo::find_by_id(&mut *tt.tx, tenant_id, id)
         .await?
         .ok_or_else(|| ApiError(DomainError::NotFound("Purchase order not found".to_string())))?;
 
@@ -443,19 +484,23 @@ async fn delete_line(
         )));
     }
 
-    repo.delete_line(line_id).await?;
+    purchase_order_repo::delete_line(&mut *tt.tx, tenant_id, line_id).await?;
 
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok(StatusCode::NO_CONTENT)
 }
 
 async fn get_lines(
-    State(state): State<AppState>,
-    _claims: Claims,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
+    claims: Claims,
     Path(id): Path<Uuid>,
 ) -> Result<Json<Vec<PurchaseOrderLineResponse>>, ApiError> {
-    let repo = PgPurchaseOrderRepository::new(state.pool.clone());
-    let lines = repo.get_lines(id).await?;
+    let tenant_id = require_tenant_for_purchase_orders(&claims)?;
 
+        let lines = purchase_order_repo::get_lines(&mut *tt.tx, tenant_id, id).await?;
+
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok(Json(
         lines
             .into_iter()

@@ -9,12 +9,14 @@ use uuid::Uuid;
 use vandepot_domain::error::DomainError;
 use vandepot_domain::models::enums::{ProductClass, UnitType};
 use vandepot_domain::models::product::Product;
-use vandepot_domain::ports::product_repository::{ClassLockStatus, ProductRepository};
 use vandepot_infra::auth::jwt::Claims;
-use vandepot_infra::repositories::product_repo::PgProductRepository;
+use vandepot_infra::repositories::product_repo::{self, ClassLockStatus};
 
 use crate::error::ApiError;
-use crate::extractors::role_guard::require_role;
+use crate::extractors::claims::tenant_context_from_claims;
+use crate::extractors::tenant::Tenant;
+use crate::extractors::role_guard::require_role_claims;
+use vandepot_infra::auth::tenant_context::TenantRole;
 use crate::pagination::{PaginatedResponse, PaginationParams};
 use crate::state::AppState;
 
@@ -157,62 +159,83 @@ pub fn product_routes() -> Router<AppState> {
         .route("/products/{id}/class-lock", get(get_class_lock))
 }
 
+// ── Helpers ───────────────────────────────────────────────────────────
+
+/// Resolves the active tenant_id from the caller's claims, or returns 422
+/// with a clear message for superadmin tokens that haven't selected a
+/// tenant. Mirrors `require_tenant_for_warehouses` (B1 template).
+fn require_tenant_for_products(claims: &Claims) -> Result<Uuid, ApiError> {
+    let ctx = tenant_context_from_claims(claims);
+    ctx.require_tenant().map_err(|_| {
+        ApiError(DomainError::Validation(
+            "tenant_id required for product operations (superadmin must select a tenant)"
+                .to_string(),
+        ))
+    })
+}
+
 // ── Handlers ──────────────────────────────────────────────────────────
 
 async fn create_product(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
     claims: Claims,
     Json(payload): Json<CreateProductRequest>,
 ) -> Result<(StatusCode, Json<ProductResponse>), ApiError> {
-    require_role(&claims, &["superadmin", "owner", "warehouse_manager"])?;
+    require_role_claims(&claims, &[TenantRole::Owner, TenantRole::Manager])?;
+    let tenant_id = require_tenant_for_products(&claims)?;
 
-    let repo = PgProductRepository::new(state.pool.clone());
-    // Batch 3 (work-orders-and-bom): thread `is_manufactured` from the DTO.
-    // Defaults to `false` when absent, matching the DB default and Batch 2
-    // behavior. The cross-field invariant (manufactured => raw_material) is
-    // enforced in the repo (product_repo::create) and surfaces as 422
-    // `PRODUCT_MANUFACTURED_REQUIRES_RAW_MATERIAL`.
-    let product = repo
-        .create(
-            &payload.name,
-            &payload.sku,
-            payload.description.as_deref(),
-            payload.category_id,
-            payload.unit_of_measure,
-            payload.product_class,
-            payload.has_expiry,
-            payload.is_manufactured.unwrap_or(false),
-            payload.min_stock,
-            payload.max_stock,
-            Some(claims.sub),
-        )
-        .await?;
+        // Cross-field invariant (manufactured => raw_material) is enforced in
+    // the repo and surfaces as 422 PRODUCT_MANUFACTURED_REQUIRES_RAW_MATERIAL.
+    // Cross-tenant category_id surfaces as 23503 (FK violation) → 409 via
+    // map_sqlx_error.
+    let product = product_repo::create(
+        &mut *tt.tx,
+        tenant_id,
+        &payload.name,
+        &payload.sku,
+        payload.description.as_deref(),
+        payload.category_id,
+        payload.unit_of_measure,
+        payload.product_class,
+        payload.has_expiry,
+        payload.is_manufactured.unwrap_or(false),
+        payload.min_stock,
+        payload.max_stock,
+        Some(claims.sub),
+    )
+    .await?;
 
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok((StatusCode::CREATED, Json(ProductResponse::from(product))))
 }
 
 async fn list_products(
-    State(state): State<AppState>,
-    _claims: Claims,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
+    claims: Claims,
     Query(params): Query<ProductListParams>,
 ) -> Result<Json<PaginatedResponse<ProductResponse>>, ApiError> {
+    let tenant_id = require_tenant_for_products(&claims)?;
+
     let pagination = PaginationParams {
         page: params.page,
         per_page: params.per_page,
     };
 
-    let repo = PgProductRepository::new(state.pool.clone());
-    let (products, total) = repo
-        .list(
-            params.search.as_deref(),
-            params.category_id,
-            params.product_class,
-            params.is_manufactured,
-            pagination.limit(),
-            pagination.offset(),
-        )
-        .await?;
+        let (products, total) = product_repo::list(
+        &mut *tt.tx,
+        tenant_id,
+        params.search.as_deref(),
+        params.category_id,
+        params.product_class,
+        params.is_manufactured,
+        pagination.limit(),
+        pagination.offset(),
+    )
+    .await?;
 
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok(Json(PaginatedResponse {
         data: products.into_iter().map(ProductResponse::from).collect(),
         total,
@@ -222,88 +245,97 @@ async fn list_products(
 }
 
 async fn get_product(
-    State(state): State<AppState>,
-    _claims: Claims,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
+    claims: Claims,
     Path(id): Path<Uuid>,
 ) -> Result<Json<ProductResponse>, ApiError> {
-    let repo = PgProductRepository::new(state.pool.clone());
-    let result = repo
-        .find_by_id_with_audit(id)
+    let tenant_id = require_tenant_for_products(&claims)?;
+
+        let result = product_repo::find_by_id_with_audit(&mut *tt.tx, tenant_id, id)
         .await?
         .ok_or_else(|| ApiError(DomainError::NotFound("Product not found".to_string())))?;
 
     let mut resp = ProductResponse::from(result.product);
     resp.updated_by_email = result.updated_by_email;
     resp.created_by_email = result.created_by_email;
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok(Json(resp))
 }
 
 async fn update_product(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
     claims: Claims,
     Path(id): Path<Uuid>,
     Json(payload): Json<UpdateProductRequest>,
 ) -> Result<Json<ProductResponse>, ApiError> {
-    require_role(&claims, &["superadmin", "owner", "warehouse_manager"])?;
+    require_role_claims(&claims, &[TenantRole::Owner, TenantRole::Manager])?;
+    let tenant_id = require_tenant_for_products(&claims)?;
 
-    let repo = PgProductRepository::new(state.pool.clone());
-    // Batch 3 (work-orders-and-bom): thread `is_manufactured` from the DTO.
-    // `None` leaves the existing value untouched (COALESCE in SQL); `Some`
-    // applies the patch. The cross-field invariant is re-checked in the repo.
-    let product = repo
-        .update(
-            id,
-            payload.name.as_deref(),
-            payload.sku.as_deref(),
-            payload.description.as_ref().map(|d| d.as_deref()),
-            payload.category_id,
-            payload.unit_of_measure,
-            payload.has_expiry,
-            payload.is_manufactured,
-            payload.min_stock,
-            payload.max_stock,
-            Some(claims.sub),
-        )
-        .await?;
+        let product = product_repo::update(
+        &mut *tt.tx,
+        tenant_id,
+        id,
+        payload.name.as_deref(),
+        payload.sku.as_deref(),
+        payload.description.as_ref().map(|d| d.as_deref()),
+        payload.category_id,
+        payload.unit_of_measure,
+        payload.has_expiry,
+        payload.is_manufactured,
+        payload.min_stock,
+        payload.max_stock,
+        Some(claims.sub),
+    )
+    .await?;
 
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok(Json(ProductResponse::from(product)))
 }
 
 async fn delete_product(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
     claims: Claims,
     Path(id): Path<Uuid>,
 ) -> Result<StatusCode, ApiError> {
-    require_role(&claims, &["superadmin", "owner"])?;
+    require_role_claims(&claims, &[TenantRole::Owner])?;
+    let tenant_id = require_tenant_for_products(&claims)?;
 
-    let repo = PgProductRepository::new(state.pool.clone());
-    repo.soft_delete(id).await?;
+        product_repo::soft_delete(&mut *tt.tx, tenant_id, id).await?;
 
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok(StatusCode::NO_CONTENT)
 }
 
 async fn reclassify_product(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
     claims: Claims,
     Path(id): Path<Uuid>,
     Json(payload): Json<ReclassifyProductRequest>,
 ) -> Result<Json<ProductResponse>, ApiError> {
-    require_role(&claims, &["superadmin", "owner", "warehouse_manager"])?;
+    require_role_claims(&claims, &[TenantRole::Owner, TenantRole::Manager])?;
+    let tenant_id = require_tenant_for_products(&claims)?;
 
-    let repo = PgProductRepository::new(state.pool.clone());
-    let product = repo
-        .reclassify(id, payload.product_class, Some(claims.sub))
-        .await?;
+        let product =
+        product_repo::reclassify(&mut *tt.tx, tenant_id, id, payload.product_class, Some(claims.sub))
+            .await?;
 
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok(Json(ProductResponse::from(product)))
 }
 
 async fn get_class_lock(
-    State(state): State<AppState>,
-    _claims: Claims,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
+    claims: Claims,
     Path(id): Path<Uuid>,
 ) -> Result<Json<ClassLockResponse>, ApiError> {
-    let repo = PgProductRepository::new(state.pool.clone());
-    let status = repo.class_lock_status(id).await?;
+    let tenant_id = require_tenant_for_products(&claims)?;
+
+        let status = product_repo::class_lock_status(&mut *tt.tx, tenant_id, id).await?;
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok(Json(ClassLockResponse::from(status)))
 }

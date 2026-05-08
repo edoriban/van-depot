@@ -153,3 +153,66 @@ impl From<DomainError> for ApiError {
         ApiError(err)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    //! Surface tests for the DomainError → HTTP status mapping.
+    //!
+    //! Only the load-bearing variants used by the multi-tenant foundation
+    //! are checked here. The work-orders typed branches above have their
+    //! own integration coverage in `crates/api/tests/work_orders.rs`.
+
+    use super::*;
+    use axum::body::to_bytes;
+    use axum::response::IntoResponse;
+
+    fn status_of(err: ApiError) -> StatusCode {
+        err.into_response().status()
+    }
+
+    #[test]
+    fn forbidden_maps_to_403() {
+        // C8: an RLS WITH CHECK violation (SQLSTATE 42501) is mapped to
+        // `DomainError::Forbidden` by `map_sqlx_error`. Confirm that
+        // `Forbidden` surfaces as HTTP 403 here at the API boundary.
+        let api = ApiError(DomainError::Forbidden("rls denied".into()));
+        assert_eq!(status_of(api), StatusCode::FORBIDDEN);
+    }
+
+    #[test]
+    fn not_found_maps_to_404() {
+        let api = ApiError(DomainError::NotFound("missing".into()));
+        assert_eq!(status_of(api), StatusCode::NOT_FOUND);
+    }
+
+    #[test]
+    fn validation_maps_to_422() {
+        let api = ApiError(DomainError::Validation("bad input".into()));
+        assert_eq!(status_of(api), StatusCode::UNPROCESSABLE_ENTITY);
+    }
+
+    #[test]
+    fn duplicate_maps_to_409() {
+        let api = ApiError(DomainError::Duplicate("dupe".into()));
+        assert_eq!(status_of(api), StatusCode::CONFLICT);
+    }
+
+    #[test]
+    fn conflict_maps_to_409() {
+        // C8: SQLSTATE 23503 (FK violation, including cross-tenant FK
+        // rejection from RLS-bound parent rows) maps to Conflict → 409.
+        let api = ApiError(DomainError::Conflict("fk".into()));
+        assert_eq!(status_of(api), StatusCode::CONFLICT);
+    }
+
+    #[tokio::test]
+    async fn forbidden_body_carries_message() {
+        // Smoke check that the JSON body actually contains the message —
+        // useful for confirming the payload shape used by frontend banner.
+        let api = ApiError(DomainError::Forbidden("rls denied".into()));
+        let resp = api.into_response();
+        let bytes = to_bytes(resp.into_body(), 1024).await.unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(v["error"], "rls denied");
+    }
+}

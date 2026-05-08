@@ -4,11 +4,14 @@ use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use vandepot_domain::error::DomainError;
 use vandepot_infra::auth::jwt::Claims;
 use vandepot_infra::repositories::warehouse_map_repo;
 
 use crate::error::ApiError;
-use crate::extractors::role_guard::require_role;
+use crate::extractors::role_guard::require_role_claims;
+use crate::extractors::tenant::Tenant;
+use vandepot_infra::auth::tenant_context::TenantRole;
 use crate::extractors::warehouse_access::ensure_warehouse_access;
 use crate::state::AppState;
 
@@ -111,18 +114,19 @@ pub fn warehouse_map_routes() -> Router<AppState> {
 // ── Handlers ────────────────────────────────────────────────────────
 
 async fn get_warehouse_map(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
     claims: Claims,
     Path(warehouse_id): Path<Uuid>,
 ) -> Result<Json<WarehouseMapResponse>, ApiError> {
-    ensure_warehouse_access(&claims, &warehouse_id)?;
+    ensure_warehouse_access(&mut *tt.tx, &claims, &warehouse_id).await?;
 
     let rows =
-        warehouse_map_repo::get_warehouse_map(&state.pool, warehouse_id)
+        warehouse_map_repo::get_warehouse_map(&mut *tt.tx, warehouse_id)
             .await?;
 
     let canvas =
-        warehouse_map_repo::get_canvas_dimensions(&state.pool, warehouse_id)
+        warehouse_map_repo::get_canvas_dimensions(&mut *tt.tx, warehouse_id)
             .await?;
 
     let summary = MapSummaryResponse {
@@ -153,6 +157,7 @@ async fn get_warehouse_map(
         })
         .collect();
 
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok(Json(WarehouseMapResponse {
         canvas_width: canvas.canvas_width,
         canvas_height: canvas.canvas_height,
@@ -162,13 +167,14 @@ async fn get_warehouse_map(
 }
 
 async fn update_layout(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
     claims: Claims,
     Path(warehouse_id): Path<Uuid>,
     Json(payload): Json<UpdateLayoutRequest>,
 ) -> Result<Json<UpdateLayoutResponse>, ApiError> {
-    require_role(&claims, &["superadmin", "owner", "warehouse_manager"])?;
-    ensure_warehouse_access(&claims, &warehouse_id)?;
+    require_role_claims(&claims, &[TenantRole::Owner, TenantRole::Manager])?;
+    ensure_warehouse_access(&mut *tt.tx, &claims, &warehouse_id).await?;
 
     let locations: Vec<(Uuid, f32, f32, f32, f32)> = payload
         .locations
@@ -177,7 +183,7 @@ async fn update_layout(
         .collect();
 
     let updated = warehouse_map_repo::update_layout(
-        &state.pool,
+        &mut *tt.tx,
         warehouse_id,
         payload.canvas_width,
         payload.canvas_height,
@@ -185,18 +191,20 @@ async fn update_layout(
     )
     .await?;
 
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok(Json(UpdateLayoutResponse { updated }))
 }
 
 // ── T21: Map search handler ────────────────────────────────────────
 
 async fn search_map(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
     claims: Claims,
     Path(warehouse_id): Path<Uuid>,
     Query(params): Query<MapSearchParams>,
 ) -> Result<Json<Vec<MapSearchResult>>, ApiError> {
-    ensure_warehouse_access(&claims, &warehouse_id)?;
+    ensure_warehouse_access(&mut *tt.tx, &claims, &warehouse_id).await?;
 
     let q = params.q.trim();
     if q.len() < 2 {
@@ -204,7 +212,7 @@ async fn search_map(
     }
 
     let rows =
-        warehouse_map_repo::search_map(&state.pool, warehouse_id, q)
+        warehouse_map_repo::search_map(&mut *tt.tx, warehouse_id, q)
             .await?;
 
     let results = rows
@@ -220,5 +228,6 @@ async fn search_map(
         })
         .collect();
 
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok(Json(results))
 }

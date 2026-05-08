@@ -6,10 +6,13 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use vandepot_domain::error::DomainError;
 use vandepot_infra::auth::jwt::Claims;
 use vandepot_infra::repositories::recipes_repo;
 
 use crate::error::ApiError;
+use crate::extractors::claims::tenant_context_from_claims;
+use crate::extractors::tenant::Tenant;
 use crate::pagination::{PaginatedResponse, PaginationParams};
 use crate::state::AppState;
 
@@ -97,6 +100,21 @@ pub struct DispatchResponse {
     pub movements_created: i64,
 }
 
+// ── Helpers ───────────────────────────────────────────────────────────
+
+/// Resolves the active tenant_id from the caller's claims, or returns 422
+/// for superadmin tokens that haven't selected a tenant. Mirrors the
+/// B1/B2/B3/B4 per-route helper convention.
+fn require_tenant_for_recipes(claims: &Claims) -> Result<Uuid, ApiError> {
+    let ctx = tenant_context_from_claims(claims);
+    ctx.require_tenant().map_err(|_| {
+        ApiError(DomainError::Validation(
+            "tenant_id required for recipe operations (superadmin must select a tenant)"
+                .to_string(),
+        ))
+    })
+}
+
 // ── Routes ────────────────────────────────────────────────────────────
 
 pub fn recipe_routes() -> Router<AppState> {
@@ -113,10 +131,13 @@ pub fn recipe_routes() -> Router<AppState> {
 // ── Handlers ──────────────────────────────────────────────────────────
 
 async fn create_recipe(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
     claims: Claims,
     Json(payload): Json<CreateRecipeRequest>,
 ) -> Result<(StatusCode, Json<RecipeDetailResponse>), ApiError> {
+    let tenant_id = require_tenant_for_recipes(&claims)?;
+
     let items: Vec<(Uuid, f64, Option<String>)> = payload
         .items
         .into_iter()
@@ -124,7 +145,8 @@ async fn create_recipe(
         .collect();
 
     let recipe = recipes_repo::create_recipe(
-        &state.pool,
+        &mut *tt.tx,
+        tenant_id,
         &payload.name,
         payload.description.as_deref(),
         claims.sub,
@@ -132,7 +154,7 @@ async fn create_recipe(
     )
     .await?;
 
-    let recipe_items = recipes_repo::get_recipe_items(&state.pool, recipe.id).await?;
+        let recipe_items = recipes_repo::get_recipe_items(&mut *tt.tx, tenant_id, recipe.id).await?;
 
     let response = RecipeDetailResponse {
         recipe: RecipeResponse {
@@ -159,16 +181,20 @@ async fn create_recipe(
             .collect(),
     };
 
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok((StatusCode::CREATED, Json(response)))
 }
 
 async fn list_recipes(
-    State(state): State<AppState>,
-    _claims: Claims,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
+    claims: Claims,
     Query(params): Query<PaginationParams>,
 ) -> Result<Json<PaginatedResponse<RecipeResponse>>, ApiError> {
-    let (rows, total) =
-        recipes_repo::list_recipes(&state.pool, params.limit(), params.offset()).await?;
+    let tenant_id = require_tenant_for_recipes(&claims)?;
+
+        let (rows, total) =
+        recipes_repo::list_recipes(&mut *tt.tx, tenant_id, params.limit(), params.offset()).await?;
 
     let data = rows
         .into_iter()
@@ -184,6 +210,7 @@ async fn list_recipes(
         })
         .collect();
 
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok(Json(PaginatedResponse {
         data,
         total,
@@ -193,12 +220,15 @@ async fn list_recipes(
 }
 
 async fn get_recipe(
-    State(state): State<AppState>,
-    _claims: Claims,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
+    claims: Claims,
     Path(id): Path<Uuid>,
 ) -> Result<Json<RecipeDetailResponse>, ApiError> {
-    let recipe = recipes_repo::get_recipe(&state.pool, id).await?;
-    let items = recipes_repo::get_recipe_items(&state.pool, id).await?;
+    let tenant_id = require_tenant_for_recipes(&claims)?;
+
+        let recipe = recipes_repo::get_recipe(&mut *tt.tx, tenant_id, id).await?;
+    let items = recipes_repo::get_recipe_items(&mut *tt.tx, tenant_id, id).await?;
 
     let response = RecipeDetailResponse {
         recipe: RecipeResponse {
@@ -225,15 +255,19 @@ async fn get_recipe(
             .collect(),
     };
 
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok(Json(response))
 }
 
 async fn update_recipe(
-    State(state): State<AppState>,
-    _claims: Claims,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
+    claims: Claims,
     Path(id): Path<Uuid>,
     Json(payload): Json<UpdateRecipeRequest>,
 ) -> Result<Json<RecipeDetailResponse>, ApiError> {
+    let tenant_id = require_tenant_for_recipes(&claims)?;
+
     let items: Vec<(Uuid, f64, Option<String>)> = payload
         .items
         .into_iter()
@@ -241,7 +275,8 @@ async fn update_recipe(
         .collect();
 
     let recipe = recipes_repo::update_recipe(
-        &state.pool,
+        &mut *tt.tx,
+        tenant_id,
         id,
         &payload.name,
         payload.description.as_deref(),
@@ -249,7 +284,7 @@ async fn update_recipe(
     )
     .await?;
 
-    let recipe_items = recipes_repo::get_recipe_items(&state.pool, recipe.id).await?;
+        let recipe_items = recipes_repo::get_recipe_items(&mut *tt.tx, tenant_id, recipe.id).await?;
 
     let response = RecipeDetailResponse {
         recipe: RecipeResponse {
@@ -276,29 +311,36 @@ async fn update_recipe(
             .collect(),
     };
 
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok(Json(response))
 }
 
 async fn delete_recipe(
-    State(state): State<AppState>,
-    _claims: Claims,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
+    claims: Claims,
     Path(id): Path<Uuid>,
 ) -> Result<StatusCode, ApiError> {
-    recipes_repo::delete_recipe(&state.pool, id).await?;
+    let tenant_id = require_tenant_for_recipes(&claims)?;
+    recipes_repo::delete_recipe(&mut *tt.tx, tenant_id, id).await?;
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok(StatusCode::NO_CONTENT)
 }
 
 async fn check_availability(
-    State(state): State<AppState>,
-    _claims: Claims,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
+    claims: Claims,
     Path(id): Path<Uuid>,
     Query(query): Query<AvailabilityQuery>,
 ) -> Result<Json<AvailabilityResponse>, ApiError> {
-    // Verify recipe exists
-    let _recipe = recipes_repo::get_recipe(&state.pool, id).await?;
+    let tenant_id = require_tenant_for_recipes(&claims)?;
+
+        // Verify recipe exists (tenant-scoped — cross-tenant id resolves to 404).
+    let _recipe = recipes_repo::get_recipe(&mut *tt.tx, tenant_id, id).await?;
 
     let rows =
-        recipes_repo::check_availability(&state.pool, id, query.warehouse_id).await?;
+        recipes_repo::check_availability(&mut *tt.tx, tenant_id, id, query.warehouse_id).await?;
 
     let all_available = rows.iter().all(|r| r.status == "available");
 
@@ -314,6 +356,7 @@ async fn check_availability(
         })
         .collect();
 
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok(Json(AvailabilityResponse {
         items,
         all_available,
@@ -321,16 +364,22 @@ async fn check_availability(
 }
 
 async fn dispatch_recipe(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
     claims: Claims,
     Path(id): Path<Uuid>,
     Json(payload): Json<DispatchRequest>,
 ) -> Result<Json<DispatchResponse>, ApiError> {
-    // Verify recipe exists
-    let _recipe = recipes_repo::get_recipe(&state.pool, id).await?;
+    let tenant_id = require_tenant_for_recipes(&claims)?;
+
+    // Verify recipe exists (tenant-scoped — cross-tenant id resolves to 404).
+    {
+                let _recipe = recipes_repo::get_recipe(&mut *tt.tx, tenant_id, id).await?;
+    }
 
     let movements_created = recipes_repo::dispatch_recipe(
-        &state.pool,
+        &mut *tt.tx,
+        tenant_id,
         id,
         payload.warehouse_id,
         payload.location_id,
@@ -338,5 +387,6 @@ async fn dispatch_recipe(
     )
     .await?;
 
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok(Json(DispatchResponse { movements_created }))
 }

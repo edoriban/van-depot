@@ -1,14 +1,18 @@
 use axum::extract::{Path, Query, State};
-use axum::routing::{get, put, post};
+use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use vandepot_domain::error::DomainError;
 use vandepot_infra::auth::jwt::Claims;
+use vandepot_infra::auth::tenant_context::TenantRole;
 use vandepot_infra::repositories::notifications_repo;
 
 use crate::error::ApiError;
+use crate::extractors::claims::tenant_context_from_claims;
+use crate::extractors::tenant::Tenant;
 use crate::state::AppState;
 
 // ── DTOs ────────────────────────────────────────────────────────────
@@ -89,13 +93,41 @@ pub fn notification_routes() -> Router<AppState> {
 
 // ── Helpers ─────────────────────────────────────────────────────────
 
-/// Returns `None` for superadmin (sees all), `Some(ids)` for scoped users.
-fn warehouse_scope(claims: &Claims) -> Option<Vec<Uuid>> {
-    if claims.role.eq_ignore_ascii_case("superadmin") {
-        None
-    } else {
-        Some(claims.warehouse_ids.clone())
+/// Resolves the active tenant_id from the caller's claims, or returns a
+/// 422 for superadmin tokens that haven't selected a tenant. Mirrors the
+/// B1..B6 per-route helper convention.
+///
+/// Notifications scope to (tenant_id, user_id): a multi-tenant user only
+/// sees notifications relevant to the active tenant.
+fn require_tenant_for_notifications(claims: &Claims) -> Result<Uuid, ApiError> {
+    let ctx = tenant_context_from_claims(claims);
+    ctx.require_tenant().map_err(|_| {
+        ApiError(DomainError::Validation(
+            "tenant_id required for notification operations (superadmin must select a tenant)"
+                .to_string(),
+        ))
+    })
+}
+
+/// Returns `None` for superadmin (sees all warehouses in the active
+/// tenant), `Some(ids)` for scoped users.
+///
+/// Resolves the user's warehouses via tenant-scoped
+/// `user_warehouse_repo::list_for_user` (B8.4).
+async fn warehouse_scope(
+    conn: &mut sqlx::PgConnection,
+    claims: &Claims,
+    tenant_id: Uuid,
+) -> Result<Option<Vec<Uuid>>, ApiError> {
+    if claims.is_superadmin {
+        return Ok(None);
     }
+    let ids =
+        vandepot_infra::repositories::user_warehouse_repo::list_for_user(
+            &mut *conn, tenant_id, claims.sub,
+        )
+        .await?;
+    Ok(Some(ids))
 }
 
 fn to_response(r: notifications_repo::NotificationRow) -> NotificationResponse {
@@ -117,15 +149,18 @@ fn to_response(r: notifications_repo::NotificationRow) -> NotificationResponse {
 // ── Handlers ────────────────────────────────────────────────────────
 
 async fn list_notifications(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
     claims: Claims,
     Query(params): Query<ListNotificationsParams>,
 ) -> Result<Json<PaginatedNotifications>, ApiError> {
+    let tenant_id = require_tenant_for_notifications(&claims)?;
     let limit = params.limit.unwrap_or(20).min(100);
     let offset = params.offset.unwrap_or(0);
 
     let (rows, total) = notifications_repo::list_notifications(
-        &state.pool,
+        &mut *tt.tx,
+        tenant_id,
         claims.sub,
         params.is_read,
         limit,
@@ -135,6 +170,7 @@ async fn list_notifications(
 
     let items = rows.into_iter().map(to_response).collect();
 
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok(Json(PaginatedNotifications {
         items,
         total,
@@ -144,47 +180,59 @@ async fn list_notifications(
 }
 
 async fn unread_count(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
     claims: Claims,
 ) -> Result<Json<UnreadCountResponse>, ApiError> {
+    let tenant_id = require_tenant_for_notifications(&claims)?;
     let count =
-        notifications_repo::get_unread_count(&state.pool, claims.sub).await?;
+        notifications_repo::get_unread_count(&mut *tt.tx, tenant_id, claims.sub).await?;
 
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok(Json(UnreadCountResponse {
         unread_count: count,
     }))
 }
 
 async fn mark_read(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
     claims: Claims,
     Path(id): Path<Uuid>,
 ) -> Result<Json<NotificationResponse>, ApiError> {
+    let tenant_id = require_tenant_for_notifications(&claims)?;
     let row =
-        notifications_repo::mark_as_read(&state.pool, id, claims.sub).await?;
+        notifications_repo::mark_as_read(&mut *tt.tx, tenant_id, id, claims.sub).await?;
 
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok(Json(to_response(row)))
 }
 
 async fn mark_all_read(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
     claims: Claims,
 ) -> Result<Json<ReadAllResponse>, ApiError> {
+    let tenant_id = require_tenant_for_notifications(&claims)?;
     let count =
-        notifications_repo::mark_all_as_read(&state.pool, claims.sub).await?;
+        notifications_repo::mark_all_as_read(&mut *tt.tx, tenant_id, claims.sub).await?;
 
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok(Json(ReadAllResponse {
         marked_count: count,
     }))
 }
 
 async fn daily_summary(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
     claims: Claims,
 ) -> Result<Json<DailySummaryResponse>, ApiError> {
+    let tenant_id = require_tenant_for_notifications(&claims)?;
     let row =
-        notifications_repo::get_daily_summary(&state.pool, claims.sub).await?;
+        notifications_repo::get_daily_summary(&mut *tt.tx, tenant_id, claims.sub).await?;
 
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok(Json(DailySummaryResponse {
         total_today: row.total_today,
         unread_today: row.unread_today,
@@ -199,25 +247,30 @@ async fn daily_summary(
 }
 
 async fn generate_notifications(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
     claims: Claims,
 ) -> Result<Json<GenerateResponse>, ApiError> {
-    // Only superadmin or owner can generate notifications
-    if !claims.role.eq_ignore_ascii_case("superadmin")
-        && !claims.role.eq_ignore_ascii_case("owner")
+    let tenant_id = require_tenant_for_notifications(&claims)?;
+
+    // Only superadmin or owner can generate notifications.
+    if !claims.is_superadmin
+        && !matches!(claims.role, Some(TenantRole::Owner))
     {
-        return Err(ApiError(vandepot_domain::error::DomainError::Forbidden(
+        return Err(ApiError(DomainError::Forbidden(
             "Only superadmin or owner can generate notifications".to_string(),
         )));
     }
 
-    let scope = warehouse_scope(&claims);
+    let scope = warehouse_scope(&mut *tt.tx, &claims, tenant_id).await?;
     let (created, skipped) = notifications_repo::generate_from_stock_alerts(
-        &state.pool,
+        &mut *tt.tx,
+        tenant_id,
         claims.sub,
         scope.as_deref(),
     )
     .await?;
 
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok(Json(GenerateResponse { created, skipped }))
 }

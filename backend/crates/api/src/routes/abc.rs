@@ -4,10 +4,13 @@ use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use vandepot_domain::error::DomainError;
 use vandepot_infra::auth::jwt::Claims;
-use vandepot_infra::repositories::abc_repo;
+use vandepot_infra::repositories::{abc_repo, user_warehouse_repo};
 
 use crate::error::ApiError;
+use crate::extractors::claims::tenant_context_from_claims;
+use crate::extractors::tenant::Tenant;
 use crate::state::AppState;
 
 // ── DTOs ────────────────────────────────────────────────────────────
@@ -55,32 +58,42 @@ pub fn abc_routes() -> Router<AppState> {
 // ── Helpers ─────────────────────────────────────────────────────────
 
 /// Returns `None` for superadmin (sees all), `Some(ids)` for scoped users.
-fn warehouse_scope(claims: &Claims) -> Option<Vec<Uuid>> {
-    if claims.role.eq_ignore_ascii_case("superadmin") {
-        None
-    } else {
-        Some(claims.warehouse_ids.clone())
+async fn warehouse_scope(
+    conn: &mut sqlx::PgConnection,
+    claims: &Claims,
+) -> Result<Option<Vec<Uuid>>, ApiError> {
+    if claims.is_superadmin {
+        return Ok(None);
     }
+    let ctx = tenant_context_from_claims(claims);
+    let tenant_id = ctx.require_tenant().map_err(|_| {
+        ApiError(DomainError::Validation(
+            "tenant_id required (stale or non-tenant token)".to_string(),
+        ))
+    })?;
+    let ids = user_warehouse_repo::list_for_user(&mut *conn, tenant_id, claims.sub).await?;
+    Ok(Some(ids))
 }
 
 // ── Handlers ────────────────────────────────────────────────────────
 
 async fn abc_classification(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
     claims: Claims,
     Query(params): Query<AbcQueryParams>,
 ) -> Result<Json<AbcReport>, ApiError> {
     let period_days = params.period.unwrap_or(90);
 
-    // If a specific warehouse is requested, verify access
+    // If a specific warehouse is requested, verify access via the per-request
+    // DB lookup (the JWT no longer carries `warehouse_ids`).
     if let Some(wid) = params.warehouse_id {
-        if !claims.role.eq_ignore_ascii_case("superadmin")
-            && !claims.warehouse_ids.contains(&wid)
-        {
-            return Err(ApiError(vandepot_domain::error::DomainError::Forbidden(
-                "Access denied to this warehouse".to_string(),
-            )));
-        }
+        crate::extractors::warehouse_access::ensure_warehouse_access(
+            &mut *tt.tx,
+            &claims,
+            &wid,
+        )
+        .await?;
     }
 
     // Determine effective warehouse_id for the query
@@ -88,12 +101,12 @@ async fn abc_classification(
         params.warehouse_id
     } else {
         // For non-superadmin without explicit warehouse, use first assigned warehouse
-        let scope = warehouse_scope(&claims);
+        let scope = warehouse_scope(&mut *tt.tx, &claims).await?;
         scope.and_then(|ids| ids.first().copied())
     };
 
     let rows = abc_repo::get_abc_classification(
-        &state.pool,
+        &mut *tt.tx,
         period_days,
         effective_warehouse_id,
     )
@@ -140,6 +153,7 @@ async fn abc_classification(
         })
         .collect();
 
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok(Json(AbcReport {
         items,
         summary: AbcSummary {

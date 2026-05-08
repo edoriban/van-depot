@@ -9,12 +9,14 @@ use uuid::Uuid;
 use vandepot_domain::error::DomainError;
 use vandepot_domain::models::enums::LocationType;
 use vandepot_domain::models::location::Location;
-use vandepot_domain::ports::location_repository::LocationRepository;
 use vandepot_infra::auth::jwt::Claims;
-use vandepot_infra::repositories::location_repo::PgLocationRepository;
+use vandepot_infra::repositories::location_repo;
 
 use crate::error::ApiError;
-use crate::extractors::role_guard::require_role;
+use crate::extractors::claims::tenant_context_from_claims;
+use crate::extractors::tenant::Tenant;
+use crate::extractors::role_guard::require_role_claims;
+use vandepot_infra::auth::tenant_context::TenantRole;
 use crate::extractors::warehouse_access::ensure_warehouse_access;
 use crate::pagination::{PaginatedResponse, PaginationParams};
 use crate::state::AppState;
@@ -95,66 +97,81 @@ pub fn location_routes() -> Router<AppState> {
         )
 }
 
+// ── Helpers ───────────────────────────────────────────────────────────
+
+fn require_tenant_for_locations(claims: &Claims) -> Result<Uuid, ApiError> {
+    let ctx = tenant_context_from_claims(claims);
+    ctx.require_tenant().map_err(|_| {
+        ApiError(DomainError::Validation(
+            "tenant_id required for location operations (superadmin must select a tenant)".to_string(),
+        ))
+    })
+}
+
 // ── Handlers ──────────────────────────────────────────────────────────
 
 async fn create_location(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
     claims: Claims,
     Path(warehouse_id): Path<Uuid>,
     Json(payload): Json<CreateLocationRequest>,
 ) -> Result<(StatusCode, Json<LocationResponse>), ApiError> {
-    require_role(&claims, &["superadmin", "owner", "warehouse_manager"])?;
-    ensure_warehouse_access(&claims, &warehouse_id)?;
+    require_role_claims(&claims, &[TenantRole::Owner, TenantRole::Manager])?;
+    let tenant_id = require_tenant_for_locations(&claims)?;
+    ensure_warehouse_access(&mut *tt.tx, &claims, &warehouse_id).await?;
 
     // Reception rows are system-managed — the warehouse-create tx and the
     // backfill migration are the only legitimate sources. Same for is_system.
-    if matches!(payload.location_type, LocationType::Reception)
-        || payload.is_system == Some(true)
-    {
+    if matches!(payload.location_type, LocationType::Reception) || payload.is_system == Some(true) {
         return Err(ApiError(DomainError::Validation(
             "Reception locations are system-managed and cannot be created manually".to_string(),
         )));
     }
 
-    let repo = PgLocationRepository::new(state.pool.clone());
-    let location = repo
-        .create(
-            warehouse_id,
-            payload.parent_id,
-            payload.location_type,
-            &payload.name,
-            payload.label.as_deref(),
-        )
-        .await?;
+        let location = location_repo::create(
+        &mut *tt.tx,
+        tenant_id,
+        warehouse_id,
+        payload.parent_id,
+        payload.location_type,
+        &payload.name,
+        payload.label.as_deref(),
+    )
+    .await?;
 
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok((StatusCode::CREATED, Json(LocationResponse::from(location))))
 }
 
 async fn list_locations(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
     claims: Claims,
     Path(warehouse_id): Path<Uuid>,
     Query(params): Query<LocationListParams>,
 ) -> Result<Json<PaginatedResponse<LocationResponse>>, ApiError> {
-    ensure_warehouse_access(&claims, &warehouse_id)?;
+    let tenant_id = require_tenant_for_locations(&claims)?;
+    ensure_warehouse_access(&mut *tt.tx, &claims, &warehouse_id).await?;
 
     let pagination = PaginationParams {
         page: params.page,
         per_page: params.per_page,
     };
 
-    let repo = PgLocationRepository::new(state.pool.clone());
     let fetch_all = params.all.unwrap_or(false);
-    let (locations, total) = repo
-        .list_by_warehouse(
-            warehouse_id,
-            if fetch_all { None } else { params.parent_id },
-            fetch_all,
-            pagination.limit(),
-            pagination.offset(),
-        )
-        .await?;
+        let (locations, total) = location_repo::list_by_warehouse(
+        &mut *tt.tx,
+        tenant_id,
+        warehouse_id,
+        if fetch_all { None } else { params.parent_id },
+        fetch_all,
+        pagination.limit(),
+        pagination.offset(),
+    )
+    .await?;
 
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok(Json(PaginatedResponse {
         data: locations.into_iter().map(LocationResponse::from).collect(),
         total,
@@ -164,74 +181,77 @@ async fn list_locations(
 }
 
 async fn get_location(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
     claims: Claims,
     Path(id): Path<Uuid>,
 ) -> Result<Json<LocationResponse>, ApiError> {
-    let repo = PgLocationRepository::new(state.pool.clone());
-    let location = repo
-        .find_by_id(id)
+    let tenant_id = require_tenant_for_locations(&claims)?;
+        let location = location_repo::find_by_id(&mut *tt.tx, tenant_id, id)
         .await?
         .ok_or_else(|| ApiError(DomainError::NotFound("Location not found".to_string())))?;
 
-    ensure_warehouse_access(&claims, &location.warehouse_id)?;
+    ensure_warehouse_access(&mut *tt.tx, &claims, &location.warehouse_id).await?;
 
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok(Json(LocationResponse::from(location)))
 }
 
 async fn update_location(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
     claims: Claims,
     Path(id): Path<Uuid>,
     Json(payload): Json<UpdateLocationRequest>,
 ) -> Result<Json<LocationResponse>, ApiError> {
-    require_role(&claims, &["superadmin", "owner", "warehouse_manager"])?;
+    require_role_claims(&claims, &[TenantRole::Owner, TenantRole::Manager])?;
+    let tenant_id = require_tenant_for_locations(&claims)?;
 
-    let repo = PgLocationRepository::new(state.pool.clone());
-
-    // Fetch to check warehouse access
-    let existing = repo
-        .find_by_id(id)
+    // Fetch to check warehouse access — reuses the same connection slot for
+    // both the read and the subsequent UPDATE.
+        let existing = location_repo::find_by_id(&mut *tt.tx, tenant_id, id)
         .await?
         .ok_or_else(|| ApiError(DomainError::NotFound("Location not found".to_string())))?;
-    ensure_warehouse_access(&claims, &existing.warehouse_id)?;
 
-    let location = repo
-        .update(
-            id,
-            payload.name.as_deref(),
-            payload.label.as_ref().map(|l| l.as_deref()),
-            payload.location_type,
-        )
-        .await?;
+    ensure_warehouse_access(&mut *tt.tx, &claims, &existing.warehouse_id).await?;
 
+        let location = location_repo::update(
+        &mut *tt.tx,
+        tenant_id,
+        id,
+        payload.name.as_deref(),
+        payload.label.as_ref().map(|l| l.as_deref()),
+        payload.location_type,
+    )
+    .await?;
+
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok(Json(LocationResponse::from(location)))
 }
 
 async fn delete_location(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
     claims: Claims,
     Path(id): Path<Uuid>,
 ) -> Result<StatusCode, ApiError> {
-    require_role(&claims, &["superadmin", "owner", "warehouse_manager"])?;
+    require_role_claims(&claims, &[TenantRole::Owner, TenantRole::Manager])?;
+    let tenant_id = require_tenant_for_locations(&claims)?;
 
-    let repo = PgLocationRepository::new(state.pool.clone());
-
-    // Fetch to check warehouse access
-    let existing = repo
-        .find_by_id(id)
+        let existing = location_repo::find_by_id(&mut *tt.tx, tenant_id, id)
         .await?
         .ok_or_else(|| ApiError(DomainError::NotFound("Location not found".to_string())))?;
-    ensure_warehouse_access(&claims, &existing.warehouse_id)?;
 
-    // Check for existing inventory
-    if repo.has_inventory(id).await? {
+    ensure_warehouse_access(&mut *tt.tx, &claims, &existing.warehouse_id).await?;
+
+        if location_repo::has_inventory(&mut *tt.tx, tenant_id, id).await? {
         return Err(ApiError(DomainError::Conflict(
             "Cannot delete location with existing inventory".to_string(),
         )));
     }
 
-    repo.delete(id).await?;
+    location_repo::delete(&mut *tt.tx, tenant_id, id).await?;
 
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok(StatusCode::NO_CONTENT)
 }

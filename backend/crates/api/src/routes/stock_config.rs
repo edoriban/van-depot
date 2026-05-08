@@ -11,7 +11,10 @@ use vandepot_infra::auth::jwt::Claims;
 use vandepot_infra::repositories::stock_config_repo;
 
 use crate::error::ApiError;
-use crate::extractors::role_guard::require_role;
+use crate::extractors::claims::tenant_context_from_claims;
+use crate::extractors::tenant::Tenant;
+use crate::extractors::role_guard::require_role_claims;
+use vandepot_infra::auth::tenant_context::TenantRole;
 use crate::pagination::{PaginatedResponse, PaginationParams};
 use crate::state::AppState;
 
@@ -80,57 +83,86 @@ pub fn stock_config_routes() -> Router<AppState> {
         )
 }
 
+// ── Helpers ───────────────────────────────────────────────────────────
+
+/// Resolves the active tenant_id from the caller's claims, or returns 422 for
+/// non-superadmin tokens that haven't selected a tenant. Mirrors the B1..B7
+/// per-route helper convention.
+fn require_tenant_for_stock_config(claims: &Claims) -> Result<Uuid, ApiError> {
+    let ctx = tenant_context_from_claims(claims);
+    ctx.require_tenant().map_err(|_| {
+        ApiError(DomainError::Validation(
+            "tenant_id required for stock-config operations (superadmin must select a tenant)"
+                .to_string(),
+        ))
+    })
+}
+
 // ── Handlers ──────────────────────────────────────────────────────────
 
 async fn get_config(
-    State(state): State<AppState>,
-    _claims: Claims,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
+    claims: Claims,
     Query(params): Query<StockConfigQuery>,
 ) -> Result<Json<Option<StockConfigResponse>>, ApiError> {
+    let tenant_id = require_tenant_for_stock_config(&claims)?;
     let config = if let Some(product_id) = params.product_id {
-        stock_config_repo::get_product_config(&state.pool, product_id).await?
+        stock_config_repo::get_product_config(&mut *tt.tx, tenant_id, product_id).await?
     } else if let Some(warehouse_id) = params.warehouse_id {
-        stock_config_repo::get_warehouse_config(&state.pool, warehouse_id).await?
+        stock_config_repo::get_warehouse_config(&mut *tt.tx, tenant_id, warehouse_id).await?
     } else {
-        stock_config_repo::get_global_config(&state.pool).await?
+        stock_config_repo::get_global_config(&mut *tt.tx, tenant_id).await?
     };
 
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok(Json(config.map(row_to_response)))
 }
 
 async fn resolve_config(
-    State(state): State<AppState>,
-    _claims: Claims,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
+    claims: Claims,
     Query(params): Query<ResolveConfigQuery>,
 ) -> Result<Json<StockConfigResponse>, ApiError> {
-    let row =
-        stock_config_repo::resolve_config(&state.pool, params.product_id, params.warehouse_id)
-            .await?;
+    let tenant_id = require_tenant_for_stock_config(&claims)?;
+    let row = stock_config_repo::resolve_config(
+        &mut *tt.tx,
+        tenant_id,
+        params.product_id,
+        params.warehouse_id,
+    )
+    .await?;
 
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok(Json(row_to_response(row)))
 }
 
-// ── New handlers ─────────────────────────────────────────────────────
-
 async fn get_global_config(
-    State(state): State<AppState>,
-    _claims: Claims,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
+    claims: Claims,
 ) -> Result<Json<Option<StockConfigResponse>>, ApiError> {
-    let config = stock_config_repo::get_global_config(&state.pool).await?;
+    let tenant_id = require_tenant_for_stock_config(&claims)?;
+    let config = stock_config_repo::get_global_config(&mut *tt.tx, tenant_id).await?;
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok(Json(config.map(row_to_response)))
 }
 
 async fn list_overrides(
-    State(state): State<AppState>,
-    _claims: Claims,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
+    claims: Claims,
     Query(params): Query<PaginationParams>,
 ) -> Result<Json<PaginatedResponse<StockConfigOverrideResponse>>, ApiError> {
+    let tenant_id = require_tenant_for_stock_config(&claims)?;
     let limit = params.limit();
     let offset = params.offset();
 
     let (rows, total) =
-        stock_config_repo::list_overrides(&state.pool, limit, offset).await?;
+        stock_config_repo::list_overrides(&mut *tt.tx, tenant_id, limit, offset).await?;
 
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok(Json(PaginatedResponse {
         data: rows.into_iter().map(override_row_to_response).collect(),
         total,
@@ -140,15 +172,18 @@ async fn list_overrides(
 }
 
 async fn create_config(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
     claims: Claims,
     Json(payload): Json<UpsertStockConfigRequest>,
 ) -> Result<(StatusCode, Json<StockConfigResponse>), ApiError> {
-    require_role(&claims, &["superadmin", "owner"])?;
+    require_role_claims(&claims, &[TenantRole::Owner])?;
+    let tenant_id = require_tenant_for_stock_config(&claims)?;
     validate_config_payload(&payload)?;
 
     let row = stock_config_repo::upsert_config(
-        &state.pool,
+        &mut *tt.tx,
+        tenant_id,
         payload.warehouse_id,
         payload.product_id,
         payload.default_min_stock,
@@ -157,32 +192,39 @@ async fn create_config(
     )
     .await?;
 
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok((StatusCode::CREATED, Json(row_to_response(row))))
 }
 
 async fn get_config_by_id(
-    State(state): State<AppState>,
-    _claims: Claims,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
+    claims: Claims,
     Path(id): Path<Uuid>,
 ) -> Result<Json<StockConfigResponse>, ApiError> {
-    let row = stock_config_repo::get_by_id(&state.pool, id)
+    let tenant_id = require_tenant_for_stock_config(&claims)?;
+    let row = stock_config_repo::get_by_id(&mut *tt.tx, tenant_id, id)
         .await?
         .ok_or_else(|| ApiError(DomainError::NotFound("Stock config not found".to_string())))?;
 
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok(Json(row_to_response(row)))
 }
 
 async fn update_config_by_id(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
     claims: Claims,
     Path(id): Path<Uuid>,
     Json(payload): Json<UpsertStockConfigRequest>,
 ) -> Result<Json<StockConfigResponse>, ApiError> {
-    require_role(&claims, &["superadmin", "owner"])?;
+    require_role_claims(&claims, &[TenantRole::Owner])?;
+    let tenant_id = require_tenant_for_stock_config(&claims)?;
     validate_config_payload(&payload)?;
 
     let row = stock_config_repo::update_by_id(
-        &state.pool,
+        &mut *tt.tx,
+        tenant_id,
         id,
         payload.default_min_stock,
         payload.critical_stock_multiplier,
@@ -190,18 +232,22 @@ async fn update_config_by_id(
     )
     .await?;
 
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok(Json(row_to_response(row)))
 }
 
 async fn delete_config_by_id(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
     claims: Claims,
     Path(id): Path<Uuid>,
 ) -> Result<StatusCode, ApiError> {
-    require_role(&claims, &["superadmin", "owner"])?;
+    require_role_claims(&claims, &[TenantRole::Owner])?;
+    let tenant_id = require_tenant_for_stock_config(&claims)?;
 
-    stock_config_repo::delete_by_id(&state.pool, id).await?;
+    stock_config_repo::delete_by_id(&mut *tt.tx, tenant_id, id).await?;
 
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok(StatusCode::NO_CONTENT)
 }
 

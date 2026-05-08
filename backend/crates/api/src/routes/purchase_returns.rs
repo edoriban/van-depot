@@ -10,14 +10,14 @@ use vandepot_domain::error::DomainError;
 use vandepot_domain::models::enums::{PurchaseReturnReason, PurchaseReturnStatus};
 use vandepot_domain::models::inventory_params::ExitParams;
 use vandepot_domain::models::purchase_return::{PurchaseReturn, PurchaseReturnItem};
-use vandepot_domain::ports::purchase_return_repository::PurchaseReturnRepository;
 use vandepot_infra::auth::jwt::Claims;
-use vandepot_infra::repositories::inventory_repo::PgInventoryService;
-use vandepot_infra::repositories::purchase_return_repo::PgPurchaseReturnRepository;
-use vandepot_domain::ports::inventory_service::InventoryService;
+use vandepot_infra::auth::tenant_context::TenantRole;
+use vandepot_infra::repositories::{inventory_repo, purchase_return_repo};
 
 use crate::error::ApiError;
-use crate::extractors::role_guard::require_role;
+use crate::extractors::claims::tenant_context_from_claims;
+use crate::extractors::tenant::Tenant;
+use crate::extractors::role_guard::require_role_claims;
 use crate::pagination::PaginatedResponse;
 use crate::state::AppState;
 
@@ -145,7 +145,7 @@ impl From<PurchaseReturnItem> for PurchaseReturnItemResponse {
     }
 }
 
-// ── Return number generation ──────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────
 
 fn parse_reason(reason: &str) -> Result<PurchaseReturnReason, ApiError> {
     match reason {
@@ -175,6 +175,19 @@ fn parse_return_status(status: &str) -> Result<PurchaseReturnStatus, ApiError> {
     }
 }
 
+/// Resolves the active tenant_id from the caller's claims, or returns 422
+/// for superadmin tokens that haven't selected a tenant. Mirrors the
+/// B1..B5 per-route helper convention.
+fn require_tenant_for_purchase_returns(claims: &Claims) -> Result<Uuid, ApiError> {
+    let ctx = tenant_context_from_claims(claims);
+    ctx.require_tenant().map_err(|_| {
+        ApiError(DomainError::Validation(
+            "tenant_id required for purchase return operations (superadmin must select a tenant)"
+                .to_string(),
+        ))
+    })
+}
+
 // ── Routes ────────────────────────────────────────────────────────────
 
 pub fn purchase_return_routes() -> Router<AppState> {
@@ -194,11 +207,13 @@ pub fn purchase_return_routes() -> Router<AppState> {
 // ── Handlers ──────────────────────────────────────────────────────────
 
 async fn create_purchase_return(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
     claims: Claims,
     Json(payload): Json<CreateReturnRequest>,
 ) -> Result<(StatusCode, Json<PurchaseReturnResponse>), ApiError> {
-    require_role(&claims, &["superadmin", "owner", "warehouse_manager"])?;
+    require_role_claims(&claims, &[TenantRole::Owner, TenantRole::Manager])?;
+    let tenant_id = require_tenant_for_purchase_returns(&claims)?;
 
     if payload.items.is_empty() {
         return Err(ApiError(DomainError::Validation(
@@ -234,15 +249,17 @@ async fn create_purchase_return(
 
     let reason = parse_reason(&payload.reason)?;
 
-    let repo = PgPurchaseReturnRepository::new(state.pool.clone());
-
-    // Generate return number using year + sequential count
+    // Generate return number (tenant-scoped count). Two tenants creating
+    // returns in the same year now coexist without colliding because the
+    // UNIQUE is `(tenant_id, return_number)` post-B6.
     let year = chrono::Utc::now().year();
     let count: (i64,) = sqlx::query_as(
-        "SELECT COUNT(*) FROM purchase_returns WHERE EXTRACT(YEAR FROM created_at) = $1",
+        "SELECT COUNT(*) FROM purchase_returns \
+         WHERE EXTRACT(YEAR FROM created_at) = $1 AND tenant_id = $2",
     )
     .bind(year)
-    .fetch_one(&state.pool)
+    .bind(tenant_id)
+    .fetch_one(&mut *tt.tx)
     .await
     .map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
 
@@ -254,26 +271,30 @@ async fn create_purchase_return(
         .map(|i| (i.product_id, i.quantity_returned, i.quantity_original, i.unit_price))
         .collect();
 
-    let purchase_return = repo
-        .create(
-            payload.purchase_order_id,
-            &return_number,
-            reason,
-            payload.reason_notes.as_deref(),
-            decrease_inventory,
-            payload.refund_amount,
-            claims.sub,
-            items,
-        )
-        .await?;
+    let purchase_return = purchase_return_repo::create(
+        &mut *tt.tx,
+        tenant_id,
+        payload.purchase_order_id,
+        &return_number,
+        reason,
+        payload.reason_notes.as_deref(),
+        decrease_inventory,
+        payload.refund_amount,
+        claims.sub,
+        items,
+    )
+    .await?;
 
-    // If decrease_inventory: create stock EXIT movements for each item
+    // If decrease_inventory: create stock EXIT movements for each item.
+    // Phase B B6: tenant_id is the same one we passed to create() — the
+    // composite FKs guarantee inventory and movement rows agree on tenant.
     if decrease_inventory {
-        let inventory_svc = PgInventoryService::new(state.pool.clone());
         for item in &payload.items {
             if let Some(from_location_id) = item.from_location_id {
-                inventory_svc
-                    .record_exit(ExitParams {
+                inventory_repo::record_exit(
+                    &mut *tt.tx,
+                    tenant_id,
+                    ExitParams {
                         product_id: item.product_id,
                         from_location_id,
                         quantity: item.quantity_returned,
@@ -283,12 +304,14 @@ async fn create_purchase_return(
                             "Purchase return {}",
                             return_number
                         )),
-                    })
-                    .await?;
+                    },
+                )
+                .await?;
             }
         }
     }
 
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok((
         StatusCode::CREATED,
         Json(PurchaseReturnResponse::from(purchase_return)),
@@ -296,26 +319,30 @@ async fn create_purchase_return(
 }
 
 async fn list_purchase_returns(
-    State(state): State<AppState>,
-    _claims: Claims,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
+    claims: Claims,
     Query(params): Query<ListReturnsQuery>,
 ) -> Result<Json<PaginatedResponse<PurchaseReturnResponse>>, ApiError> {
+    let tenant_id = require_tenant_for_purchase_returns(&claims)?;
+
     let status = params
         .status
         .as_deref()
         .map(parse_return_status)
         .transpose()?;
 
-    let repo = PgPurchaseReturnRepository::new(state.pool.clone());
-    let (returns, total) = repo
-        .list(
-            params.purchase_order_id,
-            status,
-            params.limit(),
-            params.offset(),
-        )
-        .await?;
+        let (returns, total) = purchase_return_repo::list(
+        &mut *tt.tx,
+        tenant_id,
+        params.purchase_order_id,
+        status,
+        params.limit(),
+        params.offset(),
+    )
+    .await?;
 
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok(Json(PaginatedResponse {
         data: returns
             .into_iter()
@@ -328,18 +355,18 @@ async fn list_purchase_returns(
 }
 
 async fn get_purchase_return(
-    State(state): State<AppState>,
-    _claims: Claims,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
+    claims: Claims,
     Path(id): Path<Uuid>,
 ) -> Result<Json<PurchaseReturnResponse>, ApiError> {
-    let repo = PgPurchaseReturnRepository::new(state.pool.clone());
+    let tenant_id = require_tenant_for_purchase_returns(&claims)?;
 
-    let pr = repo
-        .find_by_id(id)
+        let pr = purchase_return_repo::find_by_id(&mut *tt.tx, tenant_id, id)
         .await?
         .ok_or_else(|| ApiError(DomainError::NotFound("Purchase return not found".to_string())))?;
 
-    let items = repo.get_items(id).await?;
+    let items = purchase_return_repo::get_items(&mut *tt.tx, tenant_id, id).await?;
 
     let mut response = PurchaseReturnResponse::from(pr);
     response.items = Some(
@@ -349,16 +376,19 @@ async fn get_purchase_return(
             .collect(),
     );
 
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok(Json(response))
 }
 
 async fn update_purchase_return(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
     claims: Claims,
     Path(id): Path<Uuid>,
     Json(payload): Json<UpdateReturnRequest>,
 ) -> Result<Json<PurchaseReturnResponse>, ApiError> {
-    require_role(&claims, &["superadmin", "owner", "warehouse_manager"])?;
+    require_role_claims(&claims, &[TenantRole::Owner, TenantRole::Manager])?;
+    let tenant_id = require_tenant_for_purchase_returns(&claims)?;
 
     let status = payload
         .status
@@ -366,30 +396,36 @@ async fn update_purchase_return(
         .map(parse_return_status)
         .transpose()?;
 
-    let repo = PgPurchaseReturnRepository::new(state.pool.clone());
-
     let updated = match status {
-        Some(s) => repo.update_status(id, s, payload.refund_amount).await?,
-        None => {
-            // No status change — find and return current
-            repo.find_by_id(id)
+        Some(s) => {
+            purchase_return_repo::update_status(&mut *tt.tx, tenant_id, id, s, payload.refund_amount)
                 .await?
-                .ok_or_else(|| ApiError(DomainError::NotFound("Purchase return not found".to_string())))?
+        }
+        None => {
+            // No status change — find and return current.
+                        purchase_return_repo::find_by_id(&mut *tt.tx, tenant_id, id)
+                .await?
+                .ok_or_else(|| {
+                    ApiError(DomainError::NotFound("Purchase return not found".to_string()))
+                })?
         }
     };
 
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok(Json(PurchaseReturnResponse::from(updated)))
 }
 
 async fn delete_purchase_return(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
     claims: Claims,
     Path(id): Path<Uuid>,
 ) -> Result<StatusCode, ApiError> {
-    require_role(&claims, &["superadmin", "owner", "warehouse_manager"])?;
+    require_role_claims(&claims, &[TenantRole::Owner, TenantRole::Manager])?;
+    let tenant_id = require_tenant_for_purchase_returns(&claims)?;
 
-    let repo = PgPurchaseReturnRepository::new(state.pool.clone());
-    repo.delete(id).await?;
+    purchase_return_repo::delete(&mut *tt.tx, tenant_id, id).await?;
 
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok(StatusCode::NO_CONTENT)
 }

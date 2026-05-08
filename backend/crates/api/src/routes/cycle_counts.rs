@@ -9,10 +9,13 @@ use uuid::Uuid;
 use vandepot_domain::error::DomainError;
 use vandepot_domain::models::cycle_count::{CycleCount, CycleCountItem, CycleCountStatus};
 use vandepot_infra::auth::jwt::Claims;
-use vandepot_infra::repositories::cycle_count_repo::{CycleCountSummary, PgCycleCountRepository};
+use vandepot_infra::auth::tenant_context::TenantRole;
+use vandepot_infra::repositories::cycle_count_repo::{self, CycleCountSummary};
 
 use crate::error::ApiError;
-use crate::extractors::role_guard::require_role;
+use crate::extractors::claims::tenant_context_from_claims;
+use crate::extractors::tenant::Tenant;
+use crate::extractors::role_guard::require_role_claims;
 use crate::extractors::warehouse_access::ensure_warehouse_access;
 use crate::pagination::{PaginatedResponse, PaginationParams};
 use crate::state::AppState;
@@ -114,6 +117,21 @@ impl From<CycleCountItem> for CycleCountItemResponse {
     }
 }
 
+// ── Helpers ───────────────────────────────────────────────────────────
+
+/// Resolves the active tenant_id from the caller's claims, or returns a
+/// 422 for superadmin tokens that haven't selected a tenant. Mirrors the
+/// B1..B6 per-route helper convention.
+fn require_tenant_for_cycle_counts(claims: &Claims) -> Result<Uuid, ApiError> {
+    let ctx = tenant_context_from_claims(claims);
+    ctx.require_tenant().map_err(|_| {
+        ApiError(DomainError::Validation(
+            "tenant_id required for cycle count operations (superadmin must select a tenant)"
+                .to_string(),
+        ))
+    })
+}
+
 // ── Routes ────────────────────────────────────────────────────────────
 
 pub fn cycle_count_routes() -> Router<AppState> {
@@ -133,26 +151,17 @@ pub fn cycle_count_routes() -> Router<AppState> {
         .route("/cycle-counts/{id}/cancel", put(cancel_cycle_count))
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────
-
-async fn get_cycle_count_or_404(
-    repo: &PgCycleCountRepository,
-    id: Uuid,
-) -> Result<CycleCount, ApiError> {
-    repo.find_by_id(id)
-        .await?
-        .ok_or_else(|| ApiError(DomainError::NotFound("Cycle count not found".to_string())))
-}
-
 // ── Handlers ──────────────────────────────────────────────────────────
 
 async fn create_cycle_count(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
     claims: Claims,
     Json(payload): Json<CreateCycleCountRequest>,
 ) -> Result<(StatusCode, Json<CycleCountResponse>), ApiError> {
-    require_role(&claims, &["superadmin", "owner", "warehouse_manager"])?;
-    ensure_warehouse_access(&claims, &payload.warehouse_id)?;
+    require_role_claims(&claims, &[TenantRole::Owner, TenantRole::Manager])?;
+    let tenant_id = require_tenant_for_cycle_counts(&claims)?;
+    ensure_warehouse_access(&mut *tt.tx, &claims, &payload.warehouse_id).await?;
 
     if payload.name.trim().is_empty() {
         return Err(ApiError(DomainError::Validation(
@@ -160,39 +169,44 @@ async fn create_cycle_count(
         )));
     }
 
-    let repo = PgCycleCountRepository::new(state.pool.clone());
-    let cc = repo
-        .create(
-            payload.warehouse_id,
-            payload.name.trim(),
-            payload.notes.as_deref(),
-            claims.sub,
-        )
-        .await?;
+    let cc = cycle_count_repo::create(
+        &mut *tt.tx,
+        tenant_id,
+        payload.warehouse_id,
+        payload.name.trim(),
+        payload.notes.as_deref(),
+        claims.sub,
+    )
+    .await?;
 
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok((StatusCode::CREATED, Json(CycleCountResponse::from(cc))))
 }
 
 async fn list_cycle_counts(
-    State(state): State<AppState>,
-    _claims: Claims,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
+    claims: Claims,
     Query(params): Query<CycleCountQueryParams>,
 ) -> Result<Json<PaginatedResponse<CycleCountResponse>>, ApiError> {
+    let tenant_id = require_tenant_for_cycle_counts(&claims)?;
+
     let pagination = PaginationParams {
         page: params.page,
         per_page: params.per_page,
     };
 
-    let repo = PgCycleCountRepository::new(state.pool.clone());
-    let (counts, total) = repo
-        .list(
-            params.warehouse_id,
-            params.status,
-            pagination.limit(),
-            pagination.offset(),
-        )
-        .await?;
+        let (counts, total) = cycle_count_repo::list(
+        &mut *tt.tx,
+        tenant_id,
+        params.warehouse_id,
+        params.status,
+        pagination.limit(),
+        pagination.offset(),
+    )
+    .await?;
 
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok(Json(PaginatedResponse {
         data: counts.into_iter().map(CycleCountResponse::from).collect(),
         total,
@@ -202,14 +216,20 @@ async fn list_cycle_counts(
 }
 
 async fn get_cycle_count(
-    State(state): State<AppState>,
-    _claims: Claims,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
+    claims: Claims,
     Path(id): Path<Uuid>,
 ) -> Result<Json<CycleCountDetailResponse>, ApiError> {
-    let repo = PgCycleCountRepository::new(state.pool.clone());
-    let cc = get_cycle_count_or_404(&repo, id).await?;
-    let summary: CycleCountSummary = repo.get_summary(id).await?;
+    let tenant_id = require_tenant_for_cycle_counts(&claims)?;
 
+        let cc = cycle_count_repo::find_by_id(&mut *tt.tx, tenant_id, id)
+        .await?
+        .ok_or_else(|| ApiError(DomainError::NotFound("Cycle count not found".to_string())))?;
+    let summary: CycleCountSummary =
+        cycle_count_repo::get_summary(&mut *tt.tx, tenant_id, id).await?;
+
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok(Json(CycleCountDetailResponse {
         cycle_count: CycleCountResponse::from(cc),
         total_items: summary.total_items,
@@ -219,16 +239,19 @@ async fn get_cycle_count(
 }
 
 async fn start_cycle_count(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
     claims: Claims,
     Path(id): Path<Uuid>,
 ) -> Result<Json<CycleCountResponse>, ApiError> {
-    require_role(&claims, &["superadmin", "owner", "warehouse_manager"])?;
+    require_role_claims(&claims, &[TenantRole::Owner, TenantRole::Manager])?;
+    let tenant_id = require_tenant_for_cycle_counts(&claims)?;
 
-    let repo = PgCycleCountRepository::new(state.pool.clone());
-    let cc = get_cycle_count_or_404(&repo, id).await?;
+        let cc = cycle_count_repo::find_by_id(&mut *tt.tx, tenant_id, id)
+        .await?
+        .ok_or_else(|| ApiError(DomainError::NotFound("Cycle count not found".to_string())))?;
 
-    ensure_warehouse_access(&claims, &cc.warehouse_id)?;
+    ensure_warehouse_access(&mut *tt.tx, &claims, &cc.warehouse_id).await?;
 
     if cc.status != CycleCountStatus::Draft {
         return Err(ApiError(DomainError::Validation(
@@ -236,29 +259,38 @@ async fn start_cycle_count(
         )));
     }
 
-    let updated = repo
-        .update_status(id, CycleCountStatus::InProgress)
-        .await?;
+    let updated = cycle_count_repo::update_status(
+        &mut *tt.tx,
+        tenant_id,
+        id,
+        CycleCountStatus::InProgress,
+    )
+    .await?;
 
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok(Json(CycleCountResponse::from(updated)))
 }
 
 async fn record_item_count(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
     claims: Claims,
     Path((id, item_id)): Path<(Uuid, Uuid)>,
     Json(payload): Json<RecordCountRequest>,
 ) -> Result<Json<CycleCountItemResponse>, ApiError> {
+    let tenant_id = require_tenant_for_cycle_counts(&claims)?;
+
     if payload.counted_quantity < 0.0 {
         return Err(ApiError(DomainError::Validation(
             "Counted quantity must be >= 0".to_string(),
         )));
     }
 
-    let repo = PgCycleCountRepository::new(state.pool.clone());
-    let cc = get_cycle_count_or_404(&repo, id).await?;
+        let cc = cycle_count_repo::find_by_id(&mut *tt.tx, tenant_id, id)
+        .await?
+        .ok_or_else(|| ApiError(DomainError::NotFound("Cycle count not found".to_string())))?;
 
-    ensure_warehouse_access(&claims, &cc.warehouse_id)?;
+    ensure_warehouse_access(&mut *tt.tx, &claims, &cc.warehouse_id).await?;
 
     if cc.status != CycleCountStatus::InProgress {
         return Err(ApiError(DomainError::Validation(
@@ -266,9 +298,8 @@ async fn record_item_count(
         )));
     }
 
-    // Verify item belongs to this cycle count
-    let item = repo
-        .find_item_by_id(item_id)
+    // Verify item belongs to this cycle count.
+    let item = cycle_count_repo::find_item_by_id(&mut *tt.tx, tenant_id, item_id)
         .await?
         .ok_or_else(|| {
             ApiError(DomainError::NotFound(
@@ -282,41 +313,54 @@ async fn record_item_count(
         )));
     }
 
-    let updated = repo
-        .record_count(item_id, payload.counted_quantity, claims.sub)
-        .await?;
+    let updated = cycle_count_repo::record_count(
+        &mut *tt.tx,
+        tenant_id,
+        item_id,
+        payload.counted_quantity,
+        claims.sub,
+    )
+    .await?;
 
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok(Json(CycleCountItemResponse::from(updated)))
 }
 
 async fn list_discrepancies(
-    State(state): State<AppState>,
-    _claims: Claims,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
+    claims: Claims,
     Path(id): Path<Uuid>,
 ) -> Result<Json<Vec<CycleCountItemResponse>>, ApiError> {
-    let repo = PgCycleCountRepository::new(state.pool.clone());
+    let tenant_id = require_tenant_for_cycle_counts(&claims)?;
 
-    // Verify cycle count exists
-    get_cycle_count_or_404(&repo, id).await?;
+        // Verify cycle count exists (tenant-scoped).
+    cycle_count_repo::find_by_id(&mut *tt.tx, tenant_id, id)
+        .await?
+        .ok_or_else(|| ApiError(DomainError::NotFound("Cycle count not found".to_string())))?;
 
-    let items = repo.list_discrepancies(id).await?;
+    let items = cycle_count_repo::list_discrepancies(&mut *tt.tx, tenant_id, id).await?;
 
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok(Json(
         items.into_iter().map(CycleCountItemResponse::from).collect(),
     ))
 }
 
 async fn apply_cycle_count(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
     claims: Claims,
     Path(id): Path<Uuid>,
 ) -> Result<Json<CycleCountResponse>, ApiError> {
-    require_role(&claims, &["superadmin", "owner", "warehouse_manager"])?;
+    require_role_claims(&claims, &[TenantRole::Owner, TenantRole::Manager])?;
+    let tenant_id = require_tenant_for_cycle_counts(&claims)?;
 
-    let repo = PgCycleCountRepository::new(state.pool.clone());
-    let cc = get_cycle_count_or_404(&repo, id).await?;
+        let cc = cycle_count_repo::find_by_id(&mut *tt.tx, tenant_id, id)
+        .await?
+        .ok_or_else(|| ApiError(DomainError::NotFound("Cycle count not found".to_string())))?;
 
-    ensure_warehouse_access(&claims, &cc.warehouse_id)?;
+    ensure_warehouse_access(&mut *tt.tx, &claims, &cc.warehouse_id).await?;
 
     if cc.status != CycleCountStatus::InProgress {
         return Err(ApiError(DomainError::Validation(
@@ -324,22 +368,27 @@ async fn apply_cycle_count(
         )));
     }
 
-    let updated = repo.apply_adjustments(id, claims.sub).await?;
+    let updated =
+        cycle_count_repo::apply_adjustments(&mut *tt.tx, tenant_id, id, claims.sub).await?;
 
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok(Json(CycleCountResponse::from(updated)))
 }
 
 async fn cancel_cycle_count(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
+    Tenant(mut tt): Tenant,
     claims: Claims,
     Path(id): Path<Uuid>,
 ) -> Result<Json<CycleCountResponse>, ApiError> {
-    require_role(&claims, &["superadmin", "owner", "warehouse_manager"])?;
+    require_role_claims(&claims, &[TenantRole::Owner, TenantRole::Manager])?;
+    let tenant_id = require_tenant_for_cycle_counts(&claims)?;
 
-    let repo = PgCycleCountRepository::new(state.pool.clone());
-    let cc = get_cycle_count_or_404(&repo, id).await?;
+        let cc = cycle_count_repo::find_by_id(&mut *tt.tx, tenant_id, id)
+        .await?
+        .ok_or_else(|| ApiError(DomainError::NotFound("Cycle count not found".to_string())))?;
 
-    ensure_warehouse_access(&claims, &cc.warehouse_id)?;
+    ensure_warehouse_access(&mut *tt.tx, &claims, &cc.warehouse_id).await?;
 
     if cc.status == CycleCountStatus::Completed {
         return Err(ApiError(DomainError::Validation(
@@ -347,9 +396,14 @@ async fn cancel_cycle_count(
         )));
     }
 
-    let updated = repo
-        .update_status(id, CycleCountStatus::Cancelled)
-        .await?;
+    let updated = cycle_count_repo::update_status(
+        &mut *tt.tx,
+        tenant_id,
+        id,
+        CycleCountStatus::Cancelled,
+    )
+    .await?;
 
+    tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok(Json(CycleCountResponse::from(updated)))
 }
