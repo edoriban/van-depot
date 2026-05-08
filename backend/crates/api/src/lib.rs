@@ -4,19 +4,36 @@
 
 pub mod error;
 pub mod extractors;
+pub mod middleware;
 pub mod pagination;
 pub mod routes;
 pub mod state;
 
-use axum::{routing::get, Router};
+use axum::{middleware::from_fn_with_state, routing::get, Router};
 use state::AppState;
+
+use crate::middleware::tenant_tx::tenant_tx_middleware;
 
 /// Build the full application router. Used by `main.rs` at runtime and by
 /// integration tests to mount all routes against a test `AppState`.
+///
+/// Phase C task C3: every authenticated route is wrapped by
+/// [`tenant_tx_middleware`], which opens a per-request transaction with the
+/// caller's RLS context (`SET LOCAL app.current_tenant`,
+/// `SET LOCAL app.is_superadmin`) and stores a `TenantTxHandle` in request
+/// extensions for the `Tenant` extractor to pick up.
+///
+/// The unauthenticated routes (`/health`, `/auth/*`) are merged OUTSIDE the
+/// tx-wrapped subtree because the middleware requires a valid `Claims`
+/// payload — applying it to `/auth/login` would 401 before the user can log
+/// in.
 pub fn app_router(state: AppState) -> Router {
-    Router::new()
-        .route("/health", get(routes::health::health))
-        .merge(routes::auth::auth_routes())
+    // Authenticated subtree — every route under here gets a per-request tx.
+    let authenticated = Router::new()
+        // Admin sub-router — gated by superadmin_guard. Built with the
+        // state cloned in here because the guard middleware needs it at
+        // construction time (`from_fn_with_state`).
+        .merge(routes::admin::admin_routes(state.clone()))
         .merge(routes::warehouses::warehouse_routes())
         .merge(routes::users::user_routes())
         .merge(routes::locations::location_routes())
@@ -38,5 +55,11 @@ pub fn app_router(state: AppState) -> Router {
         .merge(routes::abc::abc_routes())
         .merge(routes::warehouse_map::warehouse_map_routes())
         .merge(routes::work_orders::work_order_routes())
+        .layer(from_fn_with_state(state.clone(), tenant_tx_middleware));
+
+    Router::new()
+        .route("/health", get(routes::health::health))
+        .merge(routes::auth::auth_routes())
+        .merge(authenticated)
         .with_state(state)
 }
