@@ -17,12 +17,7 @@ use vandepot_domain::error::{DomainError, SYSTEM_LOCATION_PROTECTED};
 use vandepot_domain::models::enums::LocationType;
 use vandepot_domain::models::product_lot::ProductLot;
 use vandepot_domain::models::receive_outcome::ReceiveOutcome;
-use vandepot_domain::ports::location_repository::LocationRepository;
-use vandepot_domain::ports::warehouse_repository::WarehouseRepository;
-use vandepot_infra::repositories::{
-    inventory_repo, location_repo::PgLocationRepository, lots_repo,
-    warehouse_repo::PgWarehouseRepository,
-};
+use vandepot_infra::repositories::{inventory_repo, location_repo, lots_repo, warehouse_repo};
 
 // The no-lot receive matrix lives in `product_classification.rs` (Batch 5).
 // Tests in this file create products via the legacy SQL helper
@@ -60,6 +55,7 @@ async fn maybe_pool() -> Option<PgPool> {
 /// the JOIN-free cleanup below).
 struct TestData {
     pool: PgPool,
+    tenant_id: Uuid,
     warehouse_ids: Vec<Uuid>,
     product_ids: Vec<Uuid>,
     user_id: Uuid,
@@ -69,14 +65,24 @@ impl TestData {
     async fn new(pool: PgPool) -> Self {
         // Reuse the seed superadmin as the actor on every test movement.
         let user_id: (Uuid,) = sqlx::query_as(
-            "SELECT id FROM users WHERE role = 'superadmin' LIMIT 1",
+            "SELECT id FROM users WHERE is_superadmin = true LIMIT 1",
         )
         .fetch_one(&pool)
         .await
         .expect("seed superadmin must exist — run `cargo run` once to seed");
 
+        // Phase B batch 1: every tenant-scoped repo call needs a tenant_id.
+        // The `dev` tenant is seeded by `make reset-db` / RUN_SEED_DEFAULT_TENANT.
+        let tenant_id: (Uuid,) = sqlx::query_as(
+            "SELECT id FROM tenants WHERE slug = 'dev' AND deleted_at IS NULL",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("dev tenant must exist — run `make reset-db` to seed");
+
         Self {
             pool,
+            tenant_id: tenant_id.0,
             warehouse_ids: Vec::new(),
             product_ids: Vec::new(),
             user_id: user_id.0,
@@ -84,9 +90,8 @@ impl TestData {
     }
 
     async fn create_warehouse(&mut self, name: &str) -> Uuid {
-        let repo = PgWarehouseRepository::new(self.pool.clone());
-        let wh = repo
-            .create(name, None)
+        let mut conn = self.pool.acquire().await.expect("acquire conn");
+        let wh = warehouse_repo::create(&mut conn, self.tenant_id, name, None)
             .await
             .expect("warehouse create should succeed");
         self.warehouse_ids.push(wh.id);
@@ -94,11 +99,13 @@ impl TestData {
     }
 
     async fn create_product(&mut self, sku_suffix: &str) -> Uuid {
+        // Phase B B2: products carry NOT NULL tenant_id; bind explicitly.
         let row: (Uuid,) = sqlx::query_as(
-            "INSERT INTO products (name, sku, unit_of_measure) \
-             VALUES ($1, $2, 'piece') \
+            "INSERT INTO products (tenant_id, name, sku, unit_of_measure) \
+             VALUES ($1, $2, $3, 'piece') \
              RETURNING id",
         )
+        .bind(self.tenant_id)
         .bind(format!("Test Product {sku_suffix}"))
         .bind(format!("TST-{sku_suffix}"))
         .fetch_one(&self.pool)
@@ -114,18 +121,24 @@ impl TestData {
         name: &str,
         location_type: LocationType,
     ) -> Uuid {
-        let repo = PgLocationRepository::new(self.pool.clone());
-        let loc = repo
-            .create(warehouse_id, None, location_type, name, None)
-            .await
-            .expect("location create");
+        let mut conn = self.pool.acquire().await.expect("acquire conn");
+        let loc = location_repo::create(
+            &mut conn,
+            self.tenant_id,
+            warehouse_id,
+            None,
+            location_type,
+            name,
+            None,
+        )
+        .await
+        .expect("location create");
         loc.id
     }
 
     async fn reception_id(&self, warehouse_id: Uuid) -> Uuid {
-        let repo = PgLocationRepository::new(self.pool.clone());
-        let loc = repo
-            .find_reception_by_warehouse(warehouse_id)
+        let mut conn = self.pool.acquire().await.expect("acquire conn");
+        let loc = location_repo::find_reception_by_warehouse(&mut conn, self.tenant_id, warehouse_id)
             .await
             .expect("find_reception")
             .expect("reception must exist post-warehouse-create");
@@ -243,9 +256,8 @@ async fn test_warehouse_create_inserts_reception_atomically() {
     let name = format!("WH-ATOMIC-{}", Uuid::new_v4());
     let wid = td.create_warehouse(&name).await;
 
-    let repo = PgLocationRepository::new(pool.clone());
-    let rcp = repo
-        .find_reception_by_warehouse(wid)
+    let mut conn = pool.acquire().await.expect("acquire conn");
+    let rcp = location_repo::find_reception_by_warehouse(&mut conn, td.tenant_id, wid)
         .await
         .expect("find_reception should not error")
         .expect("Reception must exist after warehouse creation");
@@ -271,9 +283,10 @@ async fn test_duplicate_reception_rejected_by_unique_index() {
 
     let res = sqlx::query(
         "INSERT INTO locations \
-            (warehouse_id, location_type, name, label, is_system, pos_x, pos_y, width, height) \
-         VALUES ($1, 'reception', 'Recepción 2', 'RCP2', true, 0, 0, 100, 100)",
+            (tenant_id, warehouse_id, location_type, name, label, is_system, pos_x, pos_y, width, height) \
+         VALUES ($1, $2, 'reception', 'Recepción 2', 'RCP2', true, 0, 0, 100, 100)",
     )
+    .bind(td.tenant_id)
     .bind(wid)
     .execute(&pool)
     .await;
@@ -321,8 +334,8 @@ async fn test_delete_reception_returns_system_protected_conflict() {
         .await;
     let rcp = td.reception_id(wid).await;
 
-    let repo = PgLocationRepository::new(pool.clone());
-    match repo.delete(rcp).await {
+    let mut conn = pool.acquire().await.expect("acquire conn");
+    match location_repo::delete(&mut conn, td.tenant_id, rcp).await {
         Err(DomainError::Conflict(msg)) => {
             assert!(
                 msg.starts_with(SYSTEM_LOCATION_PROTECTED),
@@ -345,8 +358,8 @@ async fn test_update_reception_rename_is_rejected() {
         .await;
     let rcp = td.reception_id(wid).await;
 
-    let repo = PgLocationRepository::new(pool.clone());
-    match repo.update(rcp, Some("Renamed"), None, None).await {
+    let mut conn = pool.acquire().await.expect("acquire conn");
+    match location_repo::update(&mut conn, td.tenant_id, rcp, Some("Renamed"), None, None).await {
         Err(DomainError::Conflict(msg)) => {
             assert!(msg.starts_with(SYSTEM_LOCATION_PROTECTED));
         }
@@ -366,11 +379,17 @@ async fn test_update_regular_location_still_works() {
         .await;
     let zone = td.create_location(wid, "Zona A", LocationType::Zone).await;
 
-    let repo = PgLocationRepository::new(pool.clone());
-    let updated = repo
-        .update(zone, Some("Zona A Renombrada"), None, None)
-        .await
-        .expect("non-system rename should succeed");
+    let mut conn = pool.acquire().await.expect("acquire conn");
+    let updated = location_repo::update(
+        &mut conn,
+        td.tenant_id,
+        zone,
+        Some("Zona A Renombrada"),
+        None,
+        None,
+    )
+    .await
+    .expect("non-system rename should succeed");
 
     assert_eq!(updated.name, "Zona A Renombrada");
 
@@ -394,8 +413,7 @@ async fn test_receive_lot_lands_at_reception() {
 
     let lot_number = format!("LOT-{}", Uuid::new_v4());
     let lot = expect_lot(
-        lots_repo::receive_lot(
-            &pool,
+        lots_repo::receive_lot(&mut *pool.acquire().await.unwrap(), td.tenant_id,
             pid,
             &lot_number,
             wid,
@@ -447,8 +465,7 @@ async fn test_receive_lot_defect_movement_lands_at_reception() {
     let rcp = td.reception_id(wid).await;
 
     let _ = expect_lot(
-        lots_repo::receive_lot(
-            &pool,
+        lots_repo::receive_lot(&mut *pool.acquire().await.unwrap(), td.tenant_id,
             pid,
             &format!("LOT-DEF-{}", Uuid::new_v4()),
             wid,
@@ -495,15 +512,13 @@ async fn test_transfer_lot_rejects_reception_source() {
     // Seed a lot at Reception so the transfer otherwise would proceed.
     let lot_no = format!("LOT-{}", Uuid::new_v4());
     let lot = expect_lot(
-        lots_repo::receive_lot(
-            &pool, pid, &lot_no, wid, 20.0, 0.0, None, None, None, td.user_id, None, None, None,
+        lots_repo::receive_lot(&mut *pool.acquire().await.unwrap(), td.tenant_id, pid, &lot_no, wid, 20.0, 0.0, None, None, None, td.user_id, None, None, None,
         )
         .await
         .unwrap(),
     );
 
-    let res = lots_repo::transfer_lot(
-        &pool,
+    let res = lots_repo::transfer_lot(&mut *pool.acquire().await.unwrap(), td.tenant_id,
         lot.id,
         rcp,
         zone,
@@ -540,15 +555,14 @@ async fn test_distribute_lot_full_and_partial() {
 
     let lot_no = format!("LOT-{}", Uuid::new_v4());
     let lot = expect_lot(
-        lots_repo::receive_lot(
-            &pool, pid, &lot_no, wid, 100.0, 0.0, None, None, None, td.user_id, None, None, None,
+        lots_repo::receive_lot(&mut *pool.acquire().await.unwrap(), td.tenant_id, pid, &lot_no, wid, 100.0, 0.0, None, None, None, td.user_id, None, None, None,
         )
         .await
         .unwrap(),
     );
 
     // Partial distribute 30.
-    lots_repo::distribute_lot(&pool, lot.id, zone, 30.0, td.user_id, None)
+    lots_repo::distribute_lot(&mut *pool.acquire().await.unwrap(), td.tenant_id, lot.id, zone, 30.0, td.user_id, None)
         .await
         .expect("partial distribute should succeed");
 
@@ -556,7 +570,7 @@ async fn test_distribute_lot_full_and_partial() {
     assert_eq!(td.inventory_lot_qty(lot.id, zone).await, 30.0);
 
     // Now distribute the remaining 70 (full).
-    lots_repo::distribute_lot(&pool, lot.id, zone, 70.0, td.user_id, None)
+    lots_repo::distribute_lot(&mut *pool.acquire().await.unwrap(), td.tenant_id, lot.id, zone, 70.0, td.user_id, None)
         .await
         .expect("full distribute should succeed");
 
@@ -587,8 +601,7 @@ async fn test_distribute_lot_insufficient_quantity() {
     let zone = td.create_location(wid, "Zona-A", LocationType::Zone).await;
 
     let lot = expect_lot(
-        lots_repo::receive_lot(
-            &pool, pid,
+        lots_repo::receive_lot(&mut *pool.acquire().await.unwrap(), td.tenant_id, pid,
             &format!("LOT-{}", Uuid::new_v4()),
             wid, 20.0, 0.0, None, None, None, td.user_id, None, None, None,
         )
@@ -596,7 +609,7 @@ async fn test_distribute_lot_insufficient_quantity() {
         .unwrap(),
     );
 
-    let res = lots_repo::distribute_lot(&pool, lot.id, zone, 50.0, td.user_id, None).await;
+    let res = lots_repo::distribute_lot(&mut *pool.acquire().await.unwrap(), td.tenant_id, lot.id, zone, 50.0, td.user_id, None).await;
     assert!(matches!(res, Err(DomainError::Validation(_))));
 
     td.cleanup().await;
@@ -613,8 +626,7 @@ async fn test_distribute_lot_rejects_reception_destination() {
     let rcp_b = td.reception_id(wid_b).await;
 
     let lot = expect_lot(
-        lots_repo::receive_lot(
-            &pool, pid,
+        lots_repo::receive_lot(&mut *pool.acquire().await.unwrap(), td.tenant_id, pid,
             &format!("LOT-{}", Uuid::new_v4()),
             wid_a, 50.0, 0.0, None, None, None, td.user_id, None, None, None,
         )
@@ -623,7 +635,7 @@ async fn test_distribute_lot_rejects_reception_destination() {
     );
 
     // destination is a Reception → must be rejected.
-    let res = lots_repo::distribute_lot(&pool, lot.id, rcp_b, 10.0, td.user_id, None).await;
+    let res = lots_repo::distribute_lot(&mut *pool.acquire().await.unwrap(), td.tenant_id, lot.id, rcp_b, 10.0, td.user_id, None).await;
     assert!(
         matches!(res, Err(DomainError::Validation(_))),
         "expected Validation error for Reception destination, got {res:?}"
@@ -643,8 +655,7 @@ async fn test_distribute_lot_rejects_different_warehouse() {
     let zone_b = td.create_location(wid_b, "Zona B", LocationType::Zone).await;
 
     let lot = expect_lot(
-        lots_repo::receive_lot(
-            &pool, pid,
+        lots_repo::receive_lot(&mut *pool.acquire().await.unwrap(), td.tenant_id, pid,
             &format!("LOT-{}", Uuid::new_v4()),
             wid_a, 50.0, 0.0, None, None, None, td.user_id, None, None, None,
         )
@@ -652,7 +663,7 @@ async fn test_distribute_lot_rejects_different_warehouse() {
         .unwrap(),
     );
 
-    let res = lots_repo::distribute_lot(&pool, lot.id, zone_b, 10.0, td.user_id, None).await;
+    let res = lots_repo::distribute_lot(&mut *pool.acquire().await.unwrap(), td.tenant_id, lot.id, zone_b, 10.0, td.user_id, None).await;
     assert!(
         matches!(res, Err(DomainError::Validation(_))),
         "expected Validation error for cross-warehouse target, got {res:?}"
@@ -669,7 +680,7 @@ async fn test_distribute_lot_not_found() {
     let zone = td.create_location(wid, "Z", LocationType::Zone).await;
 
     let bogus_lot = Uuid::new_v4();
-    let res = lots_repo::distribute_lot(&pool, bogus_lot, zone, 1.0, td.user_id, None).await;
+    let res = lots_repo::distribute_lot(&mut *pool.acquire().await.unwrap(), td.tenant_id, bogus_lot, zone, 1.0, td.user_id, None).await;
     assert!(matches!(res, Err(DomainError::NotFound(_))));
 
     td.cleanup().await;
@@ -682,11 +693,11 @@ async fn test_distribute_lot_non_positive_quantity() {
     let wid = td.create_warehouse(&format!("WH-DNQ-{}", Uuid::new_v4())).await;
     let zone = td.create_location(wid, "Z", LocationType::Zone).await;
 
-    let res = lots_repo::distribute_lot(&pool, Uuid::new_v4(), zone, 0.0, td.user_id, None).await;
+    let res = lots_repo::distribute_lot(&mut *pool.acquire().await.unwrap(), td.tenant_id, Uuid::new_v4(), zone, 0.0, td.user_id, None).await;
     assert!(matches!(res, Err(DomainError::Validation(_))));
 
     let res2 =
-        lots_repo::distribute_lot(&pool, Uuid::new_v4(), zone, -5.0, td.user_id, None).await;
+        lots_repo::distribute_lot(&mut *pool.acquire().await.unwrap(), td.tenant_id, Uuid::new_v4(), zone, -5.0, td.user_id, None).await;
     assert!(matches!(res2, Err(DomainError::Validation(_))));
 
     td.cleanup().await;
@@ -704,8 +715,7 @@ async fn test_opening_balance_success_with_lot() {
     let zone = td.create_location(wid, "Zona", LocationType::Zone).await;
 
     let lot_no = format!("LOT-OB-{}", Uuid::new_v4());
-    inventory_repo::opening_balance(
-        &pool,
+    inventory_repo::opening_balance(&mut *pool.acquire().await.unwrap(), td.tenant_id,
         pid,
         wid,
         zone,
@@ -747,8 +757,7 @@ async fn test_opening_balance_success_without_lot() {
     let pid = td.create_product(&Uuid::new_v4().to_string()[..8]).await;
     let zone = td.create_location(wid, "Zona", LocationType::Zone).await;
 
-    inventory_repo::opening_balance(
-        &pool, pid, wid, zone, 40.0, None, None, None, None, td.user_id, None,
+    inventory_repo::opening_balance(&mut *pool.acquire().await.unwrap(), td.tenant_id, pid, wid, zone, 40.0, None, None, None, None, td.user_id, None,
     )
     .await
     .expect("opening_balance without lot should succeed");
@@ -776,8 +785,7 @@ async fn test_opening_balance_rejects_reception_target() {
     let pid = td.create_product(&Uuid::new_v4().to_string()[..8]).await;
     let rcp = td.reception_id(wid).await;
 
-    let res = inventory_repo::opening_balance(
-        &pool, pid, wid, rcp, 10.0, None, None, None, None, td.user_id, None,
+    let res = inventory_repo::opening_balance(&mut *pool.acquire().await.unwrap(), td.tenant_id, pid, wid, rcp, 10.0, None, None, None, None, td.user_id, None,
     )
     .await;
     assert!(matches!(res, Err(DomainError::Validation(_))));
@@ -795,8 +803,7 @@ async fn test_opening_balance_rejects_wrong_warehouse() {
     let pid = td.create_product(&Uuid::new_v4().to_string()[..8]).await;
     let zone_b = td.create_location(wid_b, "Z", LocationType::Zone).await;
 
-    let res = inventory_repo::opening_balance(
-        &pool, pid, wid_a, zone_b, 10.0, None, None, None, None, td.user_id, None,
+    let res = inventory_repo::opening_balance(&mut *pool.acquire().await.unwrap(), td.tenant_id, pid, wid_a, zone_b, 10.0, None, None, None, None, td.user_id, None,
     )
     .await;
     assert!(matches!(res, Err(DomainError::Validation(_))));
@@ -813,14 +820,12 @@ async fn test_opening_balance_rejects_non_positive_quantity() {
     let pid = td.create_product(&Uuid::new_v4().to_string()[..8]).await;
     let zone = td.create_location(wid, "Z", LocationType::Zone).await;
 
-    let res = inventory_repo::opening_balance(
-        &pool, pid, wid, zone, 0.0, None, None, None, None, td.user_id, None,
+    let res = inventory_repo::opening_balance(&mut *pool.acquire().await.unwrap(), td.tenant_id, pid, wid, zone, 0.0, None, None, None, None, td.user_id, None,
     )
     .await;
     assert!(matches!(res, Err(DomainError::Validation(_))));
 
-    let res2 = inventory_repo::opening_balance(
-        &pool, pid, wid, zone, -3.0, None, None, None, None, td.user_id, None,
+    let res2 = inventory_repo::opening_balance(&mut *pool.acquire().await.unwrap(), td.tenant_id, pid, wid, zone, -3.0, None, None, None, None, td.user_id, None,
     )
     .await;
     assert!(matches!(res2, Err(DomainError::Validation(_))));
@@ -844,12 +849,14 @@ async fn test_migration_backfill_is_idempotent() {
     .await
     .unwrap();
 
-    // Run the backfill insert from migration 20260418000002 verbatim.
+    // Re-run the backfill insert; updated for B1 to project `w.tenant_id`
+    // alongside `w.id` (the legacy migration inserted without tenant_id, but
+    // post-B1 the column is NOT NULL).
     sqlx::query(
         r#"
         INSERT INTO locations
-            (warehouse_id, location_type, name, label, is_system, pos_x, pos_y, width, height)
-        SELECT w.id, 'reception', 'Recepción', 'RCP', true, 0, 0, 100, 100
+            (tenant_id, warehouse_id, location_type, name, label, is_system, pos_x, pos_y, width, height)
+        SELECT w.tenant_id, w.id, 'reception', 'Recepción', 'RCP', true, 0, 0, 100, 100
         FROM warehouses w
         WHERE w.deleted_at IS NULL
           AND NOT EXISTS (

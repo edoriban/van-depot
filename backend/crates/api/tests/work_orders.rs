@@ -41,6 +41,7 @@ use uuid::Uuid;
 
 use vandepot_api::{app_router, state::AppState};
 use vandepot_infra::auth::jwt::{create_access_token, JwtConfig};
+use vandepot_infra::auth::tenant_context::TenantRole;
 
 // ─── Harness ─────────────────────────────────────────────────────────
 
@@ -62,6 +63,7 @@ async fn maybe_state() -> Option<AppState> {
         secret: TEST_JWT_SECRET.to_string(),
         access_expiration: 900,
         refresh_expiration: 604_800,
+        intermediate_expiration: 60,
     };
 
     Some(AppState {
@@ -83,19 +85,47 @@ macro_rules! state_or_skip {
     };
 }
 
-fn mint_token(state: &AppState, user_id: Uuid, role: &str, warehouse_ids: Vec<Uuid>) -> String {
+async fn mint_token(state: &AppState, user_id: Uuid, role: &str, _warehouse_ids: Vec<Uuid>) -> String {
+    // The JWT no longer carries `warehouse_ids` (multi-tenant-foundation A5).
+    // Phase B B1: every token attaches the dev tenant id so tenant-scoped
+    // endpoints accept it (warehouses, locations). Pure-superadmin
+    // (tenant=None) tokens are still possible if a future test needs to
+    // exercise the /admin/* path — the current matrix uses dev.
+    let (is_superadmin, tenant_role) = map_legacy_role(role);
+    let tenant_id = Some(dev_tenant_id(&state.pool).await);
     create_access_token(
         &state.jwt_config,
         user_id,
         &format!("{role}@test.dev"),
-        role,
-        warehouse_ids,
+        tenant_id,
+        is_superadmin,
+        tenant_role,
     )
     .expect("token mint")
 }
 
+async fn dev_tenant_id(pool: &PgPool) -> Uuid {
+    let row: (Uuid,) = sqlx::query_as(
+        "SELECT id FROM tenants WHERE slug = 'dev' AND deleted_at IS NULL",
+    )
+    .fetch_one(pool)
+    .await
+    .expect("dev tenant must exist — run `make reset-db`");
+    row.0
+}
+
+fn map_legacy_role(role: &str) -> (bool, Option<TenantRole>) {
+    match role {
+        "superadmin" => (true, None),
+        "owner" => (false, Some(TenantRole::Owner)),
+        "warehouse_manager" => (false, Some(TenantRole::Manager)),
+        "operator" => (false, Some(TenantRole::Operator)),
+        other => panic!("unknown legacy role: {other}"),
+    }
+}
+
 async fn superadmin_id(pool: &PgPool) -> Uuid {
-    let row: (Uuid,) = sqlx::query_as("SELECT id FROM users WHERE role = 'superadmin' LIMIT 1")
+    let row: (Uuid,) = sqlx::query_as("SELECT id FROM users WHERE is_superadmin = true LIMIT 1")
         .fetch_one(pool)
         .await
         .expect("superadmin seed must exist");
@@ -114,6 +144,7 @@ async fn body_json(resp: axum::response::Response) -> Value {
 
 struct Fixture {
     state: AppState,
+    tenant_id: Uuid,
     warehouse_ids: Vec<Uuid>,
     product_ids: Vec<Uuid>,
     recipe_ids: Vec<Uuid>,
@@ -123,8 +154,15 @@ struct Fixture {
 
 impl Fixture {
     async fn new(state: AppState) -> Self {
+        let tenant_id: (Uuid,) = sqlx::query_as(
+            "SELECT id FROM tenants WHERE slug = 'dev' AND deleted_at IS NULL",
+        )
+        .fetch_one(&state.pool)
+        .await
+        .expect("dev tenant must exist — run `make reset-db`");
         Self {
             state,
+            tenant_id: tenant_id.0,
             warehouse_ids: Vec::new(),
             product_ids: Vec::new(),
             recipe_ids: Vec::new(),
@@ -135,10 +173,11 @@ impl Fixture {
 
     /// Create a warehouse via the repo (auto-backfills Recepción + finished_good).
     async fn create_warehouse(&mut self, name: &str) -> Uuid {
-        use vandepot_domain::ports::warehouse_repository::WarehouseRepository;
-        use vandepot_infra::repositories::warehouse_repo::PgWarehouseRepository;
-        let repo = PgWarehouseRepository::new(self.state.pool.clone());
-        let wh = repo.create(name, None).await.expect("warehouse create");
+        use vandepot_infra::repositories::warehouse_repo;
+        let mut conn = self.state.pool.acquire().await.expect("acquire conn");
+        let wh = warehouse_repo::create(&mut conn, self.tenant_id, name, None)
+            .await
+            .expect("warehouse create");
         self.warehouse_ids.push(wh.id);
         wh.id
     }
@@ -151,12 +190,14 @@ impl Fixture {
         has_expiry: bool,
         is_manufactured: bool,
     ) -> Uuid {
+        // Phase B B2: products carry NOT NULL tenant_id.
         let row: (Uuid,) = sqlx::query_as(
             "INSERT INTO products \
-                (name, sku, unit_of_measure, product_class, has_expiry, is_manufactured) \
-             VALUES ($1, $2, 'piece', $3::product_class, $4, $5) \
+                (tenant_id, name, sku, unit_of_measure, product_class, has_expiry, is_manufactured) \
+             VALUES ($1, $2, $3, 'piece', $4::product_class, $5, $6) \
              RETURNING id",
         )
+        .bind(self.tenant_id)
         .bind(format!("WO-Prod {sku_suffix}"))
         .bind(format!("WOT-{}-{sku_suffix}", self.suffix))
         .bind(class)
@@ -174,10 +215,11 @@ impl Fixture {
     async fn create_work_center(&self, warehouse_id: Uuid, name: &str) -> Uuid {
         let row: (Uuid,) = sqlx::query_as(
             "INSERT INTO locations \
-                (warehouse_id, location_type, name, is_system, pos_x, pos_y, width, height) \
-             VALUES ($1, 'work_center', $2, true, 100, 100, 80, 80) \
+                (tenant_id, warehouse_id, location_type, name, is_system, pos_x, pos_y, width, height) \
+             VALUES ($1, $2, 'work_center', $3, true, 100, 100, 80, 80) \
              RETURNING id",
         )
+        .bind(self.tenant_id)
         .bind(warehouse_id)
         .bind(name)
         .fetch_one(&self.state.pool)
@@ -190,10 +232,11 @@ impl Fixture {
     async fn create_zone(&self, warehouse_id: Uuid, name: &str) -> Uuid {
         let row: (Uuid,) = sqlx::query_as(
             "INSERT INTO locations \
-                (warehouse_id, location_type, name, is_system, pos_x, pos_y, width, height) \
-             VALUES ($1, 'zone', $2, false, 0, 0, 50, 50) \
+                (tenant_id, warehouse_id, location_type, name, is_system, pos_x, pos_y, width, height) \
+             VALUES ($1, $2, 'zone', $3, false, 0, 0, 50, 50) \
              RETURNING id",
         )
+        .bind(self.tenant_id)
         .bind(warehouse_id)
         .bind(name)
         .fetch_one(&self.state.pool)
@@ -224,9 +267,11 @@ impl Fixture {
         creator: Uuid,
         items: &[(Uuid, f64)],
     ) -> Uuid {
+        // Phase B B5: recipes / recipe_items carry NOT NULL tenant_id.
         let rid: (Uuid,) = sqlx::query_as(
-            "INSERT INTO recipes (name, created_by) VALUES ($1, $2) RETURNING id",
+            "INSERT INTO recipes (tenant_id, name, created_by) VALUES ($1, $2, $3) RETURNING id",
         )
+        .bind(self.tenant_id)
         .bind(name)
         .bind(creator)
         .fetch_one(&self.state.pool)
@@ -234,8 +279,10 @@ impl Fixture {
         .expect("recipe insert");
         for (product_id, qty) in items {
             sqlx::query(
-                "INSERT INTO recipe_items (recipe_id, product_id, quantity) VALUES ($1, $2, $3)",
+                "INSERT INTO recipe_items (tenant_id, recipe_id, product_id, quantity) \
+                 VALUES ($1, $2, $3, $4)",
             )
+            .bind(self.tenant_id)
             .bind(rid.0)
             .bind(product_id)
             .bind(qty)
@@ -249,12 +296,14 @@ impl Fixture {
 
     /// Seed direct (non-lot) inventory at a location.
     async fn seed_inventory(&self, product_id: Uuid, location_id: Uuid, qty: f64) {
+        // Phase B B4: inventory carries NOT NULL tenant_id.
         sqlx::query(
-            "INSERT INTO inventory (product_id, location_id, quantity) \
-             VALUES ($1, $2, $3) \
+            "INSERT INTO inventory (tenant_id, product_id, location_id, quantity) \
+             VALUES ($1, $2, $3, $4) \
              ON CONFLICT (product_id, location_id) \
-             DO UPDATE SET quantity = inventory.quantity + $3, updated_at = NOW()",
+             DO UPDATE SET quantity = inventory.quantity + $4, updated_at = NOW()",
         )
+        .bind(self.tenant_id)
         .bind(product_id)
         .bind(location_id)
         .bind(qty)
@@ -272,12 +321,15 @@ impl Fixture {
         qty: f64,
         expiration_date: Option<NaiveDate>,
     ) -> Uuid {
+        // Phase B B4: product_lots / inventory_lots / inventory all carry
+        // NOT NULL tenant_id; bind it explicitly.
         let pl: (Uuid,) = sqlx::query_as(
             "INSERT INTO product_lots \
-                (product_id, lot_number, expiration_date, received_quantity, quality_status) \
-             VALUES ($1, $2, $3, $4, 'approved') \
+                (tenant_id, product_id, lot_number, expiration_date, received_quantity, quality_status) \
+             VALUES ($1, $2, $3, $4, $5, 'approved') \
              RETURNING id",
         )
+        .bind(self.tenant_id)
         .bind(product_id)
         .bind(lot_number)
         .bind(expiration_date)
@@ -286,9 +338,10 @@ impl Fixture {
         .await
         .expect("product_lot insert");
         sqlx::query(
-            "INSERT INTO inventory_lots (product_lot_id, location_id, quantity) \
-             VALUES ($1, $2, $3)",
+            "INSERT INTO inventory_lots (tenant_id, product_lot_id, location_id, quantity) \
+             VALUES ($1, $2, $3, $4)",
         )
+        .bind(self.tenant_id)
         .bind(pl.0)
         .bind(location_id)
         .bind(qty)
@@ -296,11 +349,12 @@ impl Fixture {
         .await
         .expect("inventory_lots insert");
         sqlx::query(
-            "INSERT INTO inventory (product_id, location_id, quantity) \
-             VALUES ($1, $2, $3) \
+            "INSERT INTO inventory (tenant_id, product_id, location_id, quantity) \
+             VALUES ($1, $2, $3, $4) \
              ON CONFLICT (product_id, location_id) \
-             DO UPDATE SET quantity = inventory.quantity + $3, updated_at = NOW()",
+             DO UPDATE SET quantity = inventory.quantity + $4, updated_at = NOW()",
         )
+        .bind(self.tenant_id)
         .bind(product_id)
         .bind(location_id)
         .bind(qty)
@@ -527,7 +581,7 @@ async fn test_6_3_create_work_order_happy_path() {
         )
         .await;
 
-    let token = mint_token(&state, admin, "superadmin", vec![warehouse]);
+    let token = mint_token(&state, admin, "superadmin", vec![warehouse]).await;
     let (status, body) = post_work_order(
         &state,
         &token,
@@ -614,7 +668,7 @@ async fn test_6_4a_create_wo_rejects_fg_not_manufactured() {
         )
         .await;
 
-    let token = mint_token(&state, admin, "superadmin", vec![warehouse]);
+    let token = mint_token(&state, admin, "superadmin", vec![warehouse]).await;
     let (status, body) = post_work_order(
         &state,
         &token,
@@ -648,7 +702,7 @@ async fn test_6_4b_create_product_with_is_manufactured_non_raw_material_rejected
     let state = state_or_skip!();
     let f = Fixture::new(state.clone()).await;
     let admin = superadmin_id(&state.pool).await;
-    let token = mint_token(&state, admin, "superadmin", vec![]);
+    let token = mint_token(&state, admin, "superadmin", vec![]).await;
 
     let sku = format!("WOT-{}-64b", f.suffix);
     let app = app_router(state.clone());
@@ -715,7 +769,7 @@ async fn test_6_5_create_wo_rejects_recipe_with_tool_spare() {
         )
         .await;
 
-    let token = mint_token(&state, admin, "superadmin", vec![warehouse]);
+    let token = mint_token(&state, admin, "superadmin", vec![warehouse]).await;
     let (status, body) = post_work_order(
         &state,
         &token,
@@ -776,7 +830,7 @@ async fn test_6_6_create_wo_rejects_warehouse_without_work_center() {
 
     // Provide any location id as work_center_location_id — the guard runs
     // BEFORE the per-location type check.
-    let token = mint_token(&state, admin, "superadmin", vec![warehouse]);
+    let token = mint_token(&state, admin, "superadmin", vec![warehouse]).await;
     let (status, body) = post_work_order(
         &state,
         &token,
@@ -842,7 +896,7 @@ async fn setup_draft_wo(
         f.seed_inventory(*m, storage, seed_qty_per_material).await;
     }
 
-    let token = mint_token(&f.state, admin, "superadmin", vec![warehouse]);
+    let token = mint_token(&f.state, admin, "superadmin", vec![warehouse]).await;
     let (status, body) = post_work_order(
         &f.state,
         &token,
@@ -871,7 +925,7 @@ async fn test_6_7_issue_happy_path() {
     let (wo_id, warehouse, wc, _storage, materials) =
         setup_draft_wo(&mut f, admin, "67", 2, 10.0).await;
 
-    let token = mint_token(&state, admin, "superadmin", vec![warehouse]);
+    let token = mint_token(&state, admin, "superadmin", vec![warehouse]).await;
     let (status, body) = post_action(&state, &token, wo_id, "issue", json!({})).await;
 
     assert_eq!(status, StatusCode::OK, "body={body}");
@@ -915,7 +969,7 @@ async fn test_6_8_issue_rejected_from_in_progress() {
     let (wo_id, warehouse, _wc, _storage, _materials) =
         setup_draft_wo(&mut f, admin, "68", 1, 10.0).await;
 
-    let token = mint_token(&state, admin, "superadmin", vec![warehouse]);
+    let token = mint_token(&state, admin, "superadmin", vec![warehouse]).await;
     // Advance to in_progress.
     let (st1, _) = post_action(&state, &token, wo_id, "issue", json!({})).await;
     assert_eq!(st1, StatusCode::OK);
@@ -965,7 +1019,7 @@ async fn test_6_9_complete_happy_path_with_fefo() {
     let (wo_id, warehouse, wc, _storage, materials) =
         setup_draft_wo(&mut f, admin, "69", 3, 10.0).await;
 
-    let token = mint_token(&state, admin, "superadmin", vec![warehouse]);
+    let token = mint_token(&state, admin, "superadmin", vec![warehouse]).await;
     // Issue first (moves materials to work-center as direct inventory, since
     // seeding went to storage zone, the transfer creates direct-inventory at
     // the work-center).
@@ -1105,7 +1159,7 @@ async fn test_6_10_complete_insufficient_stock_has_no_side_effects() {
     let (wo_id, warehouse, wc, _storage, materials) =
         setup_draft_wo(&mut f, admin, "610", 3, 10.0).await;
 
-    let token = mint_token(&state, admin, "superadmin", vec![warehouse]);
+    let token = mint_token(&state, admin, "superadmin", vec![warehouse]).await;
     let (st, _) = post_action(&state, &token, wo_id, "issue", json!({})).await;
     assert_eq!(st, StatusCode::OK);
 
@@ -1191,7 +1245,7 @@ async fn setup_wo_for_complete(
         .await;
     f.seed_inventory(m1, storage, 5.0).await;
 
-    let token = mint_token(&f.state, admin, "superadmin", vec![warehouse]);
+    let token = mint_token(&f.state, admin, "superadmin", vec![warehouse]).await;
     let (_st, body) = post_work_order(
         &f.state,
         &token,
@@ -1221,7 +1275,7 @@ async fn test_6_11a_complete_with_has_expiry_true_honors_input_date() {
 
     let (wo_id, warehouse) = setup_wo_for_complete(&mut f, admin, "611a", true).await;
 
-    let token = mint_token(&state, admin, "superadmin", vec![warehouse]);
+    let token = mint_token(&state, admin, "superadmin", vec![warehouse]).await;
     let (status, body) = post_action(
         &state,
         &token,
@@ -1254,7 +1308,7 @@ async fn test_6_11b_complete_with_has_expiry_false_ignores_input_date() {
 
     let (wo_id, warehouse) = setup_wo_for_complete(&mut f, admin, "611b", false).await;
 
-    let token = mint_token(&state, admin, "superadmin", vec![warehouse]);
+    let token = mint_token(&state, admin, "superadmin", vec![warehouse]).await;
     let (status, body) = post_action(
         &state,
         &token,
@@ -1299,7 +1353,7 @@ async fn test_6_12_cancel_from_draft_no_reversals() {
             .unwrap();
     assert_eq!(mv_before.0, 0);
 
-    let token = mint_token(&state, admin, "superadmin", vec![warehouse]);
+    let token = mint_token(&state, admin, "superadmin", vec![warehouse]).await;
     let (status, body) = post_action(&state, &token, wo_id, "cancel", json!({})).await;
     assert_eq!(status, StatusCode::OK, "body={body}");
     assert_eq!(body["status"], "cancelled");
@@ -1345,7 +1399,7 @@ async fn test_6_13_cancel_from_in_progress_reverses_transfers() {
         }
     }
 
-    let token = mint_token(&state, admin, "superadmin", vec![warehouse]);
+    let token = mint_token(&state, admin, "superadmin", vec![warehouse]).await;
     let (st, _) = post_action(&state, &token, wo_id, "issue", json!({})).await;
     assert_eq!(st, StatusCode::OK);
 
@@ -1424,7 +1478,7 @@ async fn test_6_14_list_filter_by_status_warehouse_workcenter() {
         .await;
     f.seed_inventory(m, storage_a, 20.0).await;
 
-    let token_both = mint_token(&state, admin, "superadmin", vec![wh_a, wh_b]);
+    let token_both = mint_token(&state, admin, "superadmin", vec![wh_a, wh_b]).await;
 
     // Create 1 WO in each warehouse.
     let (_st, body1) = post_work_order(
@@ -1567,7 +1621,7 @@ async fn test_6_15_movements_filtered_by_work_order_id() {
     let (wo_id, warehouse, _wc, _storage, _materials) =
         setup_draft_wo(&mut f, admin, "615", 6, 10.0).await;
 
-    let token = mint_token(&state, admin, "superadmin", vec![warehouse]);
+    let token = mint_token(&state, admin, "superadmin", vec![warehouse]).await;
     let (st1, _) = post_action(&state, &token, wo_id, "issue", json!({})).await;
     assert_eq!(st1, StatusCode::OK);
     let (st2, _) = post_action(
@@ -1620,7 +1674,7 @@ async fn test_6_16_reclassify_blocked_while_is_manufactured_true() {
     let state = state_or_skip!();
     let mut f = Fixture::new(state.clone()).await;
     let admin = superadmin_id(&state.pool).await;
-    let token = mint_token(&state, admin, "superadmin", vec![]);
+    let token = mint_token(&state, admin, "superadmin", vec![]).await;
 
     // Product starts raw_material + is_manufactured=true, NO history.
     let pid = f

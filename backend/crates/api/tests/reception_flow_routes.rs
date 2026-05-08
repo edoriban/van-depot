@@ -23,6 +23,7 @@ use vandepot_api::{app_router, state::AppState};
 use vandepot_domain::models::product_lot::ProductLot;
 use vandepot_domain::models::receive_outcome::ReceiveOutcome;
 use vandepot_infra::auth::jwt::{create_access_token, JwtConfig};
+use vandepot_infra::auth::tenant_context::TenantRole;
 
 // No-lot receive matrix lives in `product_classification.rs` (Batch 5). The
 // tests in this file stay focused on the reception-location-flow behavior and
@@ -59,6 +60,7 @@ async fn maybe_state() -> Option<AppState> {
         secret: TEST_JWT_SECRET.to_string(),
         access_expiration: 900,
         refresh_expiration: 604_800,
+        intermediate_expiration: 60,
     };
 
     Some(AppState {
@@ -80,21 +82,51 @@ macro_rules! state_or_skip {
     };
 }
 
-fn mint_token(state: &AppState, user_id: Uuid, role: &str, warehouse_ids: Vec<Uuid>) -> String {
+async fn mint_token(state: &AppState, user_id: Uuid, role: &str, _warehouse_ids: Vec<Uuid>) -> String {
+    let (is_superadmin, tenant_role) = map_legacy_role(role);
+    // Phase B B1: tenant-scoped endpoints (warehouses/locations) reject the
+    // pure-superadmin token shape (`tenant_id=None`). For test convenience we
+    // attach the dev tenant id to EVERY token here — superadmin acts AS the
+    // dev tenant. Tests that need to assert pure-superadmin behavior on
+    // /admin/* should mint via a different helper.
+    let tenant_id = Some(dev_tenant_id(&state.pool).await);
     create_access_token(
         &state.jwt_config,
         user_id,
         &format!("{role}@test.dev"),
-        role,
-        warehouse_ids,
+        tenant_id,
+        is_superadmin,
+        tenant_role,
     )
     .expect("token mint")
 }
 
+async fn dev_tenant_id(pool: &PgPool) -> Uuid {
+    let row: (Uuid,) = sqlx::query_as(
+        "SELECT id FROM tenants WHERE slug = 'dev' AND deleted_at IS NULL",
+    )
+    .fetch_one(pool)
+    .await
+    .expect("dev tenant must exist — run `make reset-db`");
+    row.0
+}
+
+fn map_legacy_role(role: &str) -> (bool, Option<TenantRole>) {
+    match role {
+        "superadmin" => (true, None),
+        "owner" => (false, Some(TenantRole::Owner)),
+        "warehouse_manager" => (false, Some(TenantRole::Manager)),
+        "operator" => (false, Some(TenantRole::Operator)),
+        other => panic!("unknown legacy role: {other}"),
+    }
+}
+
 /// Fetch the seeded superadmin user id (bootstrapped by `seed_superadmin`).
+/// A3: superadmin is identified by `is_superadmin = true`; the global
+/// `users.role` column was dropped.
 async fn superadmin_id(pool: &PgPool) -> Uuid {
     let row: (Uuid,) = sqlx::query_as(
-        "SELECT id FROM users WHERE role = 'superadmin' LIMIT 1",
+        "SELECT id FROM users WHERE is_superadmin = true LIMIT 1",
     )
     .fetch_one(pool)
     .await
@@ -102,16 +134,26 @@ async fn superadmin_id(pool: &PgPool) -> Uuid {
     row.0
 }
 
-/// Insert a throwaway user with the given role and return its id.
+/// Insert a throwaway user with the given legacy role label and return its
+/// id. The role string is preserved so the rest of this fixture (token mint
+/// + `map_legacy_role`) keeps working — it just no longer touches the DB.
+///
+/// A3: the global `users.role` column was dropped. Authorization is now
+/// resolved at token-mint time via `map_legacy_role` (which sets
+/// `is_superadmin` and the in-token `TenantRole`); the row itself only
+/// records identity. If the role label is `superadmin`, we set
+/// `is_superadmin = true` so any handler that introspects the column
+/// observes the bypass identity correctly.
 async fn create_user(pool: &PgPool, role: &str) -> Uuid {
     let email = format!("test-{}-{}@vandev.mx", role, Uuid::new_v4());
+    let is_superadmin = role == "superadmin";
     let row: (Uuid,) = sqlx::query_as(
-        "INSERT INTO users (email, password_hash, name, role) \
-         VALUES ($1, 'x', 'Test User', $2::user_role) \
+        "INSERT INTO users (email, password_hash, name, is_superadmin) \
+         VALUES ($1, 'x', 'Test User', $2) \
          RETURNING id",
     )
     .bind(&email)
-    .bind(role)
+    .bind(is_superadmin)
     .fetch_one(pool)
     .await
     .expect("user insert");
@@ -120,6 +162,7 @@ async fn create_user(pool: &PgPool, role: &str) -> Uuid {
 
 struct Fixture {
     state: AppState,
+    tenant_id: Uuid,
     warehouse_ids: Vec<Uuid>,
     product_ids: Vec<Uuid>,
     user_ids: Vec<Uuid>,
@@ -127,8 +170,15 @@ struct Fixture {
 
 impl Fixture {
     async fn new(state: AppState) -> Self {
+        let tenant_id: (Uuid,) = sqlx::query_as(
+            "SELECT id FROM tenants WHERE slug = 'dev' AND deleted_at IS NULL",
+        )
+        .fetch_one(&state.pool)
+        .await
+        .expect("dev tenant must exist — run `make reset-db`");
         Self {
             state,
+            tenant_id: tenant_id.0,
             warehouse_ids: Vec::new(),
             product_ids: Vec::new(),
             user_ids: Vec::new(),
@@ -138,20 +188,23 @@ impl Fixture {
     async fn create_warehouse_direct(&mut self, name: &str) -> Uuid {
         // Use the repo directly so we don't go through the HTTP layer
         // (which wants an auth token this helper would re-mint).
-        use vandepot_domain::ports::warehouse_repository::WarehouseRepository;
-        use vandepot_infra::repositories::warehouse_repo::PgWarehouseRepository;
-        let repo = PgWarehouseRepository::new(self.state.pool.clone());
-        let wh = repo.create(name, None).await.expect("warehouse create");
+        use vandepot_infra::repositories::warehouse_repo;
+        let mut conn = self.state.pool.acquire().await.expect("acquire conn");
+        let wh = warehouse_repo::create(&mut conn, self.tenant_id, name, None)
+            .await
+            .expect("warehouse create");
         self.warehouse_ids.push(wh.id);
         wh.id
     }
 
     async fn create_product(&mut self, suffix: &str) -> Uuid {
+        // Phase B B2: products carry NOT NULL tenant_id.
         let row: (Uuid,) = sqlx::query_as(
-            "INSERT INTO products (name, sku, unit_of_measure) \
-             VALUES ($1, $2, 'piece') \
+            "INSERT INTO products (tenant_id, name, sku, unit_of_measure) \
+             VALUES ($1, $2, $3, 'piece') \
              RETURNING id",
         )
+        .bind(self.tenant_id)
         .bind(format!("Prod {suffix}"))
         .bind(format!("TST-R-{suffix}"))
         .fetch_one(&self.state.pool)
@@ -163,21 +216,26 @@ impl Fixture {
 
     async fn create_zone(&self, warehouse_id: Uuid, name: &str) -> Uuid {
         use vandepot_domain::models::enums::LocationType;
-        use vandepot_domain::ports::location_repository::LocationRepository;
-        use vandepot_infra::repositories::location_repo::PgLocationRepository;
-        let repo = PgLocationRepository::new(self.state.pool.clone());
-        let loc = repo
-            .create(warehouse_id, None, LocationType::Zone, name, None)
-            .await
-            .expect("zone create");
+        use vandepot_infra::repositories::location_repo;
+        let mut conn = self.state.pool.acquire().await.expect("acquire conn");
+        let loc = location_repo::create(
+            &mut conn,
+            self.tenant_id,
+            warehouse_id,
+            None,
+            LocationType::Zone,
+            name,
+            None,
+        )
+        .await
+        .expect("zone create");
         loc.id
     }
 
     async fn reception_id(&self, warehouse_id: Uuid) -> Uuid {
-        use vandepot_domain::ports::location_repository::LocationRepository;
-        use vandepot_infra::repositories::location_repo::PgLocationRepository;
-        let repo = PgLocationRepository::new(self.state.pool.clone());
-        repo.find_reception_by_warehouse(warehouse_id)
+        use vandepot_infra::repositories::location_repo;
+        let mut conn = self.state.pool.acquire().await.expect("acquire conn");
+        location_repo::find_reception_by_warehouse(&mut conn, self.tenant_id, warehouse_id)
             .await
             .expect("find_reception")
             .expect("reception exists")
@@ -257,7 +315,7 @@ async fn test_create_warehouse_creates_reception() {
     let state = state_or_skip!();
     let mut f = Fixture::new(state.clone()).await;
     let admin = superadmin_id(&state.pool).await;
-    let token = mint_token(&state, admin, "superadmin", vec![]);
+    let token = mint_token(&state, admin, "superadmin", vec![]).await;
 
     let app = app_router(state.clone());
     let name = format!("WH-HTTP-{}", Uuid::new_v4());
@@ -294,7 +352,7 @@ async fn test_delete_reception_returns_409_with_code() {
     let state = state_or_skip!();
     let mut f = Fixture::new(state.clone()).await;
     let admin = superadmin_id(&state.pool).await;
-    let token = mint_token(&state, admin, "superadmin", vec![]);
+    let token = mint_token(&state, admin, "superadmin", vec![]).await;
 
     let wid = f.create_warehouse_direct(&format!("WH-HTTP-DEL-{}", Uuid::new_v4())).await;
     let rcp = f.reception_id(wid).await;
@@ -321,7 +379,7 @@ async fn test_create_reception_location_manually_rejected() {
     let state = state_or_skip!();
     let mut f = Fixture::new(state.clone()).await;
     let admin = superadmin_id(&state.pool).await;
-    let token = mint_token(&state, admin, "superadmin", vec![]);
+    let token = mint_token(&state, admin, "superadmin", vec![]).await;
 
     let wid = f
         .create_warehouse_direct(&format!("WH-HTTP-CREJ-{}", Uuid::new_v4()))
@@ -362,7 +420,7 @@ async fn test_lots_receive_with_warehouse_id_lands_at_reception() {
     let pid = f.create_product(&Uuid::new_v4().to_string()[..8]).await;
     let rcp = f.reception_id(wid).await;
 
-    let token = mint_token(&state, admin, "superadmin", vec![wid]);
+    let token = mint_token(&state, admin, "superadmin", vec![wid]).await;
     let lot_number = format!("LOT-{}", Uuid::new_v4());
     let payload = json!({
         "product_id": pid,
@@ -409,7 +467,7 @@ async fn test_lots_receive_legacy_location_id_is_422() {
     let pid = f.create_product(&Uuid::new_v4().to_string()[..8]).await;
     let rcp = f.reception_id(wid).await;
 
-    let token = mint_token(&state, admin, "superadmin", vec![wid]);
+    let token = mint_token(&state, admin, "superadmin", vec![wid]).await;
     let payload = json!({
         "product_id": pid,
         "lot_number": format!("LOT-{}", Uuid::new_v4()),
@@ -446,8 +504,7 @@ async fn test_distribute_lot_happy_path_via_http() {
 
     // Receive first.
     let lot = expect_lot(
-        vandepot_infra::repositories::lots_repo::receive_lot(
-            &state.pool,
+        vandepot_infra::repositories::lots_repo::receive_lot(&mut *state.pool.acquire().await.unwrap(), f.tenant_id,
             pid,
             &format!("LOT-{}", Uuid::new_v4()),
             wid,
@@ -465,7 +522,7 @@ async fn test_distribute_lot_happy_path_via_http() {
         .unwrap(),
     );
 
-    let token = mint_token(&state, admin, "superadmin", vec![wid]);
+    let token = mint_token(&state, admin, "superadmin", vec![wid]).await;
 
     let app = app_router(state.clone());
     let req = Request::builder()
@@ -500,8 +557,7 @@ async fn test_transfer_lot_rejects_reception_via_http() {
     let rcp = f.reception_id(wid).await;
 
     let lot = expect_lot(
-        vandepot_infra::repositories::lots_repo::receive_lot(
-            &state.pool,
+        vandepot_infra::repositories::lots_repo::receive_lot(&mut *state.pool.acquire().await.unwrap(), f.tenant_id,
             pid,
             &format!("LOT-{}", Uuid::new_v4()),
             wid,
@@ -519,7 +575,7 @@ async fn test_transfer_lot_rejects_reception_via_http() {
         .unwrap(),
     );
 
-    let token = mint_token(&state, admin, "superadmin", vec![wid]);
+    let token = mint_token(&state, admin, "superadmin", vec![wid]).await;
     let app = app_router(state.clone());
     let req = Request::builder()
         .method("POST")
@@ -556,7 +612,7 @@ async fn test_opening_balance_as_superadmin_is_201() {
     let pid = f.create_product(&Uuid::new_v4().to_string()[..8]).await;
     let zone = f.create_zone(wid, "Zona").await;
 
-    let token = mint_token(&state, admin, "superadmin", vec![wid]);
+    let token = mint_token(&state, admin, "superadmin", vec![wid]).await;
     let app = app_router(state.clone());
     let req = Request::builder()
         .method("POST")
@@ -602,7 +658,7 @@ async fn test_opening_balance_as_warehouse_manager_is_403() {
     let zone = f.create_zone(wid, "Zona").await;
     let manager = f.track_user("warehouse_manager").await;
 
-    let token = mint_token(&state, manager, "warehouse_manager", vec![wid]);
+    let token = mint_token(&state, manager, "warehouse_manager", vec![wid]).await;
     let app = app_router(state.clone());
     let req = Request::builder()
         .method("POST")
@@ -637,7 +693,7 @@ async fn test_opening_balance_rejects_reception_target_via_http() {
     let pid = f.create_product(&Uuid::new_v4().to_string()[..8]).await;
     let rcp = f.reception_id(wid).await;
 
-    let token = mint_token(&state, admin, "superadmin", vec![wid]);
+    let token = mint_token(&state, admin, "superadmin", vec![wid]).await;
     let app = app_router(state.clone());
     let req = Request::builder()
         .method("POST")
@@ -676,7 +732,7 @@ async fn test_opening_balance_rejects_wrong_warehouse_via_http() {
     let pid = f.create_product(&Uuid::new_v4().to_string()[..8]).await;
     let zone_b = f.create_zone(wid_b, "Zona B").await;
 
-    let token = mint_token(&state, admin, "superadmin", vec![wid_a, wid_b]);
+    let token = mint_token(&state, admin, "superadmin", vec![wid_a, wid_b]).await;
     let app = app_router(state.clone());
     let req = Request::builder()
         .method("POST")

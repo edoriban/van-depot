@@ -25,13 +25,9 @@ use uuid::Uuid;
 use vandepot_domain::error::DomainError;
 use vandepot_domain::models::enums::{LocationType, ProductClass, UnitType};
 use vandepot_domain::models::receive_outcome::ReceiveOutcome;
-use vandepot_domain::ports::location_repository::LocationRepository;
-use vandepot_domain::ports::product_repository::ProductRepository;
-use vandepot_domain::ports::warehouse_repository::WarehouseRepository;
 use vandepot_infra::repositories::{
-    alerts_repo, cycle_count_repo::PgCycleCountRepository, location_repo::PgLocationRepository,
-    lots_repo, product_repo::PgProductRepository, tool_instances_repo,
-    warehouse_repo::PgWarehouseRepository,
+    alerts_repo, cycle_count_repo, location_repo, lots_repo, product_repo, tool_instances_repo,
+    warehouse_repo,
 };
 
 // ─── Test harness ────────────────────────────────────────────────────
@@ -59,6 +55,7 @@ macro_rules! pool_or_skip {
 /// Bag of ids created by a single test; dropped at the end via `cleanup`.
 struct TestData {
     pool: PgPool,
+    tenant_id: Uuid,
     warehouse_ids: Vec<Uuid>,
     product_ids: Vec<Uuid>,
     cycle_count_ids: Vec<Uuid>,
@@ -68,13 +65,20 @@ struct TestData {
 impl TestData {
     async fn new(pool: PgPool) -> Self {
         let user_id: (Uuid,) =
-            sqlx::query_as("SELECT id FROM users WHERE role = 'superadmin' LIMIT 1")
+            sqlx::query_as("SELECT id FROM users WHERE is_superadmin = true LIMIT 1")
                 .fetch_one(&pool)
                 .await
                 .expect("seed superadmin must exist");
+        let tenant_id: (Uuid,) = sqlx::query_as(
+            "SELECT id FROM tenants WHERE slug = 'dev' AND deleted_at IS NULL",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("dev tenant must exist — run `make reset-db`");
 
         Self {
             pool,
+            tenant_id: tenant_id.0,
             warehouse_ids: Vec::new(),
             product_ids: Vec::new(),
             cycle_count_ids: Vec::new(),
@@ -83,8 +87,10 @@ impl TestData {
     }
 
     async fn create_warehouse(&mut self, name: &str) -> Uuid {
-        let repo = PgWarehouseRepository::new(self.pool.clone());
-        let wh = repo.create(name, None).await.expect("warehouse create");
+        let mut conn = self.pool.acquire().await.expect("acquire conn");
+        let wh = warehouse_repo::create(&mut conn, self.tenant_id, name, None)
+            .await
+            .expect("warehouse create");
         self.warehouse_ids.push(wh.id);
         wh.id
     }
@@ -98,41 +104,49 @@ impl TestData {
         has_expiry: bool,
         min_stock: f64,
     ) -> Uuid {
-        let repo = PgProductRepository::new(self.pool.clone());
+        let mut conn = self.pool.acquire().await.expect("acquire conn");
         let name = format!("Test {suffix}");
         let sku = format!("PC-{suffix}");
-        let product = repo
-            .create(
-                &name,
-                &sku,
-                None,
-                None,
-                UnitType::Piece,
-                class,
-                has_expiry,
-                false, // is_manufactured (Batch 2: existing tests do not assert on this flag)
-                min_stock,
-                None,
-                Some(self.user_id),
-            )
-            .await
-            .expect("product create");
+        let product = product_repo::create(
+            &mut conn,
+            self.tenant_id,
+            &name,
+            &sku,
+            None,
+            None,
+            UnitType::Piece,
+            class,
+            has_expiry,
+            false, // is_manufactured (Batch 2: existing tests do not assert on this flag)
+            min_stock,
+            None,
+            Some(self.user_id),
+        )
+        .await
+        .expect("product create");
         self.product_ids.push(product.id);
         product.id
     }
 
     async fn create_zone(&self, warehouse_id: Uuid, name: &str) -> Uuid {
-        let repo = PgLocationRepository::new(self.pool.clone());
-        let loc = repo
-            .create(warehouse_id, None, LocationType::Zone, name, None)
-            .await
-            .expect("zone create");
+        let mut conn = self.pool.acquire().await.expect("acquire conn");
+        let loc = location_repo::create(
+            &mut conn,
+            self.tenant_id,
+            warehouse_id,
+            None,
+            LocationType::Zone,
+            name,
+            None,
+        )
+        .await
+        .expect("zone create");
         loc.id
     }
 
     async fn reception_id(&self, warehouse_id: Uuid) -> Uuid {
-        let repo = PgLocationRepository::new(self.pool.clone());
-        repo.find_reception_by_warehouse(warehouse_id)
+        let mut conn = self.pool.acquire().await.expect("acquire conn");
+        location_repo::find_reception_by_warehouse(&mut conn, self.tenant_id, warehouse_id)
             .await
             .expect("find_reception")
             .expect("reception exists")
@@ -228,23 +242,25 @@ async fn test_6_2_create_rejects_tool_spare_with_expiry() {
     let pool = pool_or_skip!();
     let td = TestData::new(pool.clone()).await;
 
-    let repo = PgProductRepository::new(pool.clone());
+    let mut conn = pool.acquire().await.expect("acquire conn");
     let suffix = Uuid::new_v4().to_string();
-    let res = repo
-        .create(
-            &format!("Bad tool {}", &suffix[..8]),
-            &format!("BAD-TS-{}", &suffix[..8]),
-            None,
-            None,
-            UnitType::Piece,
-            ProductClass::ToolSpare,
-            true,  // invalid: tool_spare may never have has_expiry = true
-            false, // is_manufactured
-            0.0,
-            None,
-            Some(td.user_id),
-        )
-        .await;
+    let res = product_repo::create(
+        &mut conn,
+        td.tenant_id,
+        &format!("Bad tool {}", &suffix[..8]),
+        &format!("BAD-TS-{}", &suffix[..8]),
+        None,
+        None,
+        UnitType::Piece,
+        ProductClass::ToolSpare,
+        true,  // invalid: tool_spare may never have has_expiry = true
+        false, // is_manufactured
+        0.0,
+        None,
+        Some(td.user_id),
+    )
+    .await;
+    drop(conn);
 
     match res {
         Err(DomainError::Validation(msg)) => {
@@ -301,8 +317,7 @@ async fn test_create_lot_rejects_tool_spare() {
         .create_product(&Uuid::new_v4().to_string()[..8], ProductClass::ToolSpare, false, 0.0)
         .await;
 
-    let res = lots_repo::create_lot(
-        &pool,
+    let res = lots_repo::create_lot(&mut *pool.acquire().await.unwrap(), td.tenant_id,
         pid,
         &format!("LOT-{}", Uuid::new_v4()),
         None,
@@ -338,8 +353,7 @@ async fn test_create_lot_rejects_consumable_without_expiry() {
         .create_product(&Uuid::new_v4().to_string()[..8], ProductClass::Consumable, false, 0.0)
         .await;
 
-    let res = lots_repo::create_lot(
-        &pool,
+    let res = lots_repo::create_lot(&mut *pool.acquire().await.unwrap(), td.tenant_id,
         pid,
         &format!("LOT-{}", Uuid::new_v4()),
         None,
@@ -366,8 +380,7 @@ async fn test_create_lot_allows_consumable_with_expiry() {
         .create_product(&Uuid::new_v4().to_string()[..8], ProductClass::Consumable, true, 0.0)
         .await;
 
-    let row = lots_repo::create_lot(
-        &pool,
+    let row = lots_repo::create_lot(&mut *pool.acquire().await.unwrap(), td.tenant_id,
         pid,
         &format!("LOT-{}", Uuid::new_v4()),
         None,
@@ -392,8 +405,7 @@ async fn test_create_lot_allows_raw_material() {
         .create_product(&Uuid::new_v4().to_string()[..8], ProductClass::RawMaterial, false, 0.0)
         .await;
 
-    let row = lots_repo::create_lot(
-        &pool,
+    let row = lots_repo::create_lot(&mut *pool.acquire().await.unwrap(), td.tenant_id,
         pid,
         &format!("LOT-{}", Uuid::new_v4()),
         None,
@@ -452,8 +464,7 @@ async fn test_6_12_receive_tool_spare_writes_direct_inventory() {
         .await;
     let rcp = td.reception_id(wid).await;
 
-    let outcome = lots_repo::receive_lot(
-        &pool,
+    let outcome = lots_repo::receive_lot(&mut *pool.acquire().await.unwrap(), td.tenant_id,
         pid,
         &format!("LOT-{}", Uuid::new_v4()),
         wid,
@@ -538,8 +549,7 @@ async fn test_6_12_receive_consumable_no_expiry_writes_direct_inventory() {
         .await;
     let rcp = td.reception_id(wid).await;
 
-    let outcome = lots_repo::receive_lot(
-        &pool,
+    let outcome = lots_repo::receive_lot(&mut *pool.acquire().await.unwrap(), td.tenant_id,
         pid,
         &format!("LOT-{}", Uuid::new_v4()),
         wid,
@@ -594,8 +604,7 @@ async fn test_6_12_receive_raw_material_still_creates_lot() {
         .await;
     let rcp = td.reception_id(wid).await;
 
-    let outcome = lots_repo::receive_lot(
-        &pool,
+    let outcome = lots_repo::receive_lot(&mut *pool.acquire().await.unwrap(), td.tenant_id,
         pid,
         &format!("LOT-{}", Uuid::new_v4()),
         wid,
@@ -640,8 +649,7 @@ async fn test_6_12_receive_consumable_with_expiry_creates_lot() {
         .await;
     let rcp = td.reception_id(wid).await;
 
-    let outcome = lots_repo::receive_lot(
-        &pool,
+    let outcome = lots_repo::receive_lot(&mut *pool.acquire().await.unwrap(), td.tenant_id,
         pid,
         &format!("LOT-{}", Uuid::new_v4()),
         wid,
@@ -704,12 +712,14 @@ async fn test_6_10_alerts_exclude_tool_spare_products() {
         .await;
 
     // Seed inventory = 0 for both products at a Zone location (alerts query
-    // joins inventory i, so we need a row).
+    // joins inventory i, so we need a row). Phase B B4: bind tenant_id.
     let zone = td.create_zone(wid, "Zona-Alert").await;
     for pid in [tool_pid, raw_pid] {
         sqlx::query(
-            "INSERT INTO inventory (product_id, location_id, quantity) VALUES ($1, $2, 0)",
+            "INSERT INTO inventory (tenant_id, product_id, location_id, quantity) \
+             VALUES ($1, $2, $3, 0)",
         )
+        .bind(td.tenant_id)
         .bind(pid)
         .bind(zone)
         .execute(&pool)
@@ -717,7 +727,7 @@ async fn test_6_10_alerts_exclude_tool_spare_products() {
         .expect("seed inventory");
     }
 
-    let alerts = alerts_repo::get_stock_alerts(&pool, None, Some(wid))
+    let alerts = alerts_repo::get_stock_alerts(&mut *pool.acquire().await.unwrap(), None, Some(wid))
         .await
         .expect("get_stock_alerts");
 
@@ -763,11 +773,13 @@ async fn test_6_11_cycle_count_excludes_tool_spare_items() {
         .await;
 
     // Seed inventory qty > 0 for both at the same zone (cycle_count only
-    // picks qty > 0).
+    // picks qty > 0). Phase B B4: bind tenant_id.
     for pid in [raw_pid, tool_pid] {
         sqlx::query(
-            "INSERT INTO inventory (product_id, location_id, quantity) VALUES ($1, $2, 7)",
+            "INSERT INTO inventory (tenant_id, product_id, location_id, quantity) \
+             VALUES ($1, $2, $3, 7)",
         )
+        .bind(td.tenant_id)
         .bind(pid)
         .bind(zone)
         .execute(&pool)
@@ -775,16 +787,15 @@ async fn test_6_11_cycle_count_excludes_tool_spare_items() {
         .expect("seed inventory");
     }
 
-    let repo = PgCycleCountRepository::new(pool.clone());
-    let cc = repo
-        .create(
-            wid,
-            &format!("Count-{}", Uuid::new_v4()),
-            None,
-            td.user_id,
-        )
-        .await
-        .expect("cycle_count create");
+    let cc = cycle_count_repo::create(&mut *pool.acquire().await.unwrap(),
+        td.tenant_id,
+        wid,
+        &format!("Count-{}", Uuid::new_v4()),
+        None,
+        td.user_id,
+    )
+    .await
+    .expect("cycle_count create");
     td.cycle_count_ids.push(cc.id);
 
     let items: Vec<(Uuid,)> =
@@ -830,8 +841,8 @@ async fn test_6_11_tool_instances_insert_guards_class() {
         .await;
 
     // Raw material path → PRODUCT_CLASS_MISMATCH validation error.
-    let err = tool_instances_repo::insert(
-        &pool,
+    let err = tool_instances_repo::insert(&mut *pool.acquire().await.unwrap(),
+        td.tenant_id,
         raw_pid,
         format!("SN-{}", Uuid::new_v4()),
         None,
@@ -858,8 +869,8 @@ async fn test_6_11_tool_instances_insert_guards_class() {
     assert_eq!(cnt_raw.0, 0);
 
     // tool_spare path → succeeds.
-    let inst = tool_instances_repo::insert(
-        &pool,
+    let inst = tool_instances_repo::insert(&mut *pool.acquire().await.unwrap(),
+        td.tenant_id,
         tool_pid,
         format!("SN-{}", Uuid::new_v4()),
         None,
@@ -887,8 +898,7 @@ async fn test_reclassify_locks_on_movement() {
         .await;
 
     // Receive → creates a movement for this product.
-    let _ = lots_repo::receive_lot(
-        &pool,
+    let _ = lots_repo::receive_lot(&mut *pool.acquire().await.unwrap(), td.tenant_id,
         pid,
         &format!("LOT-{}", Uuid::new_v4()),
         wid,
@@ -905,11 +915,17 @@ async fn test_reclassify_locks_on_movement() {
     .await
     .expect("receive ok");
 
-    let repo = PgProductRepository::new(pool.clone());
-    let err = repo
-        .reclassify(pid, ProductClass::Consumable, Some(td.user_id))
-        .await
-        .expect_err("locked reclassify must err");
+    let mut conn = pool.acquire().await.expect("acquire conn");
+    let err = product_repo::reclassify(
+        &mut conn,
+        td.tenant_id,
+        pid,
+        ProductClass::Consumable,
+        Some(td.user_id),
+    )
+    .await
+    .expect_err("locked reclassify must err");
+    drop(conn);
 
     match err {
         DomainError::ClassLocked {
@@ -945,15 +961,21 @@ async fn test_reclassify_locks_on_tool_instance() {
         .create_product(&Uuid::new_v4().to_string()[..8], ProductClass::ToolSpare, false, 0.0)
         .await;
 
-    tool_instances_repo::insert(&pool, pid, format!("SN-{}", Uuid::new_v4()), None)
+    tool_instances_repo::insert(&mut *pool.acquire().await.unwrap(), td.tenant_id, pid, format!("SN-{}", Uuid::new_v4()), None)
         .await
         .expect("tool_instance insert");
 
-    let repo = PgProductRepository::new(pool.clone());
-    let err = repo
-        .reclassify(pid, ProductClass::RawMaterial, Some(td.user_id))
-        .await
-        .expect_err("locked by tool_instance");
+    let mut conn = pool.acquire().await.expect("acquire conn");
+    let err = product_repo::reclassify(
+        &mut conn,
+        td.tenant_id,
+        pid,
+        ProductClass::RawMaterial,
+        Some(td.user_id),
+    )
+    .await
+    .expect_err("locked by tool_instance");
+    drop(conn);
 
     match err {
         DomainError::ClassLocked {
@@ -976,11 +998,17 @@ async fn test_reclassify_succeeds_on_fresh_product() {
         .create_product(&Uuid::new_v4().to_string()[..8], ProductClass::RawMaterial, false, 0.0)
         .await;
 
-    let repo = PgProductRepository::new(pool.clone());
-    let updated = repo
-        .reclassify(pid, ProductClass::Consumable, Some(td.user_id))
-        .await
-        .expect("reclassify fresh product should succeed");
+    let mut conn = pool.acquire().await.expect("acquire conn");
+    let updated = product_repo::reclassify(
+        &mut conn,
+        td.tenant_id,
+        pid,
+        ProductClass::Consumable,
+        Some(td.user_id),
+    )
+    .await
+    .expect("reclassify fresh product should succeed");
+    drop(conn);
 
     assert_eq!(updated.product_class, ProductClass::Consumable);
     assert_eq!(updated.id, pid);
@@ -997,8 +1025,11 @@ async fn test_class_lock_status_fresh_is_unlocked() {
         .create_product(&Uuid::new_v4().to_string()[..8], ProductClass::RawMaterial, false, 0.0)
         .await;
 
-    let repo = PgProductRepository::new(pool.clone());
-    let status = repo.class_lock_status(pid).await.expect("class_lock_status");
+    let mut conn = pool.acquire().await.expect("acquire conn");
+    let status = product_repo::class_lock_status(&mut conn, td.tenant_id, pid)
+        .await
+        .expect("class_lock_status");
+    drop(conn);
 
     assert!(!status.locked);
     assert_eq!(status.movements, 0);

@@ -22,10 +22,9 @@ use sqlx::PgPool;
 use std::env;
 use uuid::Uuid;
 
-use vandepot_domain::ports::warehouse_repository::WarehouseRepository;
 use vandepot_infra::repositories::{
     inventory_repo::{self, PickOutcome},
-    warehouse_repo::PgWarehouseRepository,
+    warehouse_repo,
 };
 
 // ── Harness ──────────────────────────────────────────────────────────
@@ -112,6 +111,7 @@ fn assert_short(outcome: &PickOutcome, expected_shortfall: f64, expected_pick_co
 /// one fresh user_id. The caller adds lots / direct inventory per test.
 struct PickFixture {
     pool: PgPool,
+    tenant_id: Uuid,
     product_id: Uuid,
     location_id: Uuid,
     warehouse_id: Uuid,
@@ -123,24 +123,36 @@ impl PickFixture {
     async fn setup(pool: &PgPool) -> Self {
         let suffix = Uuid::new_v4().to_string()[..8].to_string();
 
+        // Phase B B1: tenant_id is now mandatory on warehouses + locations.
+        // Resolve the seeded `dev` tenant once.
+        let tenant_id: (Uuid,) = sqlx::query_as(
+            "SELECT id FROM tenants WHERE slug = 'dev' AND deleted_at IS NULL",
+        )
+        .fetch_one(pool)
+        .await
+        .expect("dev tenant must exist — run `make reset-db`");
+        let tenant_id = tenant_id.0;
+
         // Unique warehouse per fixture keeps parallel tests hermetic.
-        let wh_repo = PgWarehouseRepository::new(pool.clone());
-        let warehouse = wh_repo
-            .create(&format!("FEFO-WH-{suffix}"), None)
-            .await
-            .expect("warehouse create");
+        let mut conn = pool.acquire().await.expect("acquire conn");
+        let warehouse =
+            warehouse_repo::create(&mut conn, tenant_id, &format!("FEFO-WH-{suffix}"), None)
+                .await
+                .expect("warehouse create");
+        drop(conn);
 
         // Provision a work_center via direct SQL (bypassing the
-        // LocationRepository guards because `work_center` requires
+        // location_repo guards because `work_center` requires
         // `is_system=true`, which the repo doesn't expose). The migration-3
         // CHECK constraint `chk_work_center_is_system` is what keeps the DB
         // honest; we set is_system=true explicitly.
         let loc_id: (Uuid,) = sqlx::query_as(
             "INSERT INTO locations \
-                (warehouse_id, location_type, name, is_system, pos_x, pos_y, width, height) \
-             VALUES ($1, 'work_center', $2, true, 100, 100, 80, 80) \
+                (tenant_id, warehouse_id, location_type, name, is_system, pos_x, pos_y, width, height) \
+             VALUES ($1, $2, 'work_center', $3, true, 100, 100, 80, 80) \
              RETURNING id",
         )
+        .bind(tenant_id)
         .bind(warehouse.id)
         .bind(format!("WC-{suffix}"))
         .fetch_one(pool)
@@ -150,17 +162,19 @@ impl PickFixture {
         // Raw-material product via direct SQL — the repo's create signature
         // is nice but we don't need the role guards here.
         let user_id: (Uuid,) =
-            sqlx::query_as("SELECT id FROM users WHERE role = 'superadmin' LIMIT 1")
+            sqlx::query_as("SELECT id FROM users WHERE is_superadmin = true LIMIT 1")
                 .fetch_one(pool)
                 .await
                 .expect("superadmin exists in seed");
 
+        // Phase B B2: products carry NOT NULL tenant_id.
         let prod_id: (Uuid,) = sqlx::query_as(
             "INSERT INTO products \
-                (name, sku, unit_of_measure, product_class, has_expiry, is_manufactured, min_stock, created_by) \
-             VALUES ($1, $2, 'piece', 'raw_material', true, false, 0, $3) \
+                (tenant_id, name, sku, unit_of_measure, product_class, has_expiry, is_manufactured, min_stock, created_by) \
+             VALUES ($1, $2, $3, 'piece', 'raw_material', true, false, 0, $4) \
              RETURNING id",
         )
+        .bind(tenant_id)
         .bind(format!("FEFO Prod {suffix}"))
         .bind(format!("FEFO-{suffix}"))
         .bind(user_id.0)
@@ -170,6 +184,7 @@ impl PickFixture {
 
         Self {
             pool: pool.clone(),
+            tenant_id,
             product_id: prod_id.0,
             location_id: loc_id.0,
             warehouse_id: warehouse.id,
@@ -186,12 +201,15 @@ impl PickFixture {
         quantity: f64,
         expiration_date: Option<NaiveDate>,
     ) -> (Uuid, Uuid) {
+        // Phase B B4: product_lots / inventory_lots / inventory all carry
+        // NOT NULL tenant_id; bind it explicitly.
         let pl: (Uuid,) = sqlx::query_as(
             "INSERT INTO product_lots \
-                (product_id, lot_number, expiration_date, received_quantity, quality_status) \
-             VALUES ($1, $2, $3, $4, 'approved') \
+                (tenant_id, product_id, lot_number, expiration_date, received_quantity, quality_status) \
+             VALUES ($1, $2, $3, $4, $5, 'approved') \
              RETURNING id",
         )
+        .bind(self.tenant_id)
         .bind(self.product_id)
         .bind(format!("LOT-{}-{}", self.suffix, lot_suffix))
         .bind(expiration_date)
@@ -201,10 +219,11 @@ impl PickFixture {
         .expect("product_lot insert");
 
         let il: (Uuid,) = sqlx::query_as(
-            "INSERT INTO inventory_lots (product_lot_id, location_id, quantity) \
-             VALUES ($1, $2, $3) \
+            "INSERT INTO inventory_lots (tenant_id, product_lot_id, location_id, quantity) \
+             VALUES ($1, $2, $3, $4) \
              RETURNING id",
         )
+        .bind(self.tenant_id)
         .bind(pl.0)
         .bind(self.location_id)
         .bind(quantity)
@@ -215,11 +234,12 @@ impl PickFixture {
         // Upsert `inventory` — the project convention (§6c critical note) is
         // that `inventory.quantity` SUMS lot-backed + direct.
         sqlx::query(
-            "INSERT INTO inventory (product_id, location_id, quantity) \
-             VALUES ($1, $2, $3) \
+            "INSERT INTO inventory (tenant_id, product_id, location_id, quantity) \
+             VALUES ($1, $2, $3, $4) \
              ON CONFLICT (product_id, location_id) \
-             DO UPDATE SET quantity = inventory.quantity + $3, updated_at = NOW()",
+             DO UPDATE SET quantity = inventory.quantity + $4, updated_at = NOW()",
         )
+        .bind(self.tenant_id)
         .bind(self.product_id)
         .bind(self.location_id)
         .bind(quantity)
@@ -235,11 +255,12 @@ impl PickFixture {
     /// reflects lots-plus-direct, so this increments by `delta`.
     async fn seed_direct_inventory(&self, delta: f64) {
         sqlx::query(
-            "INSERT INTO inventory (product_id, location_id, quantity) \
-             VALUES ($1, $2, $3) \
+            "INSERT INTO inventory (tenant_id, product_id, location_id, quantity) \
+             VALUES ($1, $2, $3, $4) \
              ON CONFLICT (product_id, location_id) \
-             DO UPDATE SET quantity = inventory.quantity + $3, updated_at = NOW()",
+             DO UPDATE SET quantity = inventory.quantity + $4, updated_at = NOW()",
         )
+        .bind(self.tenant_id)
         .bind(self.product_id)
         .bind(self.location_id)
         .bind(delta)
@@ -289,7 +310,7 @@ async fn pick_for_consumption_full_from_direct_inventory() {
     fx.seed_direct_inventory(10.0).await;
 
     let mut tx = pool.begin().await.expect("tx begin");
-    let outcome = inventory_repo::pick_for_consumption(&mut tx, fx.product_id, fx.location_id, 4.0)
+    let outcome = inventory_repo::pick_for_consumption(&mut tx, fx.tenant_id, fx.product_id, fx.location_id, 4.0)
         .await
         .expect("pick ok");
 
@@ -309,7 +330,7 @@ async fn pick_for_consumption_short_from_direct_inventory() {
     fx.seed_direct_inventory(3.0).await;
 
     let mut tx = pool.begin().await.expect("tx begin");
-    let outcome = inventory_repo::pick_for_consumption(&mut tx, fx.product_id, fx.location_id, 5.0)
+    let outcome = inventory_repo::pick_for_consumption(&mut tx, fx.tenant_id, fx.product_id, fx.location_id, 5.0)
         .await
         .expect("pick ok");
 
@@ -334,7 +355,7 @@ async fn pick_for_consumption_full_single_lot_exact_match() {
     fx.seed_lot("only", 5.0, Some(exp)).await;
 
     let mut tx = pool.begin().await.expect("tx begin");
-    let outcome = inventory_repo::pick_for_consumption(&mut tx, fx.product_id, fx.location_id, 5.0)
+    let outcome = inventory_repo::pick_for_consumption(&mut tx, fx.tenant_id, fx.product_id, fx.location_id, 5.0)
         .await
         .expect("pick ok");
 
@@ -361,7 +382,7 @@ async fn pick_for_consumption_full_fefo_two_lots() {
     let (_pl_early, _) = fx.seed_lot("early", 3.0, Some(early)).await;
 
     let mut tx = pool.begin().await.expect("tx begin");
-    let outcome = inventory_repo::pick_for_consumption(&mut tx, fx.product_id, fx.location_id, 7.0)
+    let outcome = inventory_repo::pick_for_consumption(&mut tx, fx.tenant_id, fx.product_id, fx.location_id, 7.0)
         .await
         .expect("pick ok");
 
@@ -392,7 +413,7 @@ async fn pick_for_consumption_full_lots_plus_direct_fallthrough() {
     fx.seed_direct_inventory(3.0).await;
 
     let mut tx = pool.begin().await.expect("tx begin");
-    let outcome = inventory_repo::pick_for_consumption(&mut tx, fx.product_id, fx.location_id, 4.0)
+    let outcome = inventory_repo::pick_for_consumption(&mut tx, fx.tenant_id, fx.product_id, fx.location_id, 4.0)
         .await
         .expect("pick ok");
 
@@ -420,7 +441,7 @@ async fn pick_for_consumption_short_combined_still_insufficient() {
     fx.seed_direct_inventory(1.0).await;
 
     let mut tx = pool.begin().await.expect("tx begin");
-    let outcome = inventory_repo::pick_for_consumption(&mut tx, fx.product_id, fx.location_id, 5.0)
+    let outcome = inventory_repo::pick_for_consumption(&mut tx, fx.tenant_id, fx.product_id, fx.location_id, 5.0)
         .await
         .expect("pick ok");
 
@@ -464,7 +485,7 @@ async fn pick_for_consumption_null_expiration_sorts_last() {
         .await;
 
     let mut tx = pool.begin().await.expect("tx begin");
-    let outcome = inventory_repo::pick_for_consumption(&mut tx, fx.product_id, fx.location_id, 2.0)
+    let outcome = inventory_repo::pick_for_consumption(&mut tx, fx.tenant_id, fx.product_id, fx.location_id, 2.0)
         .await
         .expect("pick ok");
 

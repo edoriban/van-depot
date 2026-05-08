@@ -29,6 +29,7 @@ use uuid::Uuid;
 
 use vandepot_api::{app_router, state::AppState};
 use vandepot_infra::auth::jwt::{create_access_token, JwtConfig};
+use vandepot_infra::auth::tenant_context::TenantRole;
 
 // ─── Test harness (parallel to reception_flow_routes.rs) ─────────────
 
@@ -48,6 +49,7 @@ async fn maybe_state() -> Option<AppState> {
         secret: TEST_JWT_SECRET.to_string(),
         access_expiration: 900,
         refresh_expiration: 604_800,
+        intermediate_expiration: 60,
     };
 
     Some(AppState {
@@ -69,19 +71,45 @@ macro_rules! state_or_skip {
     };
 }
 
-fn mint_token(state: &AppState, user_id: Uuid, role: &str, warehouse_ids: Vec<Uuid>) -> String {
+async fn mint_token(state: &AppState, user_id: Uuid, role: &str, _warehouse_ids: Vec<Uuid>) -> String {
+    let (is_superadmin, tenant_role) = map_legacy_role(role);
+    // Phase B B1: every test token attaches the dev tenant id so tenant-
+    // scoped endpoints accept it. Pure-superadmin (tenant=None) tokens are
+    // valid for /admin/* but not for /warehouses, /locations, etc.
+    let tenant_id = Some(dev_tenant_id(&state.pool).await);
     create_access_token(
         &state.jwt_config,
         user_id,
         &format!("{role}@test.dev"),
-        role,
-        warehouse_ids,
+        tenant_id,
+        is_superadmin,
+        tenant_role,
     )
     .expect("token mint")
 }
 
+async fn dev_tenant_id(pool: &PgPool) -> Uuid {
+    let row: (Uuid,) = sqlx::query_as(
+        "SELECT id FROM tenants WHERE slug = 'dev' AND deleted_at IS NULL",
+    )
+    .fetch_one(pool)
+    .await
+    .expect("dev tenant must exist — run `make reset-db`");
+    row.0
+}
+
+fn map_legacy_role(role: &str) -> (bool, Option<TenantRole>) {
+    match role {
+        "superadmin" => (true, None),
+        "owner" => (false, Some(TenantRole::Owner)),
+        "warehouse_manager" => (false, Some(TenantRole::Manager)),
+        "operator" => (false, Some(TenantRole::Operator)),
+        other => panic!("unknown legacy role: {other}"),
+    }
+}
+
 async fn superadmin_id(pool: &PgPool) -> Uuid {
-    let row: (Uuid,) = sqlx::query_as("SELECT id FROM users WHERE role = 'superadmin' LIMIT 1")
+    let row: (Uuid,) = sqlx::query_as("SELECT id FROM users WHERE is_superadmin = true LIMIT 1")
         .fetch_one(pool)
         .await
         .expect("superadmin seed must exist");
@@ -90,6 +118,7 @@ async fn superadmin_id(pool: &PgPool) -> Uuid {
 
 struct Fixture {
     state: AppState,
+    tenant_id: Uuid,
     warehouse_ids: Vec<Uuid>,
     product_ids: Vec<Uuid>,
     supplier_ids: Vec<Uuid>,
@@ -98,8 +127,15 @@ struct Fixture {
 
 impl Fixture {
     async fn new(state: AppState) -> Self {
+        let tenant_id: (Uuid,) = sqlx::query_as(
+            "SELECT id FROM tenants WHERE slug = 'dev' AND deleted_at IS NULL",
+        )
+        .fetch_one(&state.pool)
+        .await
+        .expect("dev tenant must exist — run `make reset-db`");
         Self {
             state,
+            tenant_id: tenant_id.0,
             warehouse_ids: Vec::new(),
             product_ids: Vec::new(),
             supplier_ids: Vec::new(),
@@ -108,10 +144,11 @@ impl Fixture {
     }
 
     async fn create_warehouse_direct(&mut self, name: &str) -> Uuid {
-        use vandepot_domain::ports::warehouse_repository::WarehouseRepository;
-        use vandepot_infra::repositories::warehouse_repo::PgWarehouseRepository;
-        let repo = PgWarehouseRepository::new(self.state.pool.clone());
-        let wh = repo.create(name, None).await.expect("warehouse create");
+        use vandepot_infra::repositories::warehouse_repo;
+        let mut conn = self.state.pool.acquire().await.expect("acquire conn");
+        let wh = warehouse_repo::create(&mut conn, self.tenant_id, name, None)
+            .await
+            .expect("warehouse create");
         self.warehouse_ids.push(wh.id);
         wh.id
     }
@@ -125,11 +162,13 @@ impl Fixture {
         class: &str,
         has_expiry: bool,
     ) -> Uuid {
+        // Phase B B2: products carry NOT NULL tenant_id.
         let row: (Uuid,) = sqlx::query_as(
-            "INSERT INTO products (name, sku, unit_of_measure, product_class, has_expiry) \
-             VALUES ($1, $2, 'piece', $3::product_class, $4) \
+            "INSERT INTO products (tenant_id, name, sku, unit_of_measure, product_class, has_expiry) \
+             VALUES ($1, $2, $3, 'piece', $4::product_class, $5) \
              RETURNING id",
         )
+        .bind(self.tenant_id)
         .bind(format!("Prod {suffix}"))
         .bind(format!("PCH-{suffix}"))
         .bind(class)
@@ -142,12 +181,15 @@ impl Fixture {
     }
 
     async fn create_supplier(&mut self) -> Uuid {
-        let row: (Uuid,) =
-            sqlx::query_as("INSERT INTO suppliers (name) VALUES ($1) RETURNING id")
-                .bind(format!("Sup {}", Uuid::new_v4()))
-                .fetch_one(&self.state.pool)
-                .await
-                .expect("supplier insert");
+        // Phase B B3: suppliers carry NOT NULL tenant_id.
+        let row: (Uuid,) = sqlx::query_as(
+            "INSERT INTO suppliers (tenant_id, name) VALUES ($1, $2) RETURNING id",
+        )
+        .bind(self.tenant_id)
+        .bind(format!("Sup {}", Uuid::new_v4()))
+        .fetch_one(&self.state.pool)
+        .await
+        .expect("supplier insert");
         self.supplier_ids.push(row.0);
         row.0
     }
@@ -261,7 +303,7 @@ async fn test_6_3_create_and_get_product_round_trip_per_class() {
     let state = state_or_skip!();
     let mut f = Fixture::new(state.clone()).await;
     let admin = superadmin_id(&state.pool).await;
-    let token = mint_token(&state, admin, "superadmin", vec![]);
+    let token = mint_token(&state, admin, "superadmin", vec![]).await;
 
     for (class, has_expiry) in [
         ("raw_material", false),
@@ -324,7 +366,7 @@ async fn test_6_3_create_tool_spare_with_expiry_is_422() {
     let state = state_or_skip!();
     let f = Fixture::new(state.clone()).await;
     let admin = superadmin_id(&state.pool).await;
-    let token = mint_token(&state, admin, "superadmin", vec![]);
+    let token = mint_token(&state, admin, "superadmin", vec![]).await;
 
     let app = app_router(state.clone());
     let sku = format!("E2E-BADTS-{}", &Uuid::new_v4().to_string()[..6]);
@@ -365,7 +407,7 @@ async fn test_6_3_create_without_class_is_rejected() {
     let state = state_or_skip!();
     let f = Fixture::new(state.clone()).await;
     let admin = superadmin_id(&state.pool).await;
-    let token = mint_token(&state, admin, "superadmin", vec![]);
+    let token = mint_token(&state, admin, "superadmin", vec![]).await;
 
     let app = app_router(state.clone());
     let req = Request::builder()
@@ -439,7 +481,7 @@ async fn test_6_4_receive_matrix_raw_material_returns_lot() {
         .create_product(&Uuid::new_v4().to_string()[..8], "raw_material", false)
         .await;
 
-    let token = mint_token(&state, admin, "superadmin", vec![wid]);
+    let token = mint_token(&state, admin, "superadmin", vec![wid]).await;
     let (status, body) = call_receive(&state, &token, pid, wid, 10.0, None).await;
     assert_eq!(status, StatusCode::CREATED);
     assert_eq!(body["kind"], "lot");
@@ -461,7 +503,7 @@ async fn test_6_4_receive_matrix_consumable_with_expiry_returns_lot() {
         .create_product(&Uuid::new_v4().to_string()[..8], "consumable", true)
         .await;
 
-    let token = mint_token(&state, admin, "superadmin", vec![wid]);
+    let token = mint_token(&state, admin, "superadmin", vec![wid]).await;
     let (status, body) = call_receive(&state, &token, pid, wid, 3.0, Some("2026-12-31")).await;
     assert_eq!(status, StatusCode::CREATED);
     assert_eq!(body["kind"], "lot");
@@ -482,7 +524,7 @@ async fn test_6_4_receive_matrix_consumable_no_expiry_returns_direct_inventory()
         .create_product(&Uuid::new_v4().to_string()[..8], "consumable", false)
         .await;
 
-    let token = mint_token(&state, admin, "superadmin", vec![wid]);
+    let token = mint_token(&state, admin, "superadmin", vec![wid]).await;
     let (status, body) = call_receive(&state, &token, pid, wid, 6.0, None).await;
     assert_eq!(status, StatusCode::CREATED);
     assert_eq!(body["kind"], "direct_inventory");
@@ -523,7 +565,7 @@ async fn test_6_4_receive_matrix_tool_spare_returns_direct_inventory() {
         .create_product(&Uuid::new_v4().to_string()[..8], "tool_spare", false)
         .await;
 
-    let token = mint_token(&state, admin, "superadmin", vec![wid]);
+    let token = mint_token(&state, admin, "superadmin", vec![wid]).await;
     let (status, body) = call_receive(&state, &token, pid, wid, 2.0, None).await;
     assert_eq!(status, StatusCode::CREATED);
     assert_eq!(body["kind"], "direct_inventory");
@@ -553,11 +595,13 @@ async fn create_sent_po_with_line(
 ) -> (Uuid, Uuid) {
     let supplier_id = f.create_supplier().await;
 
+    // Phase B B6: purchase_orders + purchase_order_lines carry NOT NULL tenant_id.
     let po_row: (Uuid,) = sqlx::query_as(
-        "INSERT INTO purchase_orders (supplier_id, order_number, status, created_by) \
-         VALUES ($1, $2, 'sent', (SELECT id FROM users WHERE role='superadmin' LIMIT 1)) \
+        "INSERT INTO purchase_orders (tenant_id, supplier_id, order_number, status, created_by) \
+         VALUES ($1, $2, $3, 'sent', (SELECT id FROM users WHERE is_superadmin = true LIMIT 1)) \
          RETURNING id",
     )
+    .bind(f.tenant_id)
     .bind(supplier_id)
     .bind(format!("PO-TEST-{}", Uuid::new_v4()))
     .fetch_one(pool)
@@ -566,10 +610,11 @@ async fn create_sent_po_with_line(
     f.po_ids.push(po_row.0);
 
     let line_row: (Uuid,) = sqlx::query_as(
-        "INSERT INTO purchase_order_lines (purchase_order_id, product_id, quantity_ordered, unit_price) \
-         VALUES ($1, $2, $3, 1.0) \
+        "INSERT INTO purchase_order_lines (tenant_id, purchase_order_id, product_id, quantity_ordered, unit_price) \
+         VALUES ($1, $2, $3, $4, 1.0) \
          RETURNING id",
     )
+    .bind(f.tenant_id)
     .bind(po_row.0)
     .bind(product_id)
     .bind(quantity)
@@ -629,7 +674,7 @@ async fn test_6_5_po_receive_raw_material_is_lot_kind() {
         .await;
     let (po_id, line_id) = create_sent_po_with_line(&state.pool, &mut f, pid, 5.0).await;
 
-    let token = mint_token(&state, admin, "superadmin", vec![wid]);
+    let token = mint_token(&state, admin, "superadmin", vec![wid]).await;
     let (status, body) = po_receive_call(&state, &token, pid, wid, 5.0, po_id, line_id, None).await;
     assert_eq!(status, StatusCode::CREATED);
     assert_eq!(body["kind"], "lot");
@@ -661,7 +706,7 @@ async fn test_6_5_po_receive_consumable_no_expiry_is_direct_inventory() {
         .await;
     let (po_id, line_id) = create_sent_po_with_line(&state.pool, &mut f, pid, 4.0).await;
 
-    let token = mint_token(&state, admin, "superadmin", vec![wid]);
+    let token = mint_token(&state, admin, "superadmin", vec![wid]).await;
     let (status, body) = po_receive_call(&state, &token, pid, wid, 4.0, po_id, line_id, None).await;
     assert_eq!(status, StatusCode::CREATED);
     assert_eq!(body["kind"], "direct_inventory");
@@ -702,7 +747,7 @@ async fn test_6_5_po_receive_tool_spare_is_direct_inventory() {
         .await;
     let (po_id, line_id) = create_sent_po_with_line(&state.pool, &mut f, pid, 1.0).await;
 
-    let token = mint_token(&state, admin, "superadmin", vec![wid]);
+    let token = mint_token(&state, admin, "superadmin", vec![wid]).await;
     let (status, body) = po_receive_call(&state, &token, pid, wid, 1.0, po_id, line_id, None).await;
     assert_eq!(status, StatusCode::CREATED);
     assert_eq!(body["kind"], "direct_inventory");
@@ -717,7 +762,7 @@ async fn test_6_6_reclassify_succeeds_on_fresh_product() {
     let state = state_or_skip!();
     let mut f = Fixture::new(state.clone()).await;
     let admin = superadmin_id(&state.pool).await;
-    let token = mint_token(&state, admin, "superadmin", vec![]);
+    let token = mint_token(&state, admin, "superadmin", vec![]).await;
 
     let pid = f
         .create_product(&Uuid::new_v4().to_string()[..8], "raw_material", false)
@@ -761,12 +806,12 @@ async fn test_6_6_reclassify_blocked_by_movement_is_409_with_counts() {
         .create_product(&Uuid::new_v4().to_string()[..8], "raw_material", false)
         .await;
     // Receive → creates movement + lot.
-    let token = mint_token(&state, admin, "superadmin", vec![wid]);
+    let token = mint_token(&state, admin, "superadmin", vec![wid]).await;
     let (status, _) = call_receive(&state, &token, pid, wid, 1.0, None).await;
     assert_eq!(status, StatusCode::CREATED);
 
     // Reclassify attempt.
-    let token2 = mint_token(&state, admin, "superadmin", vec![]);
+    let token2 = mint_token(&state, admin, "superadmin", vec![]).await;
     let app = app_router(state.clone());
     let req = Request::builder()
         .method("PATCH")
@@ -801,13 +846,17 @@ async fn test_6_6_reclassify_blocked_by_tool_instance_is_409() {
     let state = state_or_skip!();
     let mut f = Fixture::new(state.clone()).await;
     let admin = superadmin_id(&state.pool).await;
-    let token = mint_token(&state, admin, "superadmin", vec![]);
+    let token = mint_token(&state, admin, "superadmin", vec![]).await;
 
     let pid = f
         .create_product(&Uuid::new_v4().to_string()[..8], "tool_spare", false)
         .await;
     // Insert a tool_instance directly — exercises the tool_instance blocker.
-    sqlx::query("INSERT INTO tool_instances (product_id, serial) VALUES ($1, $2)")
+    // B8: tool_instances now carries NOT NULL tenant_id.
+    sqlx::query(
+        "INSERT INTO tool_instances (tenant_id, product_id, serial) VALUES ($1, $2, $3)",
+    )
+        .bind(f.tenant_id)
         .bind(pid)
         .bind(format!("SN-{}", Uuid::new_v4()))
         .execute(&state.pool)
@@ -840,7 +889,7 @@ async fn test_6_6_reclassify_to_tool_spare_with_expiry_is_422() {
     let state = state_or_skip!();
     let mut f = Fixture::new(state.clone()).await;
     let admin = superadmin_id(&state.pool).await;
-    let token = mint_token(&state, admin, "superadmin", vec![]);
+    let token = mint_token(&state, admin, "superadmin", vec![]).await;
 
     let pid = f
         .create_product(&Uuid::new_v4().to_string()[..8], "consumable", true)
@@ -876,7 +925,7 @@ async fn test_6_7_list_filter_by_class_returns_only_matching() {
     let state = state_or_skip!();
     let mut f = Fixture::new(state.clone()).await;
     let admin = superadmin_id(&state.pool).await;
-    let token = mint_token(&state, admin, "superadmin", vec![]);
+    let token = mint_token(&state, admin, "superadmin", vec![]).await;
 
     let raw_pid = f
         .create_product(&Uuid::new_v4().to_string()[..8], "raw_material", false)
@@ -941,7 +990,7 @@ async fn test_6_7_list_filter_with_invalid_class_is_422() {
     let state = state_or_skip!();
     let f = Fixture::new(state.clone()).await;
     let admin = superadmin_id(&state.pool).await;
-    let token = mint_token(&state, admin, "superadmin", vec![]);
+    let token = mint_token(&state, admin, "superadmin", vec![]).await;
 
     let app = app_router(state.clone());
     let req = Request::builder()
@@ -969,7 +1018,7 @@ async fn test_6_8_class_lock_fresh_product_is_unlocked() {
     let state = state_or_skip!();
     let mut f = Fixture::new(state.clone()).await;
     let admin = superadmin_id(&state.pool).await;
-    let token = mint_token(&state, admin, "superadmin", vec![]);
+    let token = mint_token(&state, admin, "superadmin", vec![]).await;
 
     let pid = f
         .create_product(&Uuid::new_v4().to_string()[..8], "raw_material", false)
@@ -1005,7 +1054,7 @@ async fn test_6_8_class_lock_after_receive_is_locked() {
     let pid = f
         .create_product(&Uuid::new_v4().to_string()[..8], "raw_material", false)
         .await;
-    let token = mint_token(&state, admin, "superadmin", vec![wid]);
+    let token = mint_token(&state, admin, "superadmin", vec![wid]).await;
     let (st, _) = call_receive(&state, &token, pid, wid, 1.0, None).await;
     assert_eq!(st, StatusCode::CREATED);
 
@@ -1032,7 +1081,7 @@ async fn test_6_8_class_lock_after_receive_is_locked() {
 async fn test_6_12_tool_instances_route_is_not_registered() {
     let state = state_or_skip!();
     let admin = superadmin_id(&state.pool).await;
-    let token = mint_token(&state, admin, "superadmin", vec![]);
+    let token = mint_token(&state, admin, "superadmin", vec![]).await;
 
     for method in ["GET", "POST"] {
         let app = app_router(state.clone());
