@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { toast } from 'sonner';
 import {
   Mail,
   Eye,
@@ -16,11 +17,28 @@ import {
   Loader2,
   AlertCircle,
 } from 'lucide-react';
+import type { LoginResponse } from '@/types';
 
+/**
+ * Drives `POST /api/auth/login` and dispatches per response shape (A17 of
+ * `sdd/multi-tenant-foundation`):
+ *   - superadmin Final           → /admin/tenants
+ *   - single-membership Final    → /inicio
+ *   - MultiTenant (>1)           → /select-tenant
+ *   - 0 memberships, non-super   → 403 toast + clear store + stay on /login
+ *   - 4xx other                  → inline error message
+ */
 function LoginForm() {
-  const { login, isHydrated, user } = useAuthStore();
   const router = useRouter();
   const searchParams = useSearchParams();
+
+  const dispatchLogin = useAuthStore((s) => s.login);
+  const logout = useAuthStore((s) => s.logout);
+  const isHydrated = useAuthStore((s) => s.isHydrated);
+  const user = useAuthStore((s) => s.user);
+  const isSuperadmin = useAuthStore((s) => s.isSuperadmin);
+  const intermediateToken = useAuthStore((s) => s.intermediateToken);
+
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -30,9 +48,21 @@ function LoginForm() {
   const fromParam = searchParams.get('from');
   const redirectTo = fromParam && fromParam.startsWith('/') ? fromParam : '/inicio';
 
+  // If we already have a session, send the user where they belong.
   useEffect(() => {
-    if (user) router.replace(redirectTo);
-  }, [user, router, redirectTo]);
+    if (!isHydrated) return;
+    if (isSuperadmin) {
+      router.replace('/admin/tenants');
+      return;
+    }
+    if (user) {
+      router.replace(redirectTo);
+      return;
+    }
+    if (intermediateToken) {
+      router.replace('/select-tenant');
+    }
+  }, [isHydrated, user, isSuperadmin, intermediateToken, router, redirectTo]);
 
   async function handleSubmit(e: React.SubmitEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -40,8 +70,43 @@ function LoginForm() {
     setIsSubmitting(true);
 
     try {
-      await login(email, password);
-      router.replace(redirectTo);
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+
+      if (!res.ok) {
+        const body = await res
+          .json()
+          .catch(() => ({ error: 'Error al iniciar sesion' }));
+        const message = typeof body?.error === 'string' ? body.error : 'Error al iniciar sesion';
+        // 403 with `no_tenant_access` → spec says: clear store + toast + stay on /login.
+        if (res.status === 403 && /no_tenant_access/i.test(message)) {
+          logout();
+          toast.error('Sin acceso a ningun inquilino. Contacta a tu administrador.');
+          return;
+        }
+        setError(translateLoginError(message));
+        return;
+      }
+
+      const data = (await res.json()) as LoginResponse;
+
+      // Final branch
+      if ('access_token' in data) {
+        dispatchLogin(data);
+        if (data.is_superadmin) {
+          router.replace('/admin/tenants');
+        } else {
+          router.replace(redirectTo);
+        }
+        return;
+      }
+
+      // MultiTenant branch — pick a tenant.
+      dispatchLogin(data);
+      router.replace('/select-tenant');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error al iniciar sesion');
     } finally {
@@ -74,7 +139,6 @@ function LoginForm() {
     <div className="flex min-h-screen">
       {/* Left panel - Hero / Branding */}
       <div className="hidden lg:flex lg:w-3/5 relative bg-gradient-to-br from-primary/90 via-primary/70 to-primary/50 items-center justify-center overflow-hidden">
-        {/* Background pattern overlay */}
         <div className="absolute inset-0 opacity-10">
           <div
             className="absolute inset-0"
@@ -86,13 +150,10 @@ function LoginForm() {
           />
         </div>
 
-        {/* Decorative shapes */}
         <div className="absolute -top-24 -left-24 w-96 h-96 rounded-full bg-white/5 blur-3xl" />
         <div className="absolute -bottom-32 -right-32 w-[500px] h-[500px] rounded-full bg-white/5 blur-3xl" />
 
-        {/* Content */}
         <div className="relative z-10 max-w-lg px-12 text-white">
-          {/* Logo */}
           <div className="flex items-center gap-3 mb-12">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
@@ -105,18 +166,15 @@ function LoginForm() {
             <span className="text-3xl font-bold tracking-tight">VanFlux</span>
           </div>
 
-          {/* Headline */}
           <h1 className="text-4xl font-bold leading-tight mb-4">
             Gestiona tu inventario con inteligencia
           </h1>
 
-          {/* Subtitle */}
           <p className="text-lg text-white/80 mb-10 leading-relaxed">
             Control total de tu almacen, stock en tiempo real, y flujo de
             materiales optimizado.
           </p>
 
-          {/* Feature bullets */}
           <ul className="space-y-4">
             {features.map((feature) => (
               <li key={feature} className="flex items-center gap-3">
@@ -126,7 +184,6 @@ function LoginForm() {
             ))}
           </ul>
 
-          {/* Decorative divider */}
           <div className="mt-12 pt-8 border-t border-white/20">
             <p className="text-sm text-white/60">
               Confiado por equipos de almacen en toda Latinoamerica
@@ -138,7 +195,6 @@ function LoginForm() {
       {/* Right panel - Login form */}
       <div className="flex flex-1 flex-col items-center justify-center bg-background px-6 py-12 lg:px-16">
         <div className="w-full max-w-sm">
-          {/* Mobile logo */}
           <div className="flex flex-col items-center mb-10">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
@@ -154,9 +210,7 @@ function LoginForm() {
             </p>
           </div>
 
-          {/* Form */}
           <form onSubmit={handleSubmit} className="space-y-5">
-            {/* Email */}
             <div className="space-y-2">
               <Label htmlFor="email">Correo electronico</Label>
               <div className="relative">
@@ -176,7 +230,6 @@ function LoginForm() {
               </div>
             </div>
 
-            {/* Password */}
             <div className="space-y-2">
               <Label htmlFor="password">Contrasena</Label>
               <div className="relative">
@@ -210,7 +263,6 @@ function LoginForm() {
               </div>
             </div>
 
-            {/* Forgot password */}
             <div className="flex justify-end">
               <Link
                 href="/recuperar"
@@ -220,7 +272,6 @@ function LoginForm() {
               </Link>
             </div>
 
-            {/* Error message */}
             {error && (
               <div className="flex items-center gap-2 rounded-md bg-destructive/10 px-3 py-2.5 text-sm text-destructive animate-fade-in-up">
                 <AlertCircle className="h-4 w-4 shrink-0" />
@@ -228,7 +279,6 @@ function LoginForm() {
               </div>
             )}
 
-            {/* Submit */}
             <Button
               type="submit"
               className="w-full h-10"
@@ -245,7 +295,6 @@ function LoginForm() {
             </Button>
           </form>
 
-          {/* Register link */}
           <div className="mt-6 text-center text-sm text-muted-foreground">
             No tienes cuenta?{' '}
             <Link
@@ -256,7 +305,6 @@ function LoginForm() {
             </Link>
           </div>
 
-          {/* Footer */}
           <div className="mt-12 flex flex-col items-center gap-2 text-xs text-muted-foreground">
             <div className="flex items-center gap-3">
               <a
@@ -279,6 +327,14 @@ function LoginForm() {
       </div>
     </div>
   );
+}
+
+function translateLoginError(message: string): string {
+  if (/invalid credentials/i.test(message)) return 'Credenciales invalidas';
+  if (/deactivated/i.test(message)) return 'La cuenta esta desactivada';
+  if (/not yet activated/i.test(message))
+    return 'Cuenta sin activar. Usa tu codigo de invitacion.';
+  return message;
 }
 
 export default function LoginPage() {

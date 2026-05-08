@@ -62,11 +62,93 @@ export interface User {
   id: string;
   email: string;
   name: string;
-  role: UserRole;
+  /**
+   * Legacy single-role field. Multi-tenant foundation (A16-A19) replaced
+   * the global `users.role` column with per-tenant memberships, but the
+   * frontend still derives a coarse legacy role for UI gates that have
+   * not yet been migrated to consult `useAuthStore.activeTenant.role` or
+   * `useAuthStore.isSuperadmin`. Mapping applied in `auth-store.ts`:
+   *   superadmin            → 'superadmin'
+   *   tenant role 'owner'   → 'owner'
+   *   tenant role 'manager' → 'warehouse_manager'
+   *   tenant role 'operator'→ 'operator'
+   */
+  role?: UserRole;
+  is_superadmin?: boolean;
   is_active: boolean;
   must_set_password?: boolean;
   created_at: string;
   updated_at: string;
+}
+
+/**
+ * Multi-tenant role enum used in `user_tenants(role)` and surfaced via
+ * `LoginResponse.Final.role` and `MembershipDto.role`. See
+ * `sdd/multi-tenant-foundation/design` §3.2 / §6.
+ */
+export type TenantRole = 'owner' | 'manager' | 'operator';
+
+export const TENANT_ROLE_VALUES: ReadonlyArray<TenantRole> = [
+  'owner',
+  'manager',
+  'operator',
+] as const;
+
+export const TENANT_ROLE_LABELS: Record<TenantRole, string> = {
+  owner: 'Propietario',
+  manager: 'Gerente',
+  operator: 'Operador',
+};
+
+/** Tenant identity surfaced in login + admin endpoints. */
+export interface Tenant {
+  id: string;
+  slug: string;
+  name: string;
+  status: 'active' | 'suspended';
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+}
+
+/**
+ * Slimmed tenant identity carried in the auth store's `activeTenant` (no
+ * timestamps; only what the UI needs to display the active session).
+ */
+export interface ActiveTenant {
+  id: string;
+  slug: string;
+  name: string;
+}
+
+/** Membership entry as returned in `LoginResponse.MultiTenant.memberships`. */
+export interface AvailableTenant {
+  tenant_id: string;
+  tenant_slug: string;
+  tenant_name: string;
+  role: TenantRole;
+}
+
+/**
+ * Wire shape for `POST /auth/login` and `POST /auth/select-tenant`.
+ * The backend uses `#[serde(untagged)]`, so the discriminator is the
+ * presence/absence of `access_token` (Final) vs `intermediate_token`
+ * (MultiTenant). See `sdd/multi-tenant-foundation/design` §6.
+ */
+export type LoginResponse = LoginResponseFinal | LoginResponseMultiTenant;
+
+export interface LoginResponseFinal {
+  access_token: string;
+  refresh_token: string;
+  user: { id: string; email: string; name: string; is_superadmin: boolean };
+  tenant: { id: string; slug: string; name: string } | null;
+  role: TenantRole | null;
+  is_superadmin: boolean;
+}
+
+export interface LoginResponseMultiTenant {
+  intermediate_token: string;
+  memberships: AvailableTenant[];
 }
 
 export interface CreateUserResponse extends User {

@@ -1,3 +1,17 @@
+/**
+ * `/api/auth/login` — proxy to backend `/auth/login` for the multi-tenant
+ * two-step login flow (`sdd/multi-tenant-foundation/design` §6).
+ *
+ * The backend returns one of two shapes (untagged enum):
+ *   - **Final** `{ access_token, refresh_token, user, tenant, role, is_superadmin }`
+ *   - **MultiTenant** `{ intermediate_token, memberships }`
+ *
+ * This handler forwards the response shape verbatim so the client store
+ * (`useAuthStore.login`) can dispatch on `'access_token' in response`. Cookies
+ * (HttpOnly access + refresh) are set ONLY for the `Final` branch — the
+ * intermediate token is in-memory only on the client (it has a 60s TTL on the
+ * backend and is single-use against `/auth/select-tenant`).
+ */
 import { NextRequest, NextResponse } from 'next/server';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3100';
@@ -23,38 +37,35 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(error, { status: backendRes.status });
   }
 
-  const data: { access_token: string; refresh_token: string } = await backendRes.json();
+  const data = await backendRes.json();
+  const response = NextResponse.json(data);
 
-  // Decode JWT payload (base64url → base64 → JSON)
-  const b64 = data.access_token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
-  const payload = JSON.parse(Buffer.from(b64, 'base64').toString('utf-8'));
+  // Final response — set cookies. MultiTenant — no cookies until select.
+  if (typeof data.access_token === 'string') {
+    setAuthCookies(response, data.access_token, data.refresh_token);
+  }
 
-  const user = {
-    id: payload.sub,
-    email: payload.email,
-    name: payload.email.split('@')[0],
-    role: (payload.role as string).toLowerCase(),
-  };
+  return response;
+}
 
+function setAuthCookies(
+  response: NextResponse,
+  accessToken: string,
+  refreshToken: string,
+): void {
   const isProduction = process.env.NODE_ENV === 'production';
-
-  const response = NextResponse.json({ user });
-
-  response.cookies.set('vanflux_access', data.access_token, {
+  response.cookies.set('vanflux_access', accessToken, {
     httpOnly: true,
     sameSite: 'strict',
     secure: isProduction,
     path: '/',
     maxAge: 86400,
   });
-
-  response.cookies.set('vanflux_refresh', data.refresh_token, {
+  response.cookies.set('vanflux_refresh', refreshToken, {
     httpOnly: true,
     sameSite: 'strict',
     secure: isProduction,
     path: '/api/auth/refresh',
     maxAge: 604800,
   });
-
-  return response;
 }

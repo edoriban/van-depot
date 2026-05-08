@@ -48,7 +48,7 @@ async function refreshAndRetry<T>(path: string, options?: RequestInit): Promise<
   const refreshRes = await fetch('/api/auth/refresh', { method: 'POST' });
   if (!refreshRes.ok) {
     // Refresh failed — logout and redirect
-    await useAuthStore.getState().logout();
+    useAuthStore.getState().logout();
     if (typeof window !== 'undefined') {
       window.location.href = '/login';
     }
@@ -71,7 +71,7 @@ async function request<T>(
   options?: RequestInit,
   allowRetry = true,
 ): Promise<T> {
-  const token = useAuthStore.getState()._accessToken;
+  const token = useAuthStore.getState().accessToken;
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...(options?.headers as Record<string, string>),

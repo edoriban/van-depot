@@ -1,7 +1,11 @@
 /**
- * `/api/auth/activate` — proxy to backend `/auth/activate`. Backend now returns
- * the same `LoginResponse` shape as `/auth/login` (Final OR MultiTenant), so we
- * forward verbatim. Cookies are set ONLY for the Final branch.
+ * `/api/auth/select-tenant` — proxy to backend `/auth/select-tenant` (A13).
+ *
+ * Body:  `{ tenant_id, intermediate_token }` — the client posts the
+ *        intermediate token explicitly because it lives in the in-memory
+ *        Zustand store (NEVER persisted, NEVER in a cookie).
+ * Returns: `LoginResponse.Final` JSON. On success, sets HttpOnly access +
+ *          refresh cookies (same shape as `/api/auth/login` Final branch).
  */
 import { NextRequest, NextResponse } from 'next/server';
 
@@ -9,21 +13,20 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3100';
 
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null);
-  if (!body?.email || !body?.code || !body?.new_password) {
+  if (!body?.tenant_id || !body?.intermediate_token) {
     return NextResponse.json(
-      { error: 'Email, code and new_password required' },
+      { error: 'tenant_id and intermediate_token required' },
       { status: 400 },
     );
   }
 
-  const backendRes = await fetch(`${API_URL}/auth/activate`, {
+  const backendRes = await fetch(`${API_URL}/auth/select-tenant`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      email: body.email,
-      code: body.code,
-      new_password: body.new_password,
-    }),
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${body.intermediate_token}`,
+    },
+    body: JSON.stringify({ tenant_id: body.tenant_id }),
   }).catch(() => null);
 
   if (!backendRes) {
@@ -31,7 +34,7 @@ export async function POST(req: NextRequest) {
   }
 
   if (!backendRes.ok) {
-    const error = await backendRes.json().catch(() => ({ error: 'Activation failed' }));
+    const error = await backendRes.json().catch(() => ({ error: 'Tenant selection failed' }));
     return NextResponse.json(error, { status: backendRes.status });
   }
 

@@ -7,7 +7,7 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3100';
 
 // SWR fetcher that uses the in-memory auth token
 async function fetcher(url: string) {
-  const token = useAuthStore.getState()._accessToken;
+  const token = useAuthStore.getState().accessToken;
 
   const headers: HeadersInit = { 'Content-Type': 'application/json' };
   if (token) (headers as Record<string, string>)['Authorization'] = `Bearer ${token}`;
@@ -18,7 +18,7 @@ async function fetcher(url: string) {
     // Attempt refresh
     const refreshRes = await fetch('/api/auth/refresh', { method: 'POST' });
     if (!refreshRes.ok) {
-      await useAuthStore.getState().logout();
+      useAuthStore.getState().logout();
       if (typeof window !== 'undefined') {
         window.location.href = '/login';
       }
@@ -33,7 +33,7 @@ async function fetcher(url: string) {
     }
 
     // Retry with new token
-    const newToken = useAuthStore.getState()._accessToken;
+    const newToken = useAuthStore.getState().accessToken;
     const retryHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
     if (newToken) retryHeaders['Authorization'] = `Bearer ${newToken}`;
 

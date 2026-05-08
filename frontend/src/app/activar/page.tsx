@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useAuthStore } from '@/stores/auth-store';
-import type { UserRole } from '@/types';
+import type { LoginResponse } from '@/types';
 import {
   Mail,
   ArrowLeft,
@@ -19,8 +19,7 @@ import {
 
 export default function ActivarPage() {
   const router = useRouter();
-  const setUser = useAuthStore((s) => s.setUser);
-  const setAccessToken = useAuthStore((s) => s.setAccessToken);
+  const dispatchLogin = useAuthStore((s) => s.login);
 
   const [email, setEmail] = useState('');
   const [code, setCode] = useState('');
@@ -79,32 +78,25 @@ export default function ActivarPage() {
           return;
         }
 
-        const data: { user: { id: string; email: string; name: string; role: string } } =
-          await res.json();
+        const data = (await res.json()) as LoginResponse;
+        dispatchLogin(data);
 
-        // Hydrate the auth store — fetch the in-memory token via /api/auth/me
-        const meRes = await fetch('/api/auth/me');
-        const meData = meRes.ok ? await meRes.json() : null;
-
-        setUser({
-          id: data.user.id,
-          email: data.user.email,
-          name: data.user.name,
-          role: data.user.role as UserRole,
-          is_active: true,
-          created_at: '',
-          updated_at: '',
-        });
-        setAccessToken(meData?.token ?? null);
-
-        router.push('/inicio');
+        if ('access_token' in data) {
+          if (data.is_superadmin) {
+            router.push('/admin/tenants');
+          } else {
+            router.push('/inicio');
+          }
+        } else {
+          router.push('/select-tenant');
+        }
       } catch {
         setError('Error de conexion. Intenta de nuevo.');
       } finally {
         setIsSubmitting(false);
       }
     },
-    [email, code, newPassword, confirmPassword, setUser, setAccessToken, router],
+    [email, code, newPassword, confirmPassword, dispatchLogin, router],
   );
 
   return (

@@ -30,7 +30,7 @@ export function MapSearch({ warehouseId, onNavigateToZone }: MapSearchProps) {
       try {
         const API_URL =
           process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3100'
-        const token = useAuthStore.getState()._accessToken
+        const token = useAuthStore.getState().accessToken
         const headers: HeadersInit = { 'Content-Type': 'application/json' }
         if (token) headers['Authorization'] = `Bearer ${token}`
 

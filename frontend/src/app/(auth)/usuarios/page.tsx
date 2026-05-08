@@ -144,7 +144,7 @@ export default function UsersPage() {
     setEditingUser(u);
     setFormEmail(u.email);
     setFormName(u.name);
-    setFormRole(u.role);
+    setFormRole(u.role ?? 'operator');
     setFormIsActive(u.is_active);
     setFormOpen(true);
   };
@@ -300,8 +300,8 @@ export default function UsersPage() {
       key: 'role',
       header: 'Rol',
       render: (u) => (
-        <Badge className={ROLE_COLORS[u.role]} data-testid="user-role-badge">
-          {ROLE_LABELS[u.role]}
+        <Badge className={ROLE_COLORS[u.role ?? 'operator']} data-testid="user-role-badge">
+          {ROLE_LABELS[u.role ?? 'operator']}
         </Badge>
       ),
     },
