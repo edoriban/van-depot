@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 550 160">
+  <g transform="translate(10, 0)">
+    <polygon points="30,40 70,40 100,120 60,120" fill="#1e293b" />
+    <polygon points="130,40 90,40 60,120 100,120" fill="#00aba9" />
+  </g>
+  <text x="170" y="115" font-family="'Inter', 'Manrope', 'Helvetica Neue', sans-serif" font-weight="900" font-size="88" fill="#1e293b" letter-spacing="-3">VanFlux</text>
+</svg>

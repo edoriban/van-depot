@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160">
+  <!-- Minimalist 'Flow V' (Tech SaaS Logo) -->
+  <!-- The left dark band representing Solid Origin / Data Input -->
+  <!-- Starts Top-Left, ends Bottom-Center. Perfectly sharp edges. -->
+  <polygon points="30,40 70,40 100,120 60,120" fill="#1e293b" />
+  
+  <!-- Shadow/Overlap Accent separating the two limbs for that premium impossible visual depth -->
+  <polygon points="65,40 75,40 100,105 90,105" fill="#0f172a" opacity="0.3" />
+
+  <!-- The right Teal band representing Flux/Output -->
+  <!-- Overlaps the left band, dynamic forward slant -->
+  <polygon points="130,40 90,40 60,120 100,120" fill="#00aba9" />
+</svg>
