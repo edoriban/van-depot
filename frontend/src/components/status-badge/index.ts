@@ -1,5 +1,8 @@
 export { StatusBadge } from './status-badge';
 export type { StatusBadgeProps } from './status-badge';
+export { QualityStatusBadge } from './quality-status-badge';
+export type { QualityStatusBadgeProps } from './quality-status-badge';
+export { isLotConsumable } from './quality';
 export {
   resolveStatusBadge,
   NEUTRAL_TONE,
@@ -11,6 +14,12 @@ export {
   MOVEMENT_REASON_BADGE_CLASSES,
   PRODUCT_CLASS_LABELS,
   PRODUCT_CLASS_BADGE_CLASSES,
+  QUALITY_STATUS_LABELS,
+  QUALITY_STATUS_BADGE_CLASSES,
+  PICKING_LIST_STATUS_LABELS,
+  PICKING_LIST_STATUS_BADGE_CLASSES,
+  PICKING_LINE_STATUS_LABELS,
+  PICKING_LINE_STATUS_BADGE_CLASSES,
   type StatusBadgeVariant,
   type StatusBadgeLookup,
 } from './registry';

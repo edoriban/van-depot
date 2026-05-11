@@ -16,10 +16,17 @@
 import {
   PRODUCT_CLASS_LABELS,
   PRODUCT_CLASS_BADGE_CLASSES,
+  PICKING_LIST_STATUS_LABELS,
+  PICKING_LIST_STATUS_BADGE_CLASSES,
+  PICKING_LINE_STATUS_LABELS,
+  PICKING_LINE_STATUS_BADGE_CLASSES,
   type MovementType,
   type WorkOrderStatus,
   type MovementReason,
   type ProductClass,
+  type QualityStatus,
+  type PickingListStatus,
+  type PickingLineStatus,
 } from '@/types';
 
 /** Neutral fallback tone for unknown (variant, value) pairs. */
@@ -96,13 +103,42 @@ export const MOVEMENT_REASON_BADGE_CLASSES: Partial<Record<MovementReason, strin
   wo_cancel_reversal: 'bg-muted text-muted-foreground',
 };
 
+// --- quality (pending / approved / rejected / quarantine) ---
+
+export const QUALITY_STATUS_LABELS: Record<QualityStatus, string> = {
+  pending: 'En espera de QA',
+  approved: 'Aprobado',
+  rejected: 'Rechazado',
+  quarantine: 'Cuarentena',
+};
+
+export const QUALITY_STATUS_BADGE_CLASSES: Record<QualityStatus, string> = {
+  pending: 'bg-amber-500/10 text-amber-700 dark:text-amber-400',
+  approved: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400',
+  rejected: 'bg-rose-500/10 text-rose-700 dark:text-rose-400',
+  quarantine: 'bg-violet-500/10 text-violet-700 dark:text-violet-400',
+};
+
+// --- picking_list / picking_line — re-exported from @/types (SoT) ---
+
+export {
+  PICKING_LIST_STATUS_LABELS,
+  PICKING_LIST_STATUS_BADGE_CLASSES,
+  PICKING_LINE_STATUS_LABELS,
+  PICKING_LINE_STATUS_BADGE_CLASSES,
+};
+export type { PickingListStatus, PickingLineStatus };
+
 // --- variant resolver ---
 
 export type StatusBadgeVariant =
   | 'movement'
   | 'wo_status'
   | 'product_class'
-  | 'movement_reason';
+  | 'movement_reason'
+  | 'quality'
+  | 'picking_list'
+  | 'picking_line';
 
 export interface StatusBadgeLookup {
   label: string;
@@ -144,6 +180,27 @@ export function resolveStatusBadge(
       const v = value as MovementReason;
       const label = MOVEMENT_REASON_LABELS[v];
       const toneClass = MOVEMENT_REASON_BADGE_CLASSES[v];
+      if (label && toneClass) return { label, toneClass };
+      break;
+    }
+    case 'quality': {
+      const v = value as QualityStatus;
+      const label = QUALITY_STATUS_LABELS[v];
+      const toneClass = QUALITY_STATUS_BADGE_CLASSES[v];
+      if (label && toneClass) return { label, toneClass };
+      break;
+    }
+    case 'picking_list': {
+      const v = value as PickingListStatus;
+      const label = PICKING_LIST_STATUS_LABELS[v];
+      const toneClass = PICKING_LIST_STATUS_BADGE_CLASSES[v];
+      if (label && toneClass) return { label, toneClass };
+      break;
+    }
+    case 'picking_line': {
+      const v = value as PickingLineStatus;
+      const label = PICKING_LINE_STATUS_LABELS[v];
+      const toneClass = PICKING_LINE_STATUS_BADGE_CLASSES[v];
       if (label && toneClass) return { label, toneClass };
       break;
     }

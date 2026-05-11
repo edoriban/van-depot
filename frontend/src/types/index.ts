@@ -575,6 +575,15 @@ export interface ProductLot {
   supplier_id: string | null;
   received_quantity: number;
   quality_status: QualityStatus;
+  /**
+   * TRUE when the lot was produced by a Work Order completion (FG carve-out
+   * for the consumability predicate). Set only by `work_orders_repo`'s FG
+   * INSERT; defaults FALSE for all received / manually-created lots.
+   * Optional in the type because pre-`receiving-preventive-block` rows did
+   * not carry the field; backends running migration `20260511000001` always
+   * return it.
+   */
+  is_finished_good?: boolean;
   notes: string | null;
   total_quantity: number;
   purchase_order_line_id?: string | null;
@@ -856,3 +865,243 @@ export const WORK_ORDER_MOVEMENT_REASON_LABELS: Partial<
   back_flush: 'OT — Consumo (back-flush)',
   wo_cancel_reversal: 'Reversa por cancelación',
 };
+
+// ──────────────────────────────────────────────────────────────────────
+// Picking (Sem 2 #509 + Sem 3 #525 — wire contract locked)
+// ──────────────────────────────────────────────────────────────────────
+
+/** Six canonical statuses for a picking list. Matches Rust enum `PickingListStatus`. */
+export type PickingListStatus =
+  | 'draft'
+  | 'released'
+  | 'assigned'
+  | 'in_progress'
+  | 'completed'
+  | 'cancelled';
+
+/** Three line statuses tracked while a list is in_progress. */
+export type PickingLineStatus = 'pending' | 'picked' | 'skipped';
+
+/**
+ * Forward-compat — backend Sem 3 #525 emits `'fefo'` today. `'lifo'`/`'manual'`
+ * are reserved for future allocation strategies modeled in the domain layer
+ * but not yet surfaced via the wire DTO.
+ */
+export type AllocationStrategy = 'fefo' | 'lifo' | 'manual';
+
+/** Lifecycle of a `reservations` row created at /release. */
+export type ReservationStatus = 'active' | 'pending' | 'fulfilled' | 'released' | 'consumed';
+
+/**
+ * Structured reason emitted by the backend inside `body.reason` for the
+ * `lot_override_invalid` error code. See `lib/picking-error-codes.ts`.
+ */
+export type LotOverrideInvalidReason =
+  | 'unknown_lot'
+  | 'product_mismatch'
+  | 'not_in_warehouse'
+  | 'not_consumable'
+  | 'insufficient_quantity';
+
+export const PICKING_LIST_STATUS_VALUES: ReadonlyArray<PickingListStatus> = [
+  'draft',
+  'released',
+  'assigned',
+  'in_progress',
+  'completed',
+  'cancelled',
+] as const;
+
+export const PICKING_LIST_STATUS_LABELS: Record<PickingListStatus, string> = {
+  draft: 'Borrador',
+  released: 'Liberado',
+  assigned: 'Asignado',
+  in_progress: 'En proceso',
+  completed: 'Completado',
+  cancelled: 'Cancelado',
+};
+
+export const PICKING_LIST_STATUS_BADGE_CLASSES: Record<PickingListStatus, string> = {
+  draft: 'bg-muted text-muted-foreground',
+  released: 'bg-sky-500/10 text-sky-700 dark:text-sky-400',
+  assigned: 'bg-indigo-500/10 text-indigo-700 dark:text-indigo-400',
+  in_progress: 'bg-amber-500/10 text-amber-700 dark:text-amber-400',
+  completed: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400',
+  cancelled: 'bg-rose-500/10 text-rose-700 dark:text-rose-400',
+};
+
+export const PICKING_LINE_STATUS_VALUES: ReadonlyArray<PickingLineStatus> = [
+  'pending',
+  'picked',
+  'skipped',
+] as const;
+
+export const PICKING_LINE_STATUS_LABELS: Record<PickingLineStatus, string> = {
+  pending: 'Pendiente',
+  picked: 'Recolectado',
+  skipped: 'Omitido',
+};
+
+export const PICKING_LINE_STATUS_BADGE_CLASSES: Record<PickingLineStatus, string> = {
+  pending: 'bg-muted text-muted-foreground',
+  picked: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400',
+  skipped: 'bg-orange-500/10 text-orange-700 dark:text-orange-400',
+};
+
+/**
+ * Picking list aggregate root. Mirrors Rust `PickingListResponse` DTO
+ * surface (Sem 2 #509 + Sem 3 #525 audit timestamps + Sem 3 `assigned_to_user_id`).
+ * Optional fields use `?` because rows materialized before the Sem 3
+ * migration may not carry the audit timestamps.
+ */
+export interface PickingList {
+  id: string;
+  tenant_id: string;
+  /** Tenant-scoped human number, e.g. `PL-2026-0001`. */
+  picking_number: string;
+  customer_reference?: string;
+  customer_id?: string | null;
+  warehouse_id: string;
+  status: PickingListStatus;
+  /** Forward-compat — modeled, not surfaced via wire today. */
+  allocation_strategy?: AllocationStrategy;
+  /** Forward-compat — picking-wave grouping; emitted as `null` until Sem 5+. */
+  wave_id?: string | null;
+  notes?: string | null;
+  /** Sem 3 — set by /assign and cleared on /cancel. */
+  assigned_to_user_id?: string | null;
+  released_at?: string | null;
+  assigned_at?: string | null;
+  started_at?: string | null;
+  completed_at?: string | null;
+  cancelled_at?: string | null;
+  cancel_reason?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * Picking line — one row per requested product. JOIN fields (`product_name`,
+ * `product_sku`) are populated by the detail endpoint.
+ */
+export interface PickingLine {
+  id: string;
+  picking_list_id: string;
+  /** 1-based ordinal stable per list. */
+  line_number?: number;
+  product_id: string;
+  /** JOIN field — present on detail responses. */
+  product_name?: string;
+  /** JOIN field — present on detail responses. */
+  product_sku?: string;
+  warehouse_id: string;
+  requested_quantity: number;
+  /** Pre-allocation result of /release (FEFO). */
+  assigned_lot_id?: string | null;
+  /** Actual lot consumed on /pick — may equal or differ from `assigned_lot_id`. */
+  picked_lot_id?: string | null;
+  picked_quantity?: number | null;
+  status: PickingLineStatus;
+  /** Sem 3 audit — populated by /skip. */
+  skip_reason?: string | null;
+  notes?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Reservation {
+  id: string;
+  picking_line_id: string;
+  product_id?: string;
+  warehouse_id?: string;
+  lot_id?: string;
+  reserved_quantity?: number;
+  quantity?: number;
+  status: ReservationStatus;
+  expires_at?: string | null;
+  released_at?: string | null;
+  created_at: string;
+  updated_at?: string;
+}
+
+/** Envelope returned by every CRUD + transition endpoint (Sem 2 #509 + Sem 3 #525). */
+export interface PickingListDetailResponse {
+  list: PickingList;
+  lines: PickingLine[];
+}
+
+/** Slim row for the `/picking-lists` index. No audit timestamps. */
+export interface PickingListSummary {
+  id: string;
+  picking_number: string;
+  customer_reference?: string;
+  customer_id?: string | null;
+  warehouse_id: string;
+  status: PickingListStatus;
+  assigned_to_user_id?: string | null;
+  released_at?: string | null;
+  line_count: number;
+  created_at: string;
+  updated_at?: string;
+}
+
+// Request DTOs — match Rust DTOs in `routes/picking_lists.rs`.
+
+export interface CreatePickingLineRequest {
+  product_id: string;
+  warehouse_id?: string;
+  requested_quantity: number;
+}
+
+export interface CreatePickingListRequest {
+  customer_reference?: string;
+  customer_id?: string;
+  warehouse_id: string;
+  notes?: string;
+  lines: CreatePickingLineRequest[];
+}
+
+export interface UpdatePickingListRequest {
+  customer_reference?: string | null;
+  customer_id?: string | null;
+  notes?: string | null;
+  lines_to_add?: CreatePickingLineRequest[];
+  line_ids_to_remove?: string[];
+}
+
+export interface AssignRequest {
+  user_id: string;
+}
+
+export interface RecordPickRequest {
+  picked_lot_id: string;
+  picked_quantity: number;
+  notes?: string;
+}
+
+export interface SkipLineRequest {
+  reason?: string | null;
+}
+
+export interface CancelRequest {
+  reason?: string | null;
+}
+
+/**
+ * Membership row — mirrors backend `MembershipResponse` DTO at
+ * `crates/api/src/routes/admin/memberships.rs`. Re-used for the tenant-scoped
+ * `GET /memberships?role=operator` endpoint that feeds `AssignPickerDialog`.
+ */
+export interface Membership {
+  user_id: string;
+  tenant_id: string;
+  role: TenantRole;
+  user_email?: string | null;
+  /** Display name — backend may add this column at some point; tolerated absent. */
+  user_name?: string | null;
+  /** Backend-side `is_active` for the user_tenant; defaults true. */
+  is_active?: boolean;
+  /** Backend emits `created_at` (membership row); `joined_at` is an alias for UI clarity. */
+  created_at: string;
+  joined_at?: string;
+}

@@ -80,6 +80,7 @@ const navGroups: NavGroup[] = [
     items: [
       { title: 'Conteos Ciclicos', href: '/conteos-ciclicos', icon: CheckListIcon },
       { title: 'Recetas', href: '/recetas', icon: TaskDaily01Icon },
+      { title: 'Picking', href: '/picking', icon: ClipboardIcon },
       { title: 'Ordenes de trabajo', href: '/ordenes-de-trabajo', icon: FactoryIcon },
       { title: 'Movimientos', href: '/movimientos', icon: ArrowDataTransferHorizontalIcon },
     ],
