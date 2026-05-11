@@ -68,8 +68,8 @@ function CreatePurchaseOrderDialog({
   const [expectedDate, setExpectedDate] = useState('');
   const [notes, setNotes] = useState('');
   const [lines, setLines] = useState<
-    Array<{ product_id: string; quantity_ordered: string; unit_price: string; notes: string }>
-  >([{ product_id: '', quantity_ordered: '', unit_price: '', notes: '' }]);
+    Array<{ _key: string; product_id: string; quantity_ordered: string; unit_price: string; notes: string }>
+  >([{ _key: crypto.randomUUID(), product_id: '', quantity_ordered: '', unit_price: '', notes: '' }]);
   const [supplierProducts, setSupplierProducts] = useState<SupplierProduct[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -96,7 +96,7 @@ function CreatePurchaseOrderDialog({
   const addLine = () => {
     setLines((prev) => [
       ...prev,
-      { product_id: '', quantity_ordered: '', unit_price: '', notes: '' },
+      { _key: crypto.randomUUID(), product_id: '', quantity_ordered: '', unit_price: '', notes: '' },
     ]);
   };
 
@@ -118,7 +118,7 @@ function CreatePurchaseOrderDialog({
     setSupplierId('');
     setExpectedDate('');
     setNotes('');
-    setLines([{ product_id: '', quantity_ordered: '', unit_price: '', notes: '' }]);
+    setLines([{ _key: crypto.randomUUID(), product_id: '', quantity_ordered: '', unit_price: '', notes: '' }]);
     setSupplierProducts([]);
   };
 
@@ -194,7 +194,7 @@ function CreatePurchaseOrderDialog({
                 onValueChange={(val) => {
                   setSupplierId(val);
                   // Clear lines when supplier changes (products are supplier-specific)
-                  setLines([{ product_id: '', quantity_ordered: '', unit_price: '', notes: '' }]);
+                  setLines([{ _key: crypto.randomUUID(), product_id: '', quantity_ordered: '', unit_price: '', notes: '' }]);
                 }}
                 options={suppliers.map((s) => ({ value: s.id, label: s.name }))}
                 placeholder="Seleccionar proveedor"
@@ -248,7 +248,7 @@ function CreatePurchaseOrderDialog({
               <>
                 <div className="space-y-2">
                   {lines.map((line, idx) => (
-                    <div key={idx} className="grid grid-cols-12 gap-2 items-end rounded-lg border p-3">
+                    <div key={line._key} className="grid grid-cols-12 gap-2 items-end rounded-lg border p-3">
                       <div className="col-span-5 space-y-1">
                         <Label className="text-xs">Producto</Label>
                         <SearchableSelect
@@ -684,7 +684,7 @@ function OrdenesPageInner() {
 
 export default function OrdenesPage() {
   return (
-    <Suspense fallback={<div className="p-6">Cargando...</div>}>
+    <Suspense fallback={<div className="p-6">Cargando…</div>}>
       <OrdenesPageInner />
     </Suspense>
   );

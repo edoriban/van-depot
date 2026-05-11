@@ -12,6 +12,7 @@ export async function POST(req: NextRequest) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ refresh_token: refreshToken }),
+    cache: 'no-store',
   }).catch(() => null);
 
   if (!backendRes || !backendRes.ok) {

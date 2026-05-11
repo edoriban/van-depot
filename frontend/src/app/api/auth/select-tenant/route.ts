@@ -27,6 +27,7 @@ export async function POST(req: NextRequest) {
       Authorization: `Bearer ${body.intermediate_token}`,
     },
     body: JSON.stringify({ tenant_id: body.tenant_id }),
+    cache: 'no-store',
   }).catch(() => null);
 
   if (!backendRes) {

@@ -34,6 +34,7 @@ export function SearchableSelect({
   const [open, setOpen] = React.useState(false)
   const [search, setSearch] = React.useState('')
   const [highlightedIndex, setHighlightedIndex] = React.useState(0)
+  const listboxId = React.useId()
 
   const containerRef = React.useRef<HTMLDivElement>(null)
   const inputRef = React.useRef<HTMLInputElement>(null)
@@ -130,6 +131,7 @@ export function SearchableSelect({
         role="combobox"
         aria-expanded={open}
         aria-haspopup="listbox"
+        aria-controls={listboxId}
         disabled={disabled}
         onClick={() => !disabled && setOpen((prev) => !prev)}
         className={cn(
@@ -176,6 +178,7 @@ export function SearchableSelect({
           {/* Options list */}
           <div
             ref={listRef}
+            id={listboxId}
             role="listbox"
             className="max-h-[240px] overflow-y-auto p-1.5"
           >

@@ -28,6 +28,7 @@ interface DataTableProps<T> {
   emptyMessage?: string;
   emptyState?: React.ReactNode;
   rowClassName?: (item: T, index: number) => string;
+  getRowKey?: (item: T, index: number) => string | number;
 }
 
 export function DataTable<T>({
@@ -41,6 +42,7 @@ export function DataTable<T>({
   emptyMessage = 'No hay datos registrados',
   emptyState,
   rowClassName,
+  getRowKey,
 }: DataTableProps<T>) {
   const totalPages = Math.ceil(total / perPage);
   const hasResults = data.length > 0;
@@ -132,7 +134,8 @@ export function DataTable<T>({
                 </TableHeader>
                 <TableBody>
                   {data.map((item, idx) => (
-                    <TableRow key={idx} className={rowClassName?.(item, idx)}>
+                    // react-doctor: getRowKey is the stable id provider; idx fallback when none provided
+                    <TableRow key={getRowKey?.(item, idx) ?? idx} className={rowClassName?.(item, idx)}>
                       {columns.map((col) => (
                         <TableCell key={col.key}>{col.render(item)}</TableCell>
                       ))}

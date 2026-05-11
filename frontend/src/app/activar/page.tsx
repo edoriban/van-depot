@@ -123,7 +123,7 @@ export default function ActivarPage() {
           <div className="space-y-2">
             <Label htmlFor="email">Correo electronico</Label>
             <div className="relative">
-              <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+              <Mail className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground pointer-events-none" />
               <Input
                 id="email"
                 name="email"
@@ -133,7 +133,6 @@ export default function ActivarPage() {
                 onChange={(e) => setEmail(e.target.value)}
                 required
                 autoComplete="email"
-                autoFocus
                 className="pl-10"
               />
             </div>
@@ -178,9 +177,9 @@ export default function ActivarPage() {
                 tabIndex={-1}
               >
                 {showPassword ? (
-                  <EyeOff className="h-4 w-4" />
+                  <EyeOff className="size-4" />
                 ) : (
-                  <Eye className="h-4 w-4" />
+                  <Eye className="size-4" />
                 )}
               </button>
             </div>
@@ -203,7 +202,7 @@ export default function ActivarPage() {
           {/* Error message */}
           {error && (
             <div className="flex items-center gap-2 rounded-md bg-destructive/10 px-3 py-2.5 text-sm text-destructive animate-fade-in-up">
-              <AlertCircle className="h-4 w-4 shrink-0" />
+              <AlertCircle className="size-4 shrink-0" />
               <span>{error}</span>
             </div>
           )}
@@ -216,8 +215,8 @@ export default function ActivarPage() {
           >
             {isSubmitting ? (
               <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Activando...
+                <Loader2 className="mr-2 size-4 animate-spin" />
+                Activando…
               </>
             ) : (
               'Activar cuenta'
@@ -231,7 +230,7 @@ export default function ActivarPage() {
             href="/login"
             className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:text-primary/80 transition-colors"
           >
-            <ArrowLeft className="h-4 w-4" />
+            <ArrowLeft className="size-4" />
             Volver al inicio de sesion
           </Link>
         </div>

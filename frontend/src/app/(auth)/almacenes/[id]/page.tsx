@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { Suspense, useState, useEffect, useCallback } from 'react';
 import { useParams, useSearchParams, useRouter, usePathname } from 'next/navigation';
 import useSWR from 'swr';
 import dynamic from 'next/dynamic';
@@ -209,7 +209,7 @@ function LocationTreeNode({
         <button
           type="button"
           className={cn(
-            'flex items-center justify-center w-5 h-5 rounded transition-colors shrink-0',
+            'flex items-center justify-center size-5 rounded transition-colors shrink-0',
             (hasChildren || canHaveChildren) ? 'hover:bg-muted cursor-pointer' : '',
           )}
           onClick={() => (hasChildren || canHaveChildren) && onToggleExpand(location.id)}
@@ -219,7 +219,7 @@ function LocationTreeNode({
           {hasChildren || canHaveChildren ? (
             <svg
               className={cn(
-                'w-4 h-4 text-muted-foreground transition-transform duration-200',
+                'size-4 text-muted-foreground transition-transform duration-200',
                 isExpanded && 'rotate-90',
               )}
               fill="none"
@@ -589,7 +589,7 @@ function LocationsTab({ warehouseId }: { warehouseId: string }) {
                 <Label htmlFor="location-type">Tipo</Label>
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <Info className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
+                    <Info className="size-3.5 text-muted-foreground cursor-help" />
                   </TooltipTrigger>
                   <TooltipContent side="right" className="max-w-xs text-xs leading-relaxed">
                     <p className="font-semibold mb-1.5">Jerarquia de ubicaciones:</p>
@@ -906,7 +906,7 @@ function MovementsTab({ warehouseId }: { warehouseId: string }) {
 
 // --- Main Page ---
 
-export default function WarehouseDetailPage() {
+function WarehouseDetailPageInner() {
   const params = useParams();
   const warehouseId = params.id as string;
   const searchParams = useSearchParams();
@@ -949,7 +949,7 @@ export default function WarehouseDetailPage() {
     return (
       <div className="space-y-6" data-testid="warehouse-detail-loading">
         <div className="flex items-center gap-3">
-          <div className="h-10 w-10 rounded skeleton-shimmer" />
+          <div className="size-10 rounded skeleton-shimmer" />
           <div className="space-y-2">
             <div className="h-6 w-48 rounded skeleton-shimmer" />
             <div className="h-4 w-32 rounded skeleton-shimmer" />
@@ -1089,7 +1089,7 @@ export default function WarehouseDetailPage() {
               <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-4">
                 <HugeiconsIcon
                   icon={MapsLocation01Icon}
-                  className="h-10 w-10 text-muted-foreground/50 mb-3"
+                  className="size-10 text-muted-foreground/50 mb-3"
                 />
                 <h3 className="text-base font-medium mb-1">
                   Crea zonas en tu almacen para visualizar el mapa de stock
@@ -1112,5 +1112,13 @@ export default function WarehouseDetailPage() {
         </TabsContent>
       </Tabs>
     </div>
+  );
+}
+
+export default function WarehouseDetailPage() {
+  return (
+    <Suspense fallback={<div className="p-6">Cargando…</div>}>
+      <WarehouseDetailPageInner />
+    </Suspense>
   );
 }

@@ -21,7 +21,7 @@ export function MapSummaryBar({ summary }: { summary: WarehouseMapResponse['summ
             key={key}
             className={`flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm ${config.bg} ${config.text}`}
           >
-            <div className={`w-2.5 h-2.5 rounded-full ${config.dot}`} />
+            <div className={`size-2.5 rounded-full ${config.dot}`} />
             <span className="font-medium">{count}</span>
             <span>{config.label}</span>
           </div>

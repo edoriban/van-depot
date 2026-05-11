@@ -220,7 +220,7 @@ export default function ClasificacionAbcPage() {
         (i) => i.product_name.toLowerCase().includes(q) || i.product_sku.toLowerCase().includes(q),
       );
     }
-    const sorted = [...filtered].sort((a, b) => {
+    const sorted = filtered.toSorted((a, b) => {
       const mul = sortDir === 'asc' ? 1 : -1;
       return (a[sortField] - b[sortField]) * mul;
     });
@@ -269,11 +269,11 @@ export default function ClasificacionAbcPage() {
       {/* Summary Cards with Donut Charts */}
       {isLoading ? (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-          {[1, 2, 3].map((i) => (
-            <Card key={i}>
+          {['sk-a', 'sk-b', 'sk-c'].map((id) => (
+            <Card key={id}>
               <CardHeader><Skeleton className="h-5 w-32" /></CardHeader>
               <CardContent className="flex items-center gap-4">
-                <Skeleton className="h-20 w-20 rounded-full" />
+                <Skeleton className="size-20 rounded-full" />
                 <div className="space-y-2 flex-1">
                   <Skeleton className="h-8 w-16" />
                   <Skeleton className="h-4 w-28" />
@@ -304,7 +304,7 @@ export default function ClasificacionAbcPage() {
                     {report.summary.a_movement_percentage.toFixed(1)}% de movimientos
                   </p>
                   <p className="text-muted-foreground mt-1 text-xs">
-                    Tus productos estrella — controla su stock de cerca
+                    Tus productos estrella: controla su stock de cerca
                   </p>
                 </div>
               </div>
@@ -356,7 +356,7 @@ export default function ClasificacionAbcPage() {
                     {report.summary.c_movement_percentage.toFixed(1)}% de movimientos
                   </p>
                   <p className="text-muted-foreground mt-1 text-xs">
-                    Productos de bajo movimiento — revisa si siguen siendo necesarios
+                    Productos de bajo movimiento: revisa si siguen siendo necesarios
                   </p>
                 </div>
               </div>
@@ -412,8 +412,8 @@ export default function ClasificacionAbcPage() {
                 <ReferenceLine yAxisId="right" y={80} stroke="#f59e0b" strokeDasharray="6 3" label={{ value: '80%', position: 'right', fill: '#f59e0b', fontSize: 11 }} />
                 <ReferenceLine yAxisId="right" y={95} stroke="#ef4444" strokeDasharray="6 3" label={{ value: '95%', position: 'right', fill: '#ef4444', fontSize: 11 }} />
                 <Bar yAxisId="left" dataKey="movimientos" name="Movimientos" radius={[3, 3, 0, 0]}>
-                  {paretoData.map((entry, idx) => (
-                    <Cell key={idx} fill={CLASSIFICATION_COLORS[entry.classification] || CLASSIFICATION_COLORS.C} />
+                  {paretoData.map((entry) => (
+                    <Cell key={entry.sku} fill={CLASSIFICATION_COLORS[entry.classification] || CLASSIFICATION_COLORS.C} />
                   ))}
                 </Bar>
                 <Line
@@ -429,15 +429,15 @@ export default function ClasificacionAbcPage() {
             </ResponsiveContainer>
             <div className="mt-3 flex items-center gap-4 text-xs text-muted-foreground">
               <div className="flex items-center gap-1">
-                <div className="h-3 w-3 rounded bg-green-500" />
+                <div className="size-3 rounded bg-green-500" />
                 <span>A ({report.summary.a_count})</span>
               </div>
               <div className="flex items-center gap-1">
-                <div className="h-3 w-3 rounded bg-blue-500" />
+                <div className="size-3 rounded bg-blue-500" />
                 <span>B ({report.summary.b_count})</span>
               </div>
               <div className="flex items-center gap-1">
-                <div className="h-3 w-3 rounded bg-amber-500" />
+                <div className="size-3 rounded bg-amber-500" />
                 <span>C ({report.summary.c_count})</span>
               </div>
             </div>
@@ -540,7 +540,7 @@ export default function ClasificacionAbcPage() {
                                 {risk.label}
                               </Badge>
                             ) : (
-                              <span className="text-muted-foreground text-xs">—</span>
+                              <span className="text-muted-foreground text-xs">-</span>
                             )}
                           </td>
                         </tr>

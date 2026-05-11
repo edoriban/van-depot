@@ -28,7 +28,7 @@ export function ThemeToggle() {
 
   useEffect(() => setMounted(true), []);
 
-  if (!mounted) return <Button variant="ghost" size="icon" className="h-8 w-8" disabled />;
+  if (!mounted) return <Button variant="ghost" size="icon" className="size-8" disabled />;
 
   const currentTheme = theme ?? 'system';
   const currentIndex = THEME_CYCLE.indexOf(currentTheme as typeof THEME_CYCLE[number]);
@@ -42,12 +42,12 @@ export function ThemeToggle() {
     <Button
       variant="ghost"
       size="icon"
-      className="h-8 w-8"
+      className="size-8"
       onClick={() => setTheme(nextTheme)}
       aria-label={`${label} - Cambiar a ${THEME_LABELS[nextTheme]}`}
       title={label}
     >
-      <HugeiconsIcon icon={icon} className="h-4 w-4" />
+      <HugeiconsIcon icon={icon} className="size-4" />
     </Button>
   );
 }

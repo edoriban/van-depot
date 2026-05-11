@@ -105,7 +105,7 @@ export default function RecuperarPage() {
           /* Success state */
           <div className="space-y-6">
             <div className="flex items-start gap-3 rounded-md bg-primary/10 px-4 py-3.5 text-sm text-primary">
-              <CheckCircle2 className="h-5 w-5 shrink-0 mt-0.5" />
+              <CheckCircle2 className="size-5 shrink-0 mt-0.5" />
               <p>
                 Si el correo <strong>{email}</strong> esta registrado, recibiras
                 instrucciones para restablecer tu contrasena.
@@ -121,8 +121,8 @@ export default function RecuperarPage() {
               >
                 {isSubmitting ? (
                   <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Enviando...
+                    <Loader2 className="mr-2 size-4 animate-spin" />
+                    Enviando…
                   </>
                 ) : cooldown > 0 ? (
                   `Reenviar instrucciones (${cooldown}s)`
@@ -139,7 +139,7 @@ export default function RecuperarPage() {
             <div className="space-y-2">
               <Label htmlFor="email">Correo electronico</Label>
               <div className="relative">
-                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground pointer-events-none" />
                 <Input
                   id="email"
                   name="email"
@@ -149,7 +149,6 @@ export default function RecuperarPage() {
                   onChange={(e) => setEmail(e.target.value)}
                   required
                   autoComplete="email"
-                  autoFocus
                   className="pl-10"
                 />
               </div>
@@ -158,7 +157,7 @@ export default function RecuperarPage() {
             {/* Error message */}
             {error && (
               <div className="flex items-center gap-2 rounded-md bg-destructive/10 px-3 py-2.5 text-sm text-destructive animate-fade-in-up">
-                <AlertCircle className="h-4 w-4 shrink-0" />
+                <AlertCircle className="size-4 shrink-0" />
                 <span>{error}</span>
               </div>
             )}
@@ -171,8 +170,8 @@ export default function RecuperarPage() {
             >
               {isSubmitting ? (
                 <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Enviando...
+                  <Loader2 className="mr-2 size-4 animate-spin" />
+                  Enviando…
                 </>
               ) : (
                 'Enviar instrucciones'
@@ -187,7 +186,7 @@ export default function RecuperarPage() {
             href="/login"
             className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:text-primary/80 transition-colors"
           >
-            <ArrowLeft className="h-4 w-4" />
+            <ArrowLeft className="size-4" />
             Volver al inicio de sesion
           </Link>
         </div>

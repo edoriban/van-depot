@@ -68,12 +68,6 @@ export interface SeedDemoResponse {
 
 // ── Fetcher functions ───────────────────────────────────────────────────────
 
-/** `GET /admin/tenants?include_suspended=...`. Returns active tenants by default. */
-export function listTenants(includeSuspended = false): Promise<Tenant[]> {
-  const qs = includeSuspended ? '?include_suspended=true' : '';
-  return api.get<Tenant[]>(`/admin/tenants${qs}`);
-}
-
 /** `GET /admin/tenants/{id}`. 404 → throws ApiError. */
 export function getTenant(id: string): Promise<Tenant> {
   return api.get<Tenant>(`/admin/tenants/${id}`);

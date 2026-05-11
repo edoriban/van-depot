@@ -26,6 +26,7 @@ export async function POST(req: NextRequest) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email: body.email, password: body.password }),
+    cache: 'no-store',
   }).catch(() => null);
 
   if (!backendRes) {

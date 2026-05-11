@@ -131,7 +131,7 @@ export function SeedDemoModal({
             onClick={handleConfirm}
             disabled={isSubmitting}
           >
-            {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+            {isSubmitting ? <Loader2 className="size-4 animate-spin" /> : null}
             Cargar datos demo
           </Button>
         </DialogFooter>

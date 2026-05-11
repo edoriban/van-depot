@@ -132,7 +132,7 @@ export function PurchaseReturnDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Nueva devolución — Orden {purchaseOrder.order_number}</DialogTitle>
+          <DialogTitle>Nueva devolución: Orden {purchaseOrder.order_number}</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
           {/* Lines table */}
@@ -223,7 +223,7 @@ export function PurchaseReturnDialog({
               id="decrease-inventory"
               checked={decreaseInventory}
               onChange={(e) => setDecreaseInventory(e.target.checked)}
-              className="h-4 w-4 rounded border-input"
+              className="size-4 rounded border-input"
             />
             <Label htmlFor="decrease-inventory" className="font-normal cursor-pointer">
               Descontar del inventario

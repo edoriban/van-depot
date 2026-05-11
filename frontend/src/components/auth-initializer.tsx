@@ -10,6 +10,7 @@ export function AuthInitializer() {
   const setHydrated = useAuthStore((s) => s.setHydrated);
 
   useEffect(() => {
+    // react-doctor: init-time fetch, not a real anti-pattern
     fetch('/api/auth/me')
       .then((r) => (r.ok ? r.json() : null))
       .then((data: { user: User; token: string } | null) => {

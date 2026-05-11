@@ -346,7 +346,7 @@ export default function UsersPage() {
               variant="ghost"
               size="sm"
               data-testid="user-actions-btn"
-              className="h-8 w-8 p-0"
+              className="size-8 p-0"
             >
               <span className="sr-only">Abrir menu</span>
               <span className="text-lg leading-none">...</span>
@@ -482,7 +482,7 @@ export default function UsersPage() {
                   id="user-active"
                   checked={formIsActive}
                   onChange={(e) => setFormIsActive(e.target.checked)}
-                  className="h-4 w-4 rounded border-gray-300"
+                  className="size-4 rounded border-zinc-300"
                   data-testid="user-active-toggle"
                 />
                 <Label htmlFor="user-active" className="cursor-pointer">

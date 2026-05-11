@@ -22,7 +22,7 @@ const RESERVED_SLUGS = new Set([
   'health',
 ]);
 
-export const tenantSlugSchema = z
+const tenantSlugSchema = z
   .string()
   .trim()
   .min(3, 'Minimo 3 caracteres')
@@ -30,7 +30,7 @@ export const tenantSlugSchema = z
   .regex(SLUG_REGEX, 'Solo minusculas, digitos y guion (sin acentos)')
   .refine((s) => !RESERVED_SLUGS.has(s), { message: 'Slug reservado, elige otro' });
 
-export const tenantNameSchema = z
+const tenantNameSchema = z
   .string()
   .trim()
   .min(1, 'El nombre es requerido')
@@ -50,7 +50,3 @@ export const grantMembershipSchema = z.object({
   user_id: z.uuid('Debe ser un UUID valido'),
   role: z.enum(['owner', 'manager', 'operator']),
 });
-
-export type CreateTenantInput = z.infer<typeof createTenantSchema>;
-export type UpdateTenantInput = z.infer<typeof updateTenantSchema>;
-export type GrantMembershipInput = z.infer<typeof grantMembershipSchema>;

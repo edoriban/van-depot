@@ -37,7 +37,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   if (!isHydrated) {
     return (
       <div className="flex h-screen items-center justify-center">
-        <div className="text-muted-foreground">Cargando...</div>
+        <div className="text-muted-foreground">Cargando…</div>
       </div>
     );
   }
@@ -60,7 +60,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       <header className="border-b bg-card">
         <div className="mx-auto flex h-14 max-w-6xl items-center gap-3 px-4">
           <Link href="/admin/tenants" className="flex items-center gap-2 font-semibold">
-            <Building2 className="h-5 w-5 text-primary" />
+            <Building2 className="size-5 text-primary" />
             <span>Admin</span>
           </Link>
           <span className="text-muted-foreground text-sm">/</span>
@@ -76,7 +76,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
               onClick={handleLogout}
               className="gap-1.5"
             >
-              <LogOut className="h-3.5 w-3.5" />
+              <LogOut className="size-3.5" />
               Salir
             </Button>
           </div>
@@ -88,7 +88,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           href="/inicio"
           className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
         >
-          <ChevronLeft className="h-3 w-3" />
+          <ChevronLeft className="size-3" />
           Volver al panel
         </Link>
       </footer>

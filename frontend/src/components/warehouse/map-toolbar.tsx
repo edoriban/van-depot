@@ -61,7 +61,7 @@ export function MapToolbar({
           <Button
             variant="ghost"
             size="sm"
-            className="h-7 w-7 p-0"
+            className="size-7 p-0"
             onClick={onZoomOut}
             aria-label="Alejar"
           >
@@ -73,7 +73,7 @@ export function MapToolbar({
           <Button
             variant="ghost"
             size="sm"
-            className="h-7 w-7 p-0"
+            className="size-7 p-0"
             onClick={onZoomIn}
             aria-label="Acercar"
           >
@@ -147,7 +147,7 @@ export function MapToolbar({
         >
           &#9783;
           {activeFilterCount > 0 && (
-            <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[10px] text-primary-foreground">
+            <span className="absolute -top-1 -right-1 flex size-4 items-center justify-center rounded-full bg-primary text-[10px] text-primary-foreground">
               {activeFilterCount}
             </span>
           )}
@@ -241,7 +241,7 @@ export function MapToolbar({
               data-testid={`severity-filter-${sev}`}
             >
               <span
-                className="h-2 w-2 rounded-full shrink-0"
+                className="size-2 rounded-full shrink-0"
                 style={{ backgroundColor: colors.stroke }}
               />
               {config.label}

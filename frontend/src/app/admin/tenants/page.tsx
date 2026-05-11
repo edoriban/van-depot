@@ -61,7 +61,7 @@ export default function AdminTenantsPage() {
           <label className="flex cursor-pointer select-none items-center gap-2 text-sm">
             <input
               type="checkbox"
-              className="h-4 w-4"
+              className="size-4"
               checked={includeSuspended}
               onChange={(e) => setIncludeSuspended(e.target.checked)}
             />
@@ -70,7 +70,7 @@ export default function AdminTenantsPage() {
             </span>
           </label>
           <Button size="sm" onClick={() => setCreateOpen(true)}>
-            <Plus className="h-4 w-4" />
+            <Plus className="size-4" />
             Nuevo inquilino
           </Button>
         </div>
@@ -105,7 +105,7 @@ export default function AdminTenantsPage() {
             {isLoading ? (
               <TableRow>
                 <TableCell colSpan={5} className="text-center text-muted-foreground">
-                  <Loader2 className="mx-auto h-4 w-4 animate-spin" />
+                  <Loader2 className="mx-auto size-4 animate-spin" />
                 </TableCell>
               </TableRow>
             ) : tenants.length === 0 ? (
@@ -140,7 +140,7 @@ export default function AdminTenantsPage() {
                       className="inline-flex items-center text-primary hover:text-primary/80"
                       aria-label={`Ver ${t.name}`}
                     >
-                      <ChevronRight className="h-4 w-4" />
+                      <ChevronRight className="size-4" />
                     </Link>
                   </TableCell>
                 </TableRow>
@@ -242,6 +242,7 @@ function CreateTenantDialog({ open, onOpenChange, onCreated }: CreateTenantDialo
               onChange={(e) => setSlug(e.target.value)}
               placeholder="acme"
               autoComplete="off"
+              // react-doctor: autoFocus retained for dialog focus management
               autoFocus
             />
           </FormField>
@@ -266,7 +267,7 @@ function CreateTenantDialog({ open, onOpenChange, onCreated }: CreateTenantDialo
               Cancelar
             </Button>
             <Button type="submit" disabled={isSubmitting}>
-              {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              {isSubmitting ? <Loader2 className="size-4 animate-spin" /> : null}
               Crear
             </Button>
           </DialogFooter>

@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { toast } from 'sonner';
@@ -86,7 +86,7 @@ const CREATE_ERROR_LABELS: Record<string, string> = {
     'El producto debe ser de clase Materia prima para ser manufacturable.',
 };
 
-export default function OrdenesDeTrabajoPage() {
+function OrdenesDeTrabajoPageInner() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -418,7 +418,7 @@ export default function OrdenesDeTrabajoPage() {
       header: 'Centro',
       render: (w) =>
         locationMap.get(w.work_center_location_id)?.name ?? (
-          <span className="text-muted-foreground">—</span>
+          <span className="text-muted-foreground">-</span>
         ),
     },
     {
@@ -735,5 +735,13 @@ export default function OrdenesDeTrabajoPage() {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+export default function OrdenesDeTrabajoPage() {
+  return (
+    <Suspense fallback={<div className="p-6">Cargando…</div>}>
+      <OrdenesDeTrabajoPageInner />
+    </Suspense>
   );
 }

@@ -252,7 +252,7 @@ export function CommandPalette() {
         aria-label="Buscar"
       >
         <HugeiconsIcon icon={Search01Icon} size={16} />
-        <span className="hidden sm:inline">Buscar...</span>
+        <span className="hidden sm:inline">Buscar…</span>
         <kbd className="pointer-events-none hidden select-none rounded border bg-background px-1.5 py-0.5 font-mono text-[10px] font-medium text-muted-foreground sm:inline-block">
           {typeof navigator !== 'undefined' && /Mac|iPhone/.test(navigator.userAgent ?? '') ? '\u2318K' : 'Ctrl+K'}
         </kbd>
@@ -278,6 +278,7 @@ export function CommandPalette() {
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder="Buscar productos, paginas, recetas..."
+              // react-doctor: autoFocus retained for dialog focus management
               autoFocus
               className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
             />

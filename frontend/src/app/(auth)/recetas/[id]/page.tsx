@@ -274,7 +274,7 @@ export default function RecipeDetailPage() {
     return (
       <div className="space-y-6" data-testid="recipe-detail-loading">
         <div className="flex items-center gap-3">
-          <div className="h-10 w-10 rounded bg-muted animate-pulse" />
+          <div className="size-10 rounded bg-muted animate-pulse" />
           <div className="space-y-2">
             <div className="h-6 w-48 bg-muted rounded animate-pulse" />
             <div className="h-4 w-32 bg-muted rounded animate-pulse" />

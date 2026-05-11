@@ -11,6 +11,7 @@ export async function POST(req: NextRequest) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ refresh_token: refreshToken }),
+      cache: 'no-store',
     }).catch(() => {
       // Ignore backend errors — we always clear cookies locally
     });

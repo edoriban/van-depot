@@ -112,10 +112,6 @@ export const api = {
 // Product-classification endpoints
 // ──────────────────────────────────────────────────────────────────────
 
-export function getProduct(id: string): Promise<Product> {
-  return api.get<Product>(`/products/${id}`);
-}
-
 export function getProductClassLock(id: string): Promise<ClassLockStatus> {
   return api.get<ClassLockStatus>(`/products/${id}/class-lock`);
 }

@@ -227,7 +227,7 @@ function DevolucionesPageInner() {
 
 export default function DevolucionesPage() {
   return (
-    <Suspense fallback={<div className="p-6">Cargando...</div>}>
+    <Suspense fallback={<div className="p-6">Cargando…</div>}>
       <DevolucionesPageInner />
     </Suspense>
   );

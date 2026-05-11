@@ -100,8 +100,8 @@ export default function RegistroPage() {
         </div>
 
         {/* Decorative shapes */}
-        <div className="absolute -top-24 -left-24 w-96 h-96 rounded-full bg-white/5 blur-3xl" />
-        <div className="absolute -bottom-32 -right-32 w-[500px] h-[500px] rounded-full bg-white/5 blur-3xl" />
+        <div className="absolute -top-24 -left-24 size-96 rounded-full bg-white/5 blur-3xl" />
+        <div className="absolute -bottom-32 -right-32 size-[500px] rounded-full bg-white/5 blur-3xl" />
 
         {/* Content */}
         <div className="relative z-10 max-w-lg px-12 text-white">
@@ -133,7 +133,7 @@ export default function RegistroPage() {
           <ul className="space-y-4">
             {features.map((feature) => (
               <li key={feature} className="flex items-center gap-3">
-                <CheckCircle2 className="h-5 w-5 text-white/90 shrink-0" />
+                <CheckCircle2 className="size-5 text-white/90 shrink-0" />
                 <span className="text-white/90 text-base">{feature}</span>
               </li>
             ))}
@@ -173,7 +173,7 @@ export default function RegistroPage() {
             <div className="space-y-2">
               <Label htmlFor="name">Nombre completo</Label>
               <div className="relative">
-                <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+                <User className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground pointer-events-none" />
                 <Input
                   id="name"
                   name="name"
@@ -183,7 +183,6 @@ export default function RegistroPage() {
                   onChange={(e) => setName(e.target.value)}
                   required
                   autoComplete="name"
-                  autoFocus
                   className="pl-10"
                 />
               </div>
@@ -193,7 +192,7 @@ export default function RegistroPage() {
             <div className="space-y-2">
               <Label htmlFor="email">Correo electronico</Label>
               <div className="relative">
-                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground pointer-events-none" />
                 <Input
                   id="email"
                   name="email"
@@ -212,7 +211,7 @@ export default function RegistroPage() {
             <div className="space-y-2">
               <Label htmlFor="password">Contrasena</Label>
               <div className="relative">
-                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground pointer-events-none" />
                 <Input
                   id="password"
                   name="password"
@@ -234,9 +233,9 @@ export default function RegistroPage() {
                   }
                 >
                   {showPassword ? (
-                    <EyeOff className="h-4 w-4" />
+                    <EyeOff className="size-4" />
                   ) : (
-                    <Eye className="h-4 w-4" />
+                    <Eye className="size-4" />
                   )}
                 </button>
               </div>
@@ -246,7 +245,7 @@ export default function RegistroPage() {
             <div className="space-y-2">
               <Label htmlFor="confirmPassword">Confirmar contrasena</Label>
               <div className="relative">
-                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground pointer-events-none" />
                 <Input
                   id="confirmPassword"
                   name="confirmPassword"
@@ -270,9 +269,9 @@ export default function RegistroPage() {
                   }
                 >
                   {showConfirmPassword ? (
-                    <EyeOff className="h-4 w-4" />
+                    <EyeOff className="size-4" />
                   ) : (
-                    <Eye className="h-4 w-4" />
+                    <Eye className="size-4" />
                   )}
                 </button>
               </div>
@@ -285,7 +284,7 @@ export default function RegistroPage() {
                 id="terms"
                 checked={acceptTerms}
                 onChange={(e) => setAcceptTerms(e.target.checked)}
-                className="mt-1 h-4 w-4 rounded border-border accent-primary"
+                className="mt-1 size-4 rounded border-border accent-primary"
               />
               <Label
                 htmlFor="terms"
@@ -311,7 +310,7 @@ export default function RegistroPage() {
             {/* Error message */}
             {error && (
               <div className="flex items-center gap-2 rounded-md bg-destructive/10 px-3 py-2.5 text-sm text-destructive animate-fade-in-up">
-                <AlertCircle className="h-4 w-4 shrink-0" />
+                <AlertCircle className="size-4 shrink-0" />
                 <span>{error}</span>
               </div>
             )}
@@ -324,8 +323,8 @@ export default function RegistroPage() {
             >
               {isSubmitting ? (
                 <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Creando cuenta...
+                  <Loader2 className="mr-2 size-4 animate-spin" />
+                  Creando cuenta…
                 </>
               ) : (
                 'Crear cuenta'

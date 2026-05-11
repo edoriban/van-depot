@@ -116,7 +116,7 @@ export function MapSearch({ warehouseId, onNavigateToZone }: MapSearchProps) {
         <div className="absolute top-full left-0 z-50 mt-1 w-80 rounded-lg border bg-popover shadow-lg">
           {isLoading && (
             <div className="px-3 py-2 text-sm text-muted-foreground">
-              Buscando...
+              Buscando…
             </div>
           )}
 

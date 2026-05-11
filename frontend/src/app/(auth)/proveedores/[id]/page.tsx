@@ -539,7 +539,7 @@ export default function SupplierDetailPage() {
             </div>
           ) : products.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-12 text-center">
-              <HugeiconsIcon icon={Package01Icon} className="h-12 w-12 text-muted-foreground/50 mb-4" />
+              <HugeiconsIcon icon={Package01Icon} className="size-12 text-muted-foreground/50 mb-4" />
               <p className="text-sm font-medium text-muted-foreground">
                 No hay productos vinculados a este proveedor.
               </p>

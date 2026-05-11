@@ -24,6 +24,7 @@ export async function POST(req: NextRequest) {
       code: body.code,
       new_password: body.new_password,
     }),
+    cache: 'no-store',
   }).catch(() => null);
 
   if (!backendRes) {

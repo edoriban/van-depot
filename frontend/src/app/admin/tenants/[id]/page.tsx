@@ -88,7 +88,7 @@ export default function AdminTenantDetailPage({ params }: PageProps) {
   if (tenantSwr.isLoading) {
     return (
       <div className="flex min-h-[60vh] items-center justify-center">
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        <Loader2 className="size-6 animate-spin text-muted-foreground" />
       </div>
     );
   }
@@ -100,7 +100,7 @@ export default function AdminTenantDetailPage({ params }: PageProps) {
           href="/admin/tenants"
           className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
         >
-          <ArrowLeft className="h-3.5 w-3.5" /> Volver
+          <ArrowLeft className="size-3.5" /> Volver
         </Link>
         <div className="rounded-md border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
           No se pudo cargar el inquilino.
@@ -116,7 +116,7 @@ export default function AdminTenantDetailPage({ params }: PageProps) {
           href="/admin/tenants"
           className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
         >
-          <ArrowLeft className="h-3 w-3" /> Volver al listado
+          <ArrowLeft className="size-3" /> Volver al listado
         </Link>
         <div className="mt-2 flex items-end justify-between gap-4">
           <div>
@@ -148,7 +148,7 @@ export default function AdminTenantDetailPage({ params }: PageProps) {
             </p>
           </div>
           <Button size="sm" onClick={() => setGrantOpen(true)}>
-            <UserPlus className="h-4 w-4" />
+            <UserPlus className="size-4" />
             Agregar miembro
           </Button>
         </div>
@@ -168,7 +168,7 @@ export default function AdminTenantDetailPage({ params }: PageProps) {
               {membershipsSwr.isLoading ? (
                 <TableRow>
                   <TableCell colSpan={5} className="text-center text-muted-foreground">
-                    <Loader2 className="mx-auto h-4 w-4 animate-spin" />
+                    <Loader2 className="mx-auto size-4 animate-spin" />
                   </TableCell>
                 </TableRow>
               ) : memberships.length === 0 ? (
@@ -214,7 +214,7 @@ export default function AdminTenantDetailPage({ params }: PageProps) {
                         }}
                         aria-label="Revocar"
                       >
-                        <Trash2 className="h-4 w-4" />
+                        <Trash2 className="size-4" />
                       </Button>
                     </TableCell>
                   </TableRow>
@@ -245,7 +245,7 @@ export default function AdminTenantDetailPage({ params }: PageProps) {
             size="sm"
             onClick={() => setDeleteOpen(true)}
           >
-            <Trash2 className="h-4 w-4" />
+            <Trash2 className="size-4" />
             Eliminar inquilino
           </Button>
         </div>
@@ -421,7 +421,7 @@ function TenantSettingsCard({ tenant }: TenantSettingsCardProps) {
 
         <div className="sm:col-span-2 flex justify-end">
           <Button type="submit" disabled={!dirty || isSubmitting}>
-            {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+            {isSubmitting ? <Loader2 className="size-4 animate-spin" /> : null}
             Guardar cambios
           </Button>
         </div>
@@ -493,6 +493,7 @@ function DeleteTenantDialog({
             value={confirmText}
             onChange={(e) => setConfirmText(e.target.value)}
             placeholder={tenant.slug}
+            // react-doctor: autoFocus retained for dialog focus management
             autoFocus
           />
         </div>
@@ -512,7 +513,7 @@ function DeleteTenantDialog({
             onClick={handleDelete}
             disabled={!canConfirm || isSubmitting}
           >
-            {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+            {isSubmitting ? <Loader2 className="size-4 animate-spin" /> : null}
             Eliminar
           </Button>
         </DialogFooter>
@@ -600,6 +601,7 @@ function GrantMembershipDialog({
               value={userId}
               onChange={(e) => setUserId(e.target.value)}
               placeholder="00000000-0000-0000-0000-000000000000"
+              // react-doctor: autoFocus retained for dialog focus management
               autoFocus
             />
           </FormField>
@@ -629,7 +631,7 @@ function GrantMembershipDialog({
               Cancelar
             </Button>
             <Button type="submit" disabled={isSubmitting}>
-              {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              {isSubmitting ? <Loader2 className="size-4 animate-spin" /> : null}
               Agregar
             </Button>
           </DialogFooter>

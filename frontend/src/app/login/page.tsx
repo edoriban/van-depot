@@ -124,7 +124,7 @@ function LoginForm() {
   if (!isHydrated && !forceReady) {
     return (
       <div className="flex h-screen items-center justify-center">
-        <div className="text-muted-foreground">Cargando...</div>
+        <div className="text-muted-foreground">Cargando…</div>
       </div>
     );
   }
@@ -150,8 +150,8 @@ function LoginForm() {
           />
         </div>
 
-        <div className="absolute -top-24 -left-24 w-96 h-96 rounded-full bg-white/5 blur-3xl" />
-        <div className="absolute -bottom-32 -right-32 w-[500px] h-[500px] rounded-full bg-white/5 blur-3xl" />
+        <div className="absolute -top-24 -left-24 size-96 rounded-full bg-white/5 blur-3xl" />
+        <div className="absolute -bottom-32 -right-32 size-[500px] rounded-full bg-white/5 blur-3xl" />
 
         <div className="relative z-10 max-w-lg px-12 text-white">
           <div className="flex items-center gap-3 mb-12">
@@ -178,7 +178,7 @@ function LoginForm() {
           <ul className="space-y-4">
             {features.map((feature) => (
               <li key={feature} className="flex items-center gap-3">
-                <CheckCircle2 className="h-5 w-5 text-white/90 shrink-0" />
+                <CheckCircle2 className="size-5 text-white/90 shrink-0" />
                 <span className="text-white/90 text-base">{feature}</span>
               </li>
             ))}
@@ -214,7 +214,7 @@ function LoginForm() {
             <div className="space-y-2">
               <Label htmlFor="email">Correo electronico</Label>
               <div className="relative">
-                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground pointer-events-none" />
                 <Input
                   id="email"
                   name="email"
@@ -224,7 +224,6 @@ function LoginForm() {
                   onChange={(e) => setEmail(e.target.value)}
                   required
                   autoComplete="email"
-                  autoFocus
                   className="pl-10"
                 />
               </div>
@@ -233,7 +232,7 @@ function LoginForm() {
             <div className="space-y-2">
               <Label htmlFor="password">Contrasena</Label>
               <div className="relative">
-                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground pointer-events-none" />
                 <Input
                   id="password"
                   name="password"
@@ -255,9 +254,9 @@ function LoginForm() {
                   }
                 >
                   {showPassword ? (
-                    <EyeOff className="h-4 w-4" />
+                    <EyeOff className="size-4" />
                   ) : (
-                    <Eye className="h-4 w-4" />
+                    <Eye className="size-4" />
                   )}
                 </button>
               </div>
@@ -274,7 +273,7 @@ function LoginForm() {
 
             {error && (
               <div className="flex items-center gap-2 rounded-md bg-destructive/10 px-3 py-2.5 text-sm text-destructive animate-fade-in-up">
-                <AlertCircle className="h-4 w-4 shrink-0" />
+                <AlertCircle className="size-4 shrink-0" />
                 <span>{error}</span>
               </div>
             )}
@@ -286,8 +285,8 @@ function LoginForm() {
             >
               {isSubmitting ? (
                 <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Ingresando...
+                  <Loader2 className="mr-2 size-4 animate-spin" />
+                  Ingresando…
                 </>
               ) : (
                 'Iniciar sesion'
@@ -307,19 +306,19 @@ function LoginForm() {
 
           <div className="mt-12 flex flex-col items-center gap-2 text-xs text-muted-foreground">
             <div className="flex items-center gap-3">
-              <a
+              <Link
                 href="/terminos"
                 className="hover:text-foreground transition-colors"
               >
                 Terminos de servicio
-              </a>
+              </Link>
               <span aria-hidden="true">&middot;</span>
-              <a
+              <Link
                 href="/privacidad"
                 className="hover:text-foreground transition-colors"
               >
                 Politica de privacidad
-              </a>
+              </Link>
             </div>
             <p>&copy; 2026 VanFlux. Todos los derechos reservados.</p>
           </div>

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { Suspense, useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 import { api, getWorkOrder } from '@/lib/api-mutations';
@@ -730,11 +730,11 @@ function EntryWithPOForm({ onSuccess }: { onSuccess: () => void }) {
           <Input
             value={poSearch}
             onChange={(e) => setPoSearch(e.target.value)}
-            placeholder="Escribe el numero de orden..."
+            placeholder="Escribe el numero de orden…"
             data-testid="po-search"
           />
           {isLoadingPOs && (
-            <p className="text-sm text-muted-foreground">Buscando...</p>
+            <p className="text-sm text-muted-foreground">Buscando…</p>
           )}
           {poResults.length > 0 && (
             <div className="rounded-lg border divide-y">
@@ -812,9 +812,11 @@ function EntryWithPOForm({ onSuccess }: { onSuccess: () => void }) {
                   return (
                     <label
                       key={line.id}
+                      htmlFor={`po-line-${line.id}`}
                       className="flex items-start gap-3 px-4 py-3 cursor-pointer hover:bg-muted/50"
                     >
                       <input
+                        id={`po-line-${line.id}`}
                         type="radio"
                         name="po-line"
                         value={line.id}
@@ -1341,7 +1343,7 @@ interface MovementWithDetails extends Movement {
 
 // --- Main Page ---
 
-export default function MovementsPage() {
+function MovementsPageInner() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
@@ -1700,5 +1702,13 @@ export default function MovementsPage() {
         />
       </div>
     </div>
+  );
+}
+
+export default function MovementsPage() {
+  return (
+    <Suspense fallback={<div className="p-6">Cargando…</div>}>
+      <MovementsPageInner />
+    </Suspense>
   );
 }

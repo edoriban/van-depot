@@ -163,6 +163,7 @@ export function SwipeableItem({
           transition: transitioning
             ? `transform ${TRANSITION_DURATION} cubic-bezier(0.25, 0.46, 0.45, 0.94)`
             : 'none',
+          // TODO(react-doctor): apply will-change only during active swipe
           willChange: 'transform',
         }}
         onTouchStart={handleTouchStart}

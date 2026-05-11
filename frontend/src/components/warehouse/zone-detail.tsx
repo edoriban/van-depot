@@ -62,7 +62,7 @@ function StockBadge({ quantity, minStock }: { quantity: number; minStock: number
 
 function SubLocationSeverityDot({ severity }: { severity: ZoneSeverity }) {
   const config = SEVERITY_CONFIG[severity]
-  return <span className={`inline-block h-2 w-2 rounded-full ${config.dot}`} />
+  return <span className={`inline-block size-2 rounded-full ${config.dot}`} />
 }
 
 function SubLocationRow({

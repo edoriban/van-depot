@@ -537,7 +537,7 @@ export default function InventoryPage() {
                                   <Button
                                     variant="ghost"
                                     size="sm"
-                                    className="h-8 w-8 p-0"
+                                    className="size-8 p-0"
                                     data-testid="inventory-actions-btn"
                                   >
                                     <span className="sr-only">Abrir menu</span>

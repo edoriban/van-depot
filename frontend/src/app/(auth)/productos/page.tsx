@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { Suspense, useState, useEffect, useCallback } from 'react';
 import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 import { api, isApiError } from '@/lib/api-mutations';
 import { toast } from 'sonner';
@@ -1015,7 +1015,7 @@ function CategoriesTab({
 // Main Page
 // ==========================================
 
-export default function ProductosPage() {
+function ProductosPageInner() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
@@ -1117,5 +1117,13 @@ export default function ProductosPage() {
         </TabsContent>
       </Tabs>
     </div>
+  );
+}
+
+export default function ProductosPage() {
+  return (
+    <Suspense fallback={<div className="p-6">Cargando…</div>}>
+      <ProductosPageInner />
+    </Suspense>
   );
 }

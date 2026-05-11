@@ -629,7 +629,7 @@ export default function OrdenDeTrabajoDetailPage() {
               </>
             ) : (
               <p className="text-sm text-muted-foreground">
-                Resolviendo informacion del lote...
+                Resolviendo informacion del lote…
               </p>
             )}
             <Link

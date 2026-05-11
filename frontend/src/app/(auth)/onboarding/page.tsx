@@ -372,7 +372,7 @@ export default function OnboardingPage() {
               <div
                 key={s}
                 className={cn(
-                  'flex h-8 w-8 items-center justify-center rounded-full text-xs font-bold transition-colors',
+                  'flex size-8 items-center justify-center rounded-full text-xs font-bold transition-colors',
                   isDone && 'bg-primary text-primary-foreground',
                   isActive && 'bg-primary text-primary-foreground ring-4 ring-primary/20',
                   !isDone && !isActive && 'bg-muted text-muted-foreground'
@@ -483,7 +483,7 @@ function StepWarehouse({
     <Card data-testid="step-warehouse">
       <CardHeader>
         <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10">
+          <div className="flex size-10 items-center justify-center rounded-full bg-primary/10">
             <HugeiconsIcon icon={Store01Icon} size={20} className="text-primary" />
           </div>
           <div>
@@ -503,7 +503,6 @@ function StepWarehouse({
             placeholder='Ej: "Herrería Los García"'
             value={warehouseName}
             onChange={(e) => onNameChange(e.target.value)}
-            autoFocus
           />
         </div>
         <div className="space-y-2">
@@ -549,7 +548,7 @@ function StepTemplate({
     <Card data-testid="step-template">
       <CardHeader>
         <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10">
+          <div className="flex size-10 items-center justify-center rounded-full bg-primary/10">
             <HugeiconsIcon icon={SparklesIcon} size={20} className="text-primary" />
           </div>
           <div>
@@ -580,7 +579,7 @@ function StepTemplate({
               >
                 <div
                   className={cn(
-                    'flex h-9 w-9 shrink-0 items-center justify-center rounded-xl transition-colors',
+                    'flex size-9 shrink-0 items-center justify-center rounded-xl transition-colors',
                     isSelected ? 'bg-primary/15 text-primary' : 'bg-muted text-muted-foreground'
                   )}
                 >
@@ -648,7 +647,7 @@ function StepProducts({
     <Card data-testid="step-products">
       <CardHeader>
         <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10">
+          <div className="flex size-10 items-center justify-center rounded-full bg-primary/10">
             <HugeiconsIcon icon={Package01Icon} size={20} className="text-primary" />
           </div>
           <div>
@@ -799,7 +798,7 @@ function StepInvite({
     <Card data-testid="step-invite">
       <CardHeader>
         <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10">
+          <div className="flex size-10 items-center justify-center rounded-full bg-primary/10">
             <HugeiconsIcon icon={UserAdd01Icon} size={20} className="text-primary" />
           </div>
           <div>
@@ -968,7 +967,7 @@ function StepDone({
     <Card data-testid="step-done">
       <CardContent className="py-10 text-center space-y-4">
         <div className="flex justify-center">
-          <div className="flex h-16 w-16 items-center justify-center rounded-full bg-emerald-100 dark:bg-emerald-900/30">
+          <div className="flex size-16 items-center justify-center rounded-full bg-emerald-100 dark:bg-emerald-900/30">
             <HugeiconsIcon icon={RocketIcon} size={32} className="text-emerald-600 dark:text-emerald-400" />
           </div>
         </div>

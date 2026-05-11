@@ -24,7 +24,7 @@ export function OfflineIndicator() {
 
   return (
     <div className="bg-amber-500 text-white text-center py-1 text-sm font-medium">
-      Sin conexion — Los cambios se sincronizaran cuando vuelva la conexion
+      Sin conexion. Los cambios se sincronizaran cuando vuelva la conexion
     </div>
   );
 }

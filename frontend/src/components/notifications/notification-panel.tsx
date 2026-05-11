@@ -95,7 +95,7 @@ export function NotificationPanel({ onClose }: NotificationPanelProps) {
           <div className="space-y-3 p-4">
             {Array.from({ length: 3 }).map((_, i) => (
               <div key={i} className="flex gap-3">
-                <Skeleton className="h-2 w-2 shrink-0 rounded-full" />
+                <Skeleton className="size-2 shrink-0 rounded-full" />
                 <div className="flex-1 space-y-2">
                   <Skeleton className="h-3 w-3/4" />
                   <Skeleton className="h-3 w-1/2" />
@@ -144,9 +144,9 @@ function NotificationItem({
       {/* Unread dot */}
       <div className="mt-1.5 shrink-0">
         {!notification.is_read ? (
-          <span className="block h-2 w-2 rounded-full bg-blue-500" />
+          <span className="block size-2 rounded-full bg-blue-500" />
         ) : (
-          <span className="block h-2 w-2" />
+          <span className="block size-2" />
         )}
       </div>
 

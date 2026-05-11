@@ -209,7 +209,7 @@ export default function NotificacionesPage() {
             <div className="space-y-0 divide-y">
               {Array.from({ length: 5 }).map((_, i) => (
                 <div key={i} className="flex items-start gap-3 px-6 py-4">
-                  <Skeleton className="h-2 w-2 shrink-0 rounded-full mt-1.5" />
+                  <Skeleton className="size-2 shrink-0 rounded-full mt-1.5" />
                   <div className="flex-1 space-y-2">
                     <Skeleton className="h-3 w-1/4" />
                     <Skeleton className="h-3 w-3/4" />
@@ -229,9 +229,9 @@ export default function NotificacionesPage() {
                   {/* Unread dot */}
                   <div className="mt-1.5 shrink-0">
                     {!n.is_read ? (
-                      <span className="block h-2 w-2 rounded-full bg-blue-500" />
+                      <span className="block size-2 rounded-full bg-blue-500" />
                     ) : (
-                      <span className="block h-2 w-2" />
+                      <span className="block size-2" />
                     )}
                   </div>
 

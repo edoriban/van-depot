@@ -26,7 +26,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
   if (!isHydrated) {
     return (
       <div className="flex h-screen items-center justify-center">
-        <div className="text-muted-foreground">Cargando...</div>
+        <div className="text-muted-foreground">Cargando…</div>
       </div>
     );
   }

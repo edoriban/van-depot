@@ -53,7 +53,7 @@ export function BarcodeScanner({ onScan, onClose }: BarcodeScannerProps) {
 
   return (
     <div
-      className="fixed inset-0 z-50 bg-black flex flex-col"
+      className="fixed inset-0 z-50 bg-zinc-950 flex flex-col"
       data-testid="barcode-scanner"
     >
       {/* Header */}
@@ -64,7 +64,7 @@ export function BarcodeScanner({ onScan, onClose }: BarcodeScannerProps) {
           className="text-white p-2 min-w-[44px] min-h-[44px] flex items-center justify-center"
           data-testid="barcode-scanner-close"
         >
-          <HugeiconsIcon icon={Cancel01Icon} className="h-6 w-6" />
+          <HugeiconsIcon icon={Cancel01Icon} className="size-6" />
         </button>
       </div>
 

@@ -61,7 +61,7 @@ function StepIndicator({ current }: { current: 1 | 2 | 3 }) {
           <div className="flex flex-col items-center gap-1">
             <div
               className={cn(
-                'flex h-8 w-8 items-center justify-center rounded-full text-xs font-medium transition-colors',
+                'flex size-8 items-center justify-center rounded-full text-xs font-medium transition-colors',
                 step.number === current
                   ? 'bg-primary text-primary-foreground'
                   : step.number < current
@@ -278,9 +278,9 @@ export function DispatchWizard({
 
             {warehousesLoading ? (
               <div className="grid gap-3 sm:grid-cols-2">
-                {[1, 2, 3, 4].map((i) => (
+                {['s1', 's2', 's3', 's4'].map((id) => (
                   <div
-                    key={i}
+                    key={id}
                     className="h-20 rounded-xl bg-muted animate-pulse"
                   />
                 ))}
@@ -304,7 +304,7 @@ export function DispatchWizard({
                     )}
                     data-testid={`warehouse-card-${w.id}`}
                   >
-                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted">
+                    <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted">
                       <HugeiconsIcon
                         icon={Store01Icon}
                         size={18}
@@ -469,7 +469,9 @@ export function DispatchWizard({
 
             {/* Location selector */}
             <div className="space-y-2">
-              <label className="text-sm font-medium">Ubicacion de origen</label>
+              <label htmlFor="wizard-location-select" className="text-sm font-medium">
+                Ubicacion de origen
+              </label>
               {locationsLoading ? (
                 <div className="h-10 rounded-lg bg-muted animate-pulse" />
               ) : (
@@ -477,7 +479,7 @@ export function DispatchWizard({
                   value={selectedLocationId}
                   onValueChange={setSelectedLocationId}
                 >
-                  <SelectTrigger className="w-full" data-testid="wizard-location-select">
+                  <SelectTrigger id="wizard-location-select" className="w-full" data-testid="wizard-location-select">
                     <SelectValue placeholder="Seleccionar ubicacion" />
                   </SelectTrigger>
                   <SelectContent>

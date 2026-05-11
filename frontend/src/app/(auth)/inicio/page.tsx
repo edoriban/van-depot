@@ -289,7 +289,7 @@ export default function DashboardPage() {
         <Card className="border-primary/30 bg-primary/5" data-testid="welcome-banner">
           <CardContent className="p-6 text-center">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/vanflux-icon.svg" alt="VanFlux" className="h-12 w-12 mx-auto mb-4" />
+            <img src="/vanflux-icon.svg" alt="VanFlux" className="size-12 mx-auto mb-4" />
             <h2 className="text-xl font-semibold mb-2">¡Bienvenido a VanFlux!</h2>
             <p className="text-muted-foreground mb-4">
               Configura tu almacen en unos minutos para empezar a controlar tu inventario.
@@ -502,7 +502,7 @@ function QuickActionCard({
         style={{ animationDelay: `${index * 50}ms` }}
       >
         <CardContent className="flex items-center gap-3 p-4">
-          <HugeiconsIcon icon={icon} className={cn('h-8 w-8', color)} />
+          <HugeiconsIcon icon={icon} className={cn('size-8', color)} />
           <div>
             <p className="font-medium text-sm">{label}</p>
             <p className="text-xs text-muted-foreground">{description}</p>
@@ -596,7 +596,7 @@ function KpiSkeleton() {
       <CardHeader>
         <div className="flex items-center justify-between">
           <Skeleton className="h-3 w-20" />
-          <Skeleton className="h-4 w-4 rounded-full" />
+          <Skeleton className="size-4 rounded-full" />
         </div>
       </CardHeader>
       <CardContent>

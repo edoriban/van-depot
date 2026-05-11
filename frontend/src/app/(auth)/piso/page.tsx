@@ -305,17 +305,16 @@ export default function FloorModePage() {
           <Input
             className="flex-1 h-14 text-lg rounded-2xl bg-card border-border text-foreground placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-ring/30"
             placeholder="Buscar material..."
-            autoFocus
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             data-testid="floor-search-input"
           />
           <button
             onClick={() => setScannerOpen(true)}
-            className="h-14 w-14 shrink-0 rounded-2xl bg-muted border border-border flex items-center justify-center text-muted-foreground hover:text-foreground active:scale-95 transition-transform"
+            className="size-14 shrink-0 rounded-2xl bg-muted border border-border flex items-center justify-center text-muted-foreground hover:text-foreground active:scale-95 transition-transform"
             data-testid="floor-scan-btn"
           >
-            <HugeiconsIcon icon={BarCode01Icon} className="h-6 w-6" />
+            <HugeiconsIcon icon={BarCode01Icon} className="size-6" />
           </button>
         </div>
         {intent && query.trim() && (
@@ -427,7 +426,7 @@ export default function FloorModePage() {
                   className="flex items-center justify-between bg-card rounded-xl p-3 border border-border"
                 >
                   <div className="flex items-center gap-2">
-                    <HugeiconsIcon icon={MOVEMENT_ICONS[mov.movement_type]} className={`h-5 w-5 ${MOVEMENT_COLORS[mov.movement_type]}`} />
+                    <HugeiconsIcon icon={MOVEMENT_ICONS[mov.movement_type]} className={`size-5 ${MOVEMENT_COLORS[mov.movement_type]}`} />
                     <div>
                       <p className="text-sm font-medium text-foreground">{mov.product_name}</p>
                       <p className="text-xs text-muted-foreground">
@@ -466,7 +465,7 @@ export default function FloorModePage() {
               className="flex flex-col items-center justify-center gap-2 rounded-2xl bg-emerald-900/40 border border-emerald-800/50 p-5 min-h-[80px] active:scale-95 transition-transform"
               data-testid="floor-action-entry"
             >
-              <HugeiconsIcon icon={ArrowDown01Icon} className="h-7 w-7 text-emerald-400" />
+              <HugeiconsIcon icon={ArrowDown01Icon} className="size-7 text-emerald-400" />
               <span className="text-sm font-medium text-emerald-300">Entrada</span>
             </button>
             <button
@@ -474,7 +473,7 @@ export default function FloorModePage() {
               className="flex flex-col items-center justify-center gap-2 rounded-2xl bg-red-900/40 border border-red-800/50 p-5 min-h-[80px] active:scale-95 transition-transform"
               data-testid="floor-action-exit"
             >
-              <HugeiconsIcon icon={ArrowUp01Icon} className="h-7 w-7 text-red-400" />
+              <HugeiconsIcon icon={ArrowUp01Icon} className="size-7 text-red-400" />
               <span className="text-sm font-medium text-red-300">Salida</span>
             </button>
             <button
@@ -482,7 +481,7 @@ export default function FloorModePage() {
               className="flex flex-col items-center justify-center gap-2 rounded-2xl bg-blue-900/40 border border-blue-800/50 p-5 min-h-[80px] active:scale-95 transition-transform"
               data-testid="floor-action-transfer"
             >
-              <HugeiconsIcon icon={ArrowDataTransferHorizontalIcon} className="h-7 w-7 text-blue-400" />
+              <HugeiconsIcon icon={ArrowDataTransferHorizontalIcon} className="size-7 text-blue-400" />
               <span className="text-sm font-medium text-blue-300">Mover</span>
             </button>
           </div>
@@ -504,7 +503,7 @@ export default function FloorModePage() {
                   key={mov.id}
                   className="flex items-center gap-3 bg-card rounded-xl p-3 border border-border"
                 >
-                  <HugeiconsIcon icon={MOVEMENT_ICONS[mov.movement_type]} className={`h-5 w-5 ${MOVEMENT_COLORS[mov.movement_type]}`} />
+                  <HugeiconsIcon icon={MOVEMENT_ICONS[mov.movement_type]} className={`size-5 ${MOVEMENT_COLORS[mov.movement_type]}`} />
                   <div className="flex-1 min-w-0">
                     <p className="text-sm text-foreground truncate">
                       {mov.product_name}{' '}
@@ -780,7 +779,7 @@ function ActionForm({
           {/* Header */}
           <div className="flex items-center justify-between">
             <h3 className="text-lg font-semibold text-foreground flex items-center gap-2">
-              <HugeiconsIcon icon={config.icon} className={`h-5 w-5 ${config.iconColor}`} />
+              <HugeiconsIcon icon={config.icon} className={`size-5 ${config.iconColor}`} />
               {config.title}
             </h3>
             <button
@@ -788,7 +787,7 @@ function ActionForm({
               className="text-muted-foreground hover:text-muted-foreground p-1 min-w-[44px] min-h-[44px] flex items-center justify-center"
               data-testid="floor-action-close"
             >
-              <HugeiconsIcon icon={Cancel01Icon} className="h-5 w-5" />
+              <HugeiconsIcon icon={Cancel01Icon} className="size-5" />
             </button>
           </div>
 
