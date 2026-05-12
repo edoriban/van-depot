@@ -190,8 +190,8 @@ target tenant) and calls `seed::seed_demo_for_tenant(&mut tx, tenant_id)`.
 
 - **Idempotent**: re-running on a fully seeded tenant returns HTTP 200 with
   every counter in `summary` at zero. Existing rows are preserved.
-- **Demo users**: three global users — `carlos@vandev.mx` (owner),
-  `miguel@vandev.mx` (manager), `laura@vandev.mx` (operator) — get a
+- **Demo users**: three global users — `edgar@vandev.mx` (owner),
+  `luis@vandev.mx` (manager), `laura@vandev.mx` (operator) — get a
   `user_tenants` membership row in the target tenant. The user records
   themselves are global (re-used across tenants).
 - **Audit**: each call appends one `audit_log` row with

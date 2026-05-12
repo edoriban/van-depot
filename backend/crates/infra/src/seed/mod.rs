@@ -1137,15 +1137,15 @@ async fn seed_notifications(
 
 // ── seed_demo_users_and_memberships ─────────────────────────────────────────
 //
-// Inserts 3 demo users (carlos, miguel, laura — global, no tenant_id on
+// Inserts 3 demo users (edgar, luis, laura — global, no tenant_id on
 // `users`) and grants each a tenant membership in the target tenant.
 // Idempotent via ON CONFLICT (email) on users and ON CONFLICT (user_id,
 // tenant_id) on user_tenants.
 //
 // Roles per user-locked decision:
-//   carlos@vandev.mx → owner
-//   miguel@vandev.mx → manager
-//   laura@vandev.mx  → operator
+//   edgar@vandev.mx → owner
+//   luis@vandev.mx  → manager
+//   laura@vandev.mx → operator
 
 async fn seed_demo_users_and_memberships(
     conn: &mut PgConnection,
@@ -1156,9 +1156,9 @@ async fn seed_demo_users_and_memberships(
         .map_err(|e| DomainError::Internal(format!("hash demo password: {e}")))?;
 
     let demo_users: &[(&str, &str, &str)] = &[
-        ("carlos@vandev.mx", "Carlos Hernández", "owner"),
-        ("miguel@vandev.mx", "Miguel Torres",    "manager"),
-        ("laura@vandev.mx",  "Laura Díaz",       "operator"),
+        ("edgar@vandev.mx", "Edgar Hernández", "owner"),
+        ("luis@vandev.mx",  "Luis Torres",    "manager"),
+        ("laura@vandev.mx", "Laura Díaz",     "operator"),
     ];
 
     for (email, name, role) in demo_users {

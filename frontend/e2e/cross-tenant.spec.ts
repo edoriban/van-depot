@@ -202,7 +202,7 @@ async function listTenantProducts(
   ownerEmail: string,
 ): Promise<ProductRow[]> {
   // Use the impersonate-style flow available to us: log in as the seeded
-  // demo owner (Carlos) for that tenant. After seed-demo, Carlos always has
+  // demo owner (Edgar) for that tenant. After seed-demo, Edgar always has
   // an `owner` membership in the seeded tenant with password `demo123`. We
   // use that to read products through a tenant-scoped token.
   const res = await request.post(`${API_URL}/auth/login`, {
@@ -215,7 +215,7 @@ async function listTenantProducts(
   const body = (await res.json()) as
     | { access_token: string }
     | { intermediate_token: string };
-  // For a single-tenant demo owner this returns Final. For Carlos (multi),
+  // For a single-tenant demo owner this returns Final. For Edgar (multi),
   // it returns MultiTenant — we can't disambiguate by tenant via the
   // password endpoint, so we use the superadmin's tenant_id as a hint. To
   // keep this helper simple, callers expect single-tenant lookups only.
@@ -288,7 +288,7 @@ test.describe('Cross-tenant isolation (E7)', () => {
     const { token: superToken } = await loginSuperadmin(request);
 
     // Create both tenants and seed demo data into each (gives us stable
-    // SKU sets and the auto-created demo users carlos/miguel/laura — though
+    // SKU sets and the auto-created demo users edgar/luis/laura — though
     // we use our own bob/alice for cleanest membership wiring).
     const acme = await createTenant(
       request,
@@ -343,7 +343,7 @@ test.describe('Cross-tenant isolation (E7)', () => {
       'owner',
     );
 
-    // Capture an acme product id+sku for the deep-link test. Carlos has
+    // Capture an acme product id+sku for the deep-link test. Edgar has
     // owner-of-both-tenants after seed-demo, so we cannot use his login to
     // probe a single tenant. Instead, query as Bob via the two-step flow
     // (intermediate → select acme).

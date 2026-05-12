@@ -107,7 +107,7 @@ export function SeedDemoModal({
             <li>Proveedores y productos de ejemplo</li>
             <li>Una receta y dos ordenes de trabajo (borrador)</li>
             <li>Una orden de compra, un conteo ciclico y una notificacion</li>
-            <li>Usuarios demo (carlos, miguel, laura) con membresias</li>
+            <li>Usuarios demo (edgar, luis, laura) con membresias</li>
           </ul>
         </div>
 
