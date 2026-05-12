@@ -1,0 +1,32 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": [
+    "src/app/**/{page,layout,template,loading,error,not-found,route,default,global-error}.{ts,tsx}",
+    "next.config.{ts,js,mjs}",
+    "e2e/**/*.spec.ts",
+    "public/sw.js",
+    "src/stores/**/*.test.ts",
+    "src/components/picking/**/*.{ts,tsx}",
+    "src/features/picking/**/*.{ts,tsx}",
+    "src/lib/hooks/use-picking-*.{ts,tsx}",
+    "src/lib/picking-error-codes.ts"
+  ],
+  "project": [
+    "src/**/*.{ts,tsx}",
+    "!src/**/*.d.ts"
+  ],
+  "ignore": [
+    "src/components/ui/**",
+    "src/types/index.ts",
+    "src/components/status-badge/**",
+    "src/components/form-field/**",
+    "src/lib/schemas/id.ts",
+    "src/lib/schemas/pagination.ts"
+  ],
+  "ignoreExportsUsedInFile": true,
+  "ignoreDependencies": [
+    "shadcn",
+    "tw-animate-css",
+    "tailwindcss"
+  ]
+}
