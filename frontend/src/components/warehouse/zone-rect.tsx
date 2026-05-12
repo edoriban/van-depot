@@ -28,7 +28,6 @@ interface ZoneRectProps {
 function computeHeatFill(zone: ZoneHealthWithLayout): string {
   if (zone.severity === 'empty') return '#d1d5db' // gray-300 muted
 
-  const totalAlerts = zone.critical_count + zone.low_count + zone.warning_count
   if (zone.total_items === 0) return '#d1d5db'
 
   // Weight critical alerts more heavily
@@ -72,22 +71,19 @@ export function ZoneRect({
   const opacity = dimmed ? 0.2 : 1
 
   // T24: Highlight pulse animation
-  const [pulseOn, setPulseOn] = useState(false)
-  const intervalRef = useRef<ReturnType<typeof setInterval>>(null)
+  // Derive pulseOn from a tick counter so it auto-resets when `highlighted`
+  // toggles (no derived-useState anti-pattern, no setState-in-effect).
+  const [pulseTick, setPulseTick] = useState(0)
+  const pulseOn = highlighted ? pulseTick % 2 === 0 : false
 
   useEffect(() => {
-    if (!highlighted) {
-      setPulseOn(false)
-      if (intervalRef.current) clearInterval(intervalRef.current)
-      return
-    }
-    // Blink every 300ms for 3 seconds
-    setPulseOn(true)
-    intervalRef.current = setInterval(() => {
-      setPulseOn((prev) => !prev)
+    if (!highlighted) return
+    // Blink every 300ms while highlighted
+    const intervalId = setInterval(() => {
+      setPulseTick((t) => t + 1)
     }, 300)
     return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current)
+      clearInterval(intervalId)
     }
   }, [highlighted])
 

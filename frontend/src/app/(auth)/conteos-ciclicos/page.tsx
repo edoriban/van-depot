@@ -58,7 +58,7 @@ const STATUS_COLORS: Record<CycleCountStatus, string> = {
 const PER_PAGE = 20;
 
 export default function CycleCountsPage() {
-  const router = useRouter();
+  const { push } = useRouter();
 
   const [counts, setCounts] = useState<CycleCount[]>([]);
   const [total, setTotal] = useState(0);
@@ -144,7 +144,7 @@ export default function CycleCountsPage() {
       setFormName('');
       setFormWarehouseId('');
       setFormNotes('');
-      router.push(`/conteos-ciclicos/${created.id}`);
+      push(`/conteos-ciclicos/${created.id}`);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Error al crear conteo');
     } finally {
@@ -224,7 +224,7 @@ export default function CycleCountsPage() {
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => router.push(`/conteos-ciclicos/${c.id}`)}
+            onClick={() => push(`/conteos-ciclicos/${c.id}`)}
             data-testid="view-count-btn"
           >
             Ver
@@ -259,7 +259,7 @@ export default function CycleCountsPage() {
     <div className="space-y-6" data-testid="cycle-counts-page">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Conteos ciclicos</h1>
+          <h1 className="text-2xl font-semibold">Conteos ciclicos</h1>
           <p className="text-muted-foreground mt-1">
             Gestiona los conteos de inventario fisico
           </p>

@@ -215,7 +215,7 @@ export default function AlmacenesPage() {
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold">Almacenes</h1>
+            <h1 className="text-2xl font-semibold">Almacenes</h1>
             <p className="text-muted-foreground mt-1">
               Gestiona los almacenes de tu organizacion
             </p>

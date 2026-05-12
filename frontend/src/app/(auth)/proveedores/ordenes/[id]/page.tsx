@@ -158,7 +158,7 @@ function ReceptionProgress({
 
 export default function PurchaseOrderDetailPage() {
   const params = useParams<{ id: string }>();
-  const router = useRouter();
+  const { push } = useRouter();
 
   const [purchaseOrder, setPurchaseOrder] = useState<PurchaseOrder | null>(
     null,
@@ -410,7 +410,7 @@ export default function PurchaseOrderDetailPage() {
       <div className="space-y-4">
         <Button
           variant="outline"
-          onClick={() => router.push('/proveedores/ordenes')}
+          onClick={() => push('/proveedores/ordenes')}
         >
           Volver a ordenes
         </Button>
@@ -454,11 +454,11 @@ export default function PurchaseOrderDetailPage() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => router.push('/proveedores/ordenes')}
+            onClick={() => push('/proveedores/ordenes')}
           >
             &larr; Volver a ordenes
           </Button>
-          <h1 className="text-2xl font-bold font-mono">
+          <h1 className="text-2xl font-semibold font-mono">
             {po.order_number}
           </h1>
           <Badge className={statusConfig.className}>

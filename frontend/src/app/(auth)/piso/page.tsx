@@ -31,7 +31,6 @@ import {
   ArrowDown01Icon,
   ArrowUp01Icon,
   ArrowDataTransferHorizontalIcon,
-  Search01Icon,
   Cancel01Icon,
   BarCode01Icon,
 } from '@hugeicons/core-free-icons';
@@ -130,13 +129,6 @@ function timeAgo(dateStr: string): string {
   if (diffDays < 7) return `hace ${diffDays}d`;
   return date.toLocaleDateString('es-MX');
 }
-
-const MOVEMENT_LABELS: Record<MovementType, string> = {
-  entry: 'Entrada',
-  exit: 'Salida',
-  transfer: 'Transferencia',
-  adjustment: 'Ajuste',
-};
 
 const MOVEMENT_ICONS: Record<MovementType, Parameters<typeof HugeiconsIcon>[0]['icon']> = {
   entry: ArrowDown01Icon,

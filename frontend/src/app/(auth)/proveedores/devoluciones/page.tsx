@@ -10,7 +10,6 @@ import type {
 } from '@/types';
 import { DataTable, type ColumnDef } from '@/components/shared/data-table';
 import { EmptyState } from '@/components/shared/empty-state';
-import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
 import {
@@ -171,7 +170,7 @@ function DevolucionesPageInner() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Devoluciones a Proveedores</h1>
+          <h1 className="text-2xl font-semibold">Devoluciones a Proveedores</h1>
           <p className="text-muted-foreground mt-1">
             Historial de devoluciones de productos a proveedores
           </p>

@@ -13,15 +13,15 @@ import { useAutoTheme } from '@/hooks/use-auto-theme';
 
 export default function AuthLayout({ children }: { children: React.ReactNode }) {
   const { user, isHydrated } = useAuthStore();
-  const router = useRouter();
+  const { replace } = useRouter();
   const pathname = usePathname();
   useAutoTheme();
 
   useEffect(() => {
     if (isHydrated && !user) {
-      router.replace(`/login?from=${encodeURIComponent(pathname)}`);
+      replace(`/login?from=${encodeURIComponent(pathname)}`);
     }
-  }, [isHydrated, user, router, pathname]);
+  }, [isHydrated, user, replace, pathname]);
 
   if (!isHydrated) {
     return (

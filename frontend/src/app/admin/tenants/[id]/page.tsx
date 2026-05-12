@@ -70,7 +70,7 @@ interface PageProps {
 
 export default function AdminTenantDetailPage({ params }: PageProps) {
   const { id } = use(params);
-  const router = useRouter();
+  const { replace } = useRouter();
 
   const tenantSwr = useSWR<Tenant>(tenantKey(id), () => getTenant(id));
   const membershipsSwr = useSWR<MembershipResponse[]>(
@@ -258,7 +258,7 @@ export default function AdminTenantDetailPage({ params }: PageProps) {
         onDeleted={() => {
           void mutate(tenantsKey(false));
           void mutate(tenantsKey(true));
-          router.replace('/admin/tenants');
+          replace('/admin/tenants');
         }}
       />
 
@@ -372,9 +372,11 @@ function TenantSettingsCard({ tenant }: TenantSettingsCardProps) {
     try {
       await updateTenant(tenant.id, parsed.data);
       toast.success('Inquilino actualizado');
-      await mutate(tenantKey(tenant.id));
-      await mutate(tenantsKey(false));
-      await mutate(tenantsKey(true));
+      await Promise.all([
+        mutate(tenantKey(tenant.id)),
+        mutate(tenantsKey(false)),
+        mutate(tenantsKey(true)),
+      ]);
     } catch (err) {
       surfaceApiError(err, {
         fallback: 'No se pudo actualizar el inquilino',

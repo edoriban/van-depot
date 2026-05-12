@@ -554,7 +554,7 @@ function OrdenesPageInner() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Ordenes de Compra</h1>
+          <h1 className="text-2xl font-semibold">Ordenes de Compra</h1>
           <p className="text-muted-foreground mt-1">
             Gestiona las ordenes de compra a tus proveedores
           </p>

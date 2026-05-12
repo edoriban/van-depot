@@ -392,7 +392,7 @@ export default function UsersPage() {
     <div className="space-y-6" data-testid="users-page">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Usuarios</h1>
+          <h1 className="text-2xl font-semibold">Usuarios</h1>
           <p className="text-muted-foreground mt-1">
             Gestiona los usuarios y sus permisos
           </p>

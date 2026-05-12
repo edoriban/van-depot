@@ -21,7 +21,7 @@ export function AuthInitializer() {
       })
       .catch(() => {})
       .finally(() => setHydrated());
-  }, []);
+  }, [setUser, setAccessToken, setHydrated]);
 
   return null;
 }

@@ -558,7 +558,7 @@ export default function ProveedoresPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Proveedores</h1>
+          <h1 className="text-2xl font-semibold">Proveedores</h1>
           <p className="text-muted-foreground mt-1">
             Gestiona los proveedores de tu organizacion
           </p>

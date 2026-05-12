@@ -37,6 +37,7 @@ import { ThemeToggle } from '@/components/shared/theme-toggle';
 import { useIsMobile } from '@/hooks/use-mobile';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import Image from 'next/image';
 
 interface NavItem {
   title: string;
@@ -166,8 +167,7 @@ export function AppSidebar() {
     <Sidebar>
       <SidebarHeader className="border-b px-4 py-3">
         <div className="flex items-center gap-2">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/vanflux-icon.svg" alt="VanFlux" width={28} height={28} />
+          <Image src="/vanflux-icon.svg" alt="VanFlux" width={28} height={28} />
           <span className="text-lg font-semibold">VanFlux</span>
         </div>
       </SidebarHeader>

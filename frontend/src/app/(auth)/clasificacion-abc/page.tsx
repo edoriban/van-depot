@@ -241,7 +241,7 @@ export default function ClasificacionAbcPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Clasificacion ABC</h1>
+          <h1 className="text-2xl font-semibold">Clasificacion ABC</h1>
           <p className="text-muted-foreground mt-1 max-w-xl">
             La clasificacion ABC identifica tus productos mas importantes basandose en la frecuencia de movimientos. Los productos &apos;A&apos; son los que mas se mueven y merecen mayor atencion.
           </p>

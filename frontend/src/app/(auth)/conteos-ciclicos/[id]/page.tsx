@@ -11,7 +11,6 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
-import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 
 interface CycleCountDetail {
@@ -83,7 +82,7 @@ function SummaryCard({
 
 export default function CycleCountDetailPage() {
   const params = useParams();
-  const router = useRouter();
+  const { push } = useRouter();
   const countId = params.id as string;
 
   const [count, setCount] = useState<CycleCountDetail | null>(null);
@@ -371,7 +370,7 @@ export default function CycleCountDetailPage() {
         <div className="rounded-4xl border border-destructive/50 bg-destructive/10 p-4 text-sm text-destructive">
           {error}
         </div>
-        <Button variant="outline" onClick={() => router.push('/conteos-ciclicos')}>
+        <Button variant="outline" onClick={() => push('/conteos-ciclicos')}>
           Volver a conteos
         </Button>
       </div>
@@ -400,13 +399,13 @@ export default function CycleCountDetailPage() {
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => router.push('/conteos-ciclicos')}
+            onClick={() => push('/conteos-ciclicos')}
           >
             &larr; Volver
           </Button>
           <div>
             <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-bold" data-testid="count-name">
+              <h1 className="text-2xl font-semibold" data-testid="count-name">
                 {count.name}
               </h1>
               <Badge className={STATUS_COLORS[count.status]} data-testid="count-status">

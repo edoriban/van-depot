@@ -1,7 +1,7 @@
 'use client';
 
 import { useTheme } from 'next-themes';
-import { useEffect, useState } from 'react';
+import { useSyncExternalStore } from 'react';
 import { Button } from '@/components/ui/button';
 import { HugeiconsIcon } from '@hugeicons/react';
 import { Sun01Icon, Moon01Icon, ComputerIcon, Clock01Icon } from '@hugeicons/core-free-icons';
@@ -22,11 +22,13 @@ const THEME_ICONS: Record<string, typeof Sun01Icon> = {
   auto: Clock01Icon,
 };
 
+const emptySubscribe = () => () => {};
+const getMountedSnapshot = () => true;
+const getServerSnapshot = () => false;
+
 export function ThemeToggle() {
   const { theme, setTheme } = useTheme();
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => setMounted(true), []);
+  const mounted = useSyncExternalStore(emptySubscribe, getMountedSnapshot, getServerSnapshot);
 
   if (!mounted) return <Button variant="ghost" size="icon" className="size-8" disabled />;
 

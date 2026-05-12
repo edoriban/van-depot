@@ -31,6 +31,7 @@ import {
 import { cn } from '@/lib/utils';
 import { PageTransition } from '@/components/shared/page-transition';
 import Link from 'next/link';
+import Image from 'next/image';
 
 // --- Trend helpers ---
 
@@ -288,8 +289,7 @@ export default function DashboardPage() {
       {isBrandNewAccount ? (
         <Card className="border-primary/30 bg-primary/5" data-testid="welcome-banner">
           <CardContent className="p-6 text-center">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/vanflux-icon.svg" alt="VanFlux" className="size-12 mx-auto mb-4" />
+            <Image src="/vanflux-icon.svg" alt="VanFlux" width={48} height={48} className="size-12 mx-auto mb-4" />
             <h2 className="text-xl font-semibold mb-2">¡Bienvenido a VanFlux!</h2>
             <p className="text-muted-foreground mb-4">
               Configura tu almacen en unos minutos para empezar a controlar tu inventario.
@@ -479,7 +479,7 @@ export default function DashboardPage() {
 function DashboardHeader({ userName }: { userName?: string }) {
   return (
     <div>
-      <h1 className="text-2xl font-bold">Dashboard</h1>
+      <h1 className="text-2xl font-semibold">Dashboard</h1>
       <p className="text-muted-foreground mt-1">
         Bienvenido, {userName ?? 'usuario'}
       </p>

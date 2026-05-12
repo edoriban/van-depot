@@ -79,7 +79,7 @@ const TRANSITION_FROM_LABELS: Record<string, string> = {
 
 export default function OrdenDeTrabajoDetailPage() {
   const params = useParams<{ id: string }>();
-  const router = useRouter();
+  const { push } = useRouter();
   const id = params.id;
 
   const [workOrder, setWorkOrder] = useState<WorkOrderDetail | null>(null);
@@ -312,7 +312,7 @@ export default function OrdenDeTrabajoDetailPage() {
         <p className="text-destructive">
           {error ?? 'No se pudo cargar la orden de trabajo.'}
         </p>
-        <Button variant="outline" onClick={() => router.push('/ordenes-de-trabajo')}>
+        <Button variant="outline" onClick={() => push('/ordenes-de-trabajo')}>
           Volver al listado
         </Button>
       </div>
@@ -337,7 +337,7 @@ export default function OrdenDeTrabajoDetailPage() {
           </Link>
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          <h1 className="font-mono text-2xl font-bold">{workOrder.code}</h1>
+          <h1 className="font-mono text-2xl font-semibold">{workOrder.code}</h1>
           <Badge
             variant="outline"
             className={cn(

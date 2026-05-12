@@ -910,14 +910,14 @@ function WarehouseDetailPageInner() {
   const params = useParams();
   const warehouseId = params.id as string;
   const searchParams = useSearchParams();
-  const router = useRouter();
+  const { replace } = useRouter();
   const pathname = usePathname();
   const activeTab = searchParams.get('tab') || 'ubicaciones';
 
   const handleTabChange = (value: string) => {
     const sp = new URLSearchParams(searchParams.toString());
     sp.set('tab', value);
-    router.replace(`${pathname}?${sp.toString()}`, { scroll: false });
+    replace(`${pathname}?${sp.toString()}`, { scroll: false });
   };
 
   const [warehouse, setWarehouse] = useState<Warehouse | null>(null);
@@ -968,7 +968,7 @@ function WarehouseDetailPageInner() {
               <HugeiconsIcon icon={ArrowLeft01Icon} size={20} />
             </Link>
           </Button>
-          <h1 className="text-2xl font-bold">Almacen no encontrado</h1>
+          <h1 className="text-2xl font-semibold">Almacen no encontrado</h1>
         </div>
         <div className="rounded-4xl border border-destructive/50 bg-destructive/10 p-4 text-sm text-destructive">
           {error || 'No se pudo cargar el almacen solicitado.'}
@@ -987,7 +987,7 @@ function WarehouseDetailPageInner() {
           </Link>
         </Button>
         <div>
-          <h1 className="text-2xl font-bold">{warehouse.name}</h1>
+          <h1 className="text-2xl font-semibold">{warehouse.name}</h1>
           <p className="text-muted-foreground">{warehouse.address || 'Sin direccion'}</p>
         </div>
       </div>

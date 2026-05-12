@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useAuthStore } from '@/stores/auth-store';
 import type { LoginResponse } from '@/types';
+import Image from 'next/image';
 import {
   Mail,
   ArrowLeft,
@@ -18,7 +19,7 @@ import {
 } from 'lucide-react';
 
 export default function ActivarPage() {
-  const router = useRouter();
+  const { push } = useRouter();
   const dispatchLogin = useAuthStore((s) => s.login);
 
   const [email, setEmail] = useState('');
@@ -83,12 +84,12 @@ export default function ActivarPage() {
 
         if ('access_token' in data) {
           if (data.is_superadmin) {
-            router.push('/admin/tenants');
+            push('/admin/tenants');
           } else {
-            router.push('/inicio');
+            push('/inicio');
           }
         } else {
-          router.push('/select-tenant');
+          push('/select-tenant');
         }
       } catch {
         setError('Error de conexion. Intenta de nuevo.');
@@ -96,7 +97,7 @@ export default function ActivarPage() {
         setIsSubmitting(false);
       }
     },
-    [email, code, newPassword, confirmPassword, dispatchLogin, router],
+    [email, code, newPassword, confirmPassword, dispatchLogin, push],
   );
 
   return (
@@ -104,15 +105,14 @@ export default function ActivarPage() {
       <div className="w-full max-w-sm">
         {/* Logo */}
         <div className="flex flex-col items-center mb-10">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
+          <Image
             src="/vanflux-icon.svg"
             alt="VanFlux"
             width={44}
             height={44}
             className="mb-3"
           />
-          <h2 className="text-2xl font-bold tracking-tight">Activar cuenta</h2>
+          <h2 className="text-2xl font-semibold tracking-tight">Activar cuenta</h2>
           <p className="mt-1.5 text-sm text-muted-foreground text-center">
             Ingresa tu correo, el codigo de activacion y establece tu contrasena
           </p>

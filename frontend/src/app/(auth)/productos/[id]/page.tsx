@@ -113,7 +113,7 @@ function formatDate(iso: string): string {
 
 export default function ProductDetailPage() {
   const params = useParams<{ id: string }>();
-  const router = useRouter();
+  const { push } = useRouter();
 
   const [product, setProduct] = useState<Product | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -295,7 +295,7 @@ export default function ProductDetailPage() {
   if (error || !product) {
     return (
       <div className="space-y-4">
-        <Button variant="outline" onClick={() => router.push('/productos')}>
+        <Button variant="outline" onClick={() => push('/productos')}>
           Volver a productos
         </Button>
         <div className="rounded-4xl border border-destructive/50 bg-destructive/10 p-4 text-sm text-destructive">
@@ -317,11 +317,11 @@ export default function ProductDetailPage() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => router.push('/productos')}
+            onClick={() => push('/productos')}
           >
             Volver a productos
           </Button>
-          <h1 className="text-2xl font-bold">{product.name}</h1>
+          <h1 className="text-2xl font-semibold">{product.name}</h1>
           <Badge
             variant="outline"
             className={cn(

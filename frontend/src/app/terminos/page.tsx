@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import Image from 'next/image';
 import Link from 'next/link';
 
 export const metadata: Metadata = {
@@ -14,8 +15,7 @@ export default function TerminosPage() {
       <header className="border-b">
         <div className="mx-auto max-w-4xl px-6 py-4 flex items-center justify-between">
           <Link href="/login" className="flex items-center gap-2">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
+            <Image
               src="/vanflux-icon.svg"
               alt="VanFlux"
               width={28}
@@ -34,7 +34,7 @@ export default function TerminosPage() {
 
       {/* Content */}
       <main className="mx-auto max-w-4xl px-6 py-12">
-        <h1 className="text-3xl font-bold mb-2">Terminos de Servicio</h1>
+        <h1 className="text-3xl font-semibold mb-2">Terminos de Servicio</h1>
         <p className="text-muted-foreground mb-10">
           Ultima actualizacion: abril 2026
         </p>

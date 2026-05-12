@@ -21,7 +21,7 @@ import type {
 import { TENANT_ROLE_LABELS } from '@/types';
 
 export default function SelectTenantPage() {
-  const router = useRouter();
+  const { replace } = useRouter();
   const intermediateToken = useAuthStore((s) => s.intermediateToken);
   const availableTenants = useAuthStore((s) => s.availableTenants);
   const dispatchSelect = useAuthStore((s) => s.selectTenant);
@@ -34,13 +34,13 @@ export default function SelectTenantPage() {
   useEffect(() => {
     if (!isHydrated) return;
     if (!intermediateToken) {
-      router.replace('/login');
+      replace('/login');
     }
-  }, [isHydrated, intermediateToken, router]);
+  }, [isHydrated, intermediateToken, replace]);
 
   async function handlePick(tenant: AvailableTenant) {
     if (!intermediateToken) {
-      router.replace('/login');
+      replace('/login');
       return;
     }
     setError('');
@@ -64,7 +64,7 @@ export default function SelectTenantPage() {
         if (res.status === 401 || res.status === 403) {
           // Intermediate token expired/invalid — kick the user back to login.
           logout();
-          router.replace('/login');
+          replace('/login');
           return;
         }
         setError(msg);
@@ -73,7 +73,7 @@ export default function SelectTenantPage() {
 
       const data = (await res.json()) as LoginResponseFinal;
       dispatchSelect(data);
-      router.replace('/inicio');
+      replace('/inicio');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error de conexion');
     } finally {
@@ -149,7 +149,7 @@ export default function SelectTenantPage() {
             size="sm"
             onClick={() => {
               logout();
-              router.replace('/login');
+              replace('/login');
             }}
             disabled={pendingTenantId !== null}
           >

@@ -71,14 +71,12 @@ function isProductClass(value: unknown): value is ProductClass {
 
 function ProductsTab({
   categories,
-  fetchCategories: _fetchCategories,
   filterClass,
   setFilterClass,
   filterManufactured,
   setFilterManufactured,
 }: {
   categories: Category[];
-  fetchCategories: () => void;
   filterClass: ProductClass | null;
   setFilterClass: (value: ProductClass | null) => void;
   filterManufactured: boolean;
@@ -418,7 +416,6 @@ function ProductsTab({
               type="button"
               role="tab"
               aria-selected={isActive}
-              aria-pressed={isActive}
               onClick={() => handleChipClick(chip.value)}
               data-testid={chip.testId}
               data-active={isActive ? 'true' : 'false'}
@@ -437,7 +434,6 @@ function ProductsTab({
           type="button"
           role="tab"
           aria-selected={filterManufactured}
-          aria-pressed={filterManufactured}
           onClick={() => {
             setFilterManufactured(!filterManufactured);
             setPage(1);
@@ -1017,7 +1013,7 @@ function CategoriesTab({
 
 function ProductosPageInner() {
   const searchParams = useSearchParams();
-  const router = useRouter();
+  const { replace } = useRouter();
   const pathname = usePathname();
   const activeTab = searchParams.get('tab') || 'productos';
 
@@ -1034,7 +1030,7 @@ function ProductosPageInner() {
   const handleTabChange = (value: string) => {
     const sp = new URLSearchParams(searchParams.toString());
     sp.set('tab', value);
-    router.replace(`${pathname}?${sp.toString()}`, { scroll: false });
+    replace(`${pathname}?${sp.toString()}`, { scroll: false });
   };
 
   const setFilterClass = useCallback(
@@ -1046,9 +1042,9 @@ function ProductosPageInner() {
         sp.set('class', next);
       }
       const qs = sp.toString();
-      router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+      replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
     },
-    [searchParams, pathname, router],
+    [searchParams, pathname, replace],
   );
 
   const setFilterManufactured = useCallback(
@@ -1060,9 +1056,9 @@ function ProductosPageInner() {
         sp.delete('is_manufactured');
       }
       const qs = sp.toString();
-      router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+      replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
     },
-    [searchParams, pathname, router],
+    [searchParams, pathname, replace],
   );
 
   const [categories, setCategories] = useState<Category[]>([]);
@@ -1079,13 +1075,23 @@ function ProductosPageInner() {
   }, []);
 
   useEffect(() => {
-    fetchCategories();
-  }, [fetchCategories]);
+    let cancelled = false;
+    api.get<PaginatedResponse<Category>>('/categories?page=1&per_page=100')
+      .then((res) => {
+        if (!cancelled) setCategories(res.data);
+      })
+      .catch(() => {
+        // Categories are optional for display
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   return (
     <div className="space-y-6" data-testid="productos-page">
       <div>
-        <h1 className="text-2xl font-bold">Productos</h1>
+        <h1 className="text-2xl font-semibold">Productos</h1>
         <p className="text-muted-foreground mt-1">
           Gestiona los productos y categorias de tu inventario
         </p>
@@ -1104,7 +1110,6 @@ function ProductosPageInner() {
         <TabsContent value="productos">
           <ProductsTab
             categories={categories}
-            fetchCategories={fetchCategories}
             filterClass={filterClass}
             setFilterClass={setFilterClass}
             filterManufactured={filterManufactured}

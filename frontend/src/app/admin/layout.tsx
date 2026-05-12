@@ -15,7 +15,7 @@ import { useAuthStore } from '@/stores/auth-store';
 import { Button } from '@/components/ui/button';
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
-  const router = useRouter();
+  const { replace } = useRouter();
   const pathname = usePathname();
 
   const isHydrated = useAuthStore((s) => s.isHydrated);
@@ -26,13 +26,13 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   useEffect(() => {
     if (!isHydrated) return;
     if (!user && !isSuperadmin) {
-      router.replace(`/login?from=${encodeURIComponent(pathname)}`);
+      replace(`/login?from=${encodeURIComponent(pathname)}`);
       return;
     }
     if (!isSuperadmin) {
-      router.replace('/inicio');
+      replace('/inicio');
     }
-  }, [isHydrated, isSuperadmin, user, router, pathname]);
+  }, [isHydrated, isSuperadmin, user, replace, pathname]);
 
   if (!isHydrated) {
     return (
@@ -52,7 +52,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       // Best-effort.
     }
     logout();
-    router.replace('/login');
+    replace('/login');
   }
 
   return (

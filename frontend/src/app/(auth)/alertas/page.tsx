@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { api } from '@/lib/api-mutations';
 import type { StockAlert, AlertSummary, Warehouse } from '@/types';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -254,7 +254,7 @@ function PageHeader({ summary }: { summary: AlertSummary | null }) {
     <div className="flex flex-wrap items-center gap-4" data-testid="alertas-header">
       <div className="flex items-center gap-2">
         <HugeiconsIcon icon={Alert02Icon} size={24} className="text-amber-500" />
-        <h1 className="text-2xl font-bold">Alertas de Stock</h1>
+        <h1 className="text-2xl font-semibold">Alertas de Stock</h1>
       </div>
       {summary && (
         <div className="flex gap-2" data-testid="alert-summary-badges">

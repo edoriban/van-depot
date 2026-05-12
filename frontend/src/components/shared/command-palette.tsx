@@ -80,7 +80,7 @@ export function CommandPalette() {
   const [warehouses, setWarehouses] = useState<NavResult[]>([]);
   const [recipes, setRecipes] = useState<NavResult[]>([]);
 
-  const router = useRouter();
+  const { push } = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const debouncedQuery = useDebounce(query, 300);
@@ -208,9 +208,9 @@ export function CommandPalette() {
   const navigate = useCallback(
     (item: NavResult) => {
       setOpen(false);
-      router.push(item.href);
+      push(item.href);
     },
-    [router],
+    [push],
   );
 
   // -- Keyboard navigation --

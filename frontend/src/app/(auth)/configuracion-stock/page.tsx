@@ -223,7 +223,7 @@ export default function ConfiguracionStockPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold">Configuracion de Stock</h1>
+        <h1 className="text-2xl font-semibold">Configuracion de Stock</h1>
         <p className="text-muted-foreground mt-1">
           Define los umbrales globales y por producto para alertas de stock
         </p>
@@ -261,7 +261,7 @@ export default function ConfiguracionStockPage() {
             </div>
           ) : (
             <p className="text-sm text-muted-foreground">
-              No hay configuracion global definida. Haz clic en "Configurar" para establecer los umbrales.
+              No hay configuracion global definida. Haz clic en &quot;Configurar&quot; para establecer los umbrales.
             </p>
           )}
         </CardContent>

@@ -293,7 +293,7 @@ export default function RecipeDetailPage() {
               <HugeiconsIcon icon={ArrowLeft01Icon} size={20} />
             </Link>
           </Button>
-          <h1 className="text-2xl font-bold">Receta no encontrada</h1>
+          <h1 className="text-2xl font-semibold">Receta no encontrada</h1>
         </div>
         <div className="rounded-4xl border border-destructive/50 bg-destructive/10 p-4 text-sm text-destructive">
           {error || 'No se pudo cargar la receta solicitada.'}
@@ -315,7 +315,7 @@ export default function RecipeDetailPage() {
             </Link>
           </Button>
           <div>
-            <h1 className="text-2xl font-bold">{recipe.name}</h1>
+            <h1 className="text-2xl font-semibold">{recipe.name}</h1>
             <p className="text-muted-foreground">
               {recipe.description || 'Sin descripcion'}
             </p>

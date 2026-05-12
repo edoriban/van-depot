@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
+import Image from 'next/image';
 import {
   Mail,
   Eye,
@@ -21,7 +22,7 @@ import {
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3100';
 
 export default function RegistroPage() {
-  const router = useRouter();
+  const { push } = useRouter();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -69,7 +70,7 @@ export default function RegistroPage() {
       }
 
       toast.success('Cuenta creada exitosamente. Inicia sesion.');
-      router.push('/login');
+      push('/login');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error al crear cuenta');
     } finally {
@@ -107,8 +108,7 @@ export default function RegistroPage() {
         <div className="relative z-10 max-w-lg px-12 text-white">
           {/* Logo */}
           <div className="flex items-center gap-3 mb-12">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
+            <Image
               src="/vanflux-icon.svg"
               alt="VanFlux"
               width={48}
@@ -119,7 +119,7 @@ export default function RegistroPage() {
           </div>
 
           {/* Headline */}
-          <h1 className="text-4xl font-bold leading-tight mb-4">
+          <h1 className="text-4xl font-semibold leading-tight mb-4">
             Empieza a controlar tu inventario
           </h1>
 
@@ -153,15 +153,14 @@ export default function RegistroPage() {
         <div className="w-full max-w-sm">
           {/* Mobile logo */}
           <div className="flex flex-col items-center mb-10">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
+            <Image
               src="/vanflux-icon.svg"
               alt="VanFlux"
               width={72}
               height={72}
               className="mb-3"
             />
-            <h2 className="text-2xl font-bold tracking-tight">Crear cuenta</h2>
+            <h2 className="text-2xl font-semibold tracking-tight">Crear cuenta</h2>
             <p className="mt-1.5 text-sm text-muted-foreground">
               Registrate para comenzar
             </p>

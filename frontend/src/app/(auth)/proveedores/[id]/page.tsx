@@ -108,7 +108,7 @@ function KpiCard({
 
 export default function SupplierDetailPage() {
   const params = useParams<{ id: string }>();
-  const router = useRouter();
+  const { push } = useRouter();
 
   const [supplier, setSupplier] = useState<Supplier | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -347,7 +347,7 @@ export default function SupplierDetailPage() {
   if (error || !supplier) {
     return (
       <div className="space-y-4">
-        <Button variant="outline" onClick={() => router.push('/proveedores')}>
+        <Button variant="outline" onClick={() => push('/proveedores')}>
           Volver a proveedores
         </Button>
         <div className="rounded-4xl border border-destructive/50 bg-destructive/10 p-4 text-sm text-destructive">
@@ -375,11 +375,11 @@ export default function SupplierDetailPage() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => router.push('/proveedores')}
+            onClick={() => push('/proveedores')}
           >
             &larr; Volver a proveedores
           </Button>
-          <h1 className="text-2xl font-bold">{supplier.name}</h1>
+          <h1 className="text-2xl font-semibold">{supplier.name}</h1>
           <Badge variant={supplier.is_active ? 'default' : 'secondary'}>
             {supplier.is_active ? 'Activo' : 'Inactivo'}
           </Badge>

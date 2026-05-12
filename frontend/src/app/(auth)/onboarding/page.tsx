@@ -167,7 +167,7 @@ function createId(): string {
 // --- Main Component ---
 
 export default function OnboardingPage() {
-  const router = useRouter();
+  const { push } = useRouter();
   const [step, setStep] = useState(1);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -351,7 +351,7 @@ export default function OnboardingPage() {
   }, [inviteEmail, inviteName, inviteRole]);
 
   const handleFinish = () => {
-    router.push('/inicio');
+    push('/inicio');
   };
 
   // --- Render ---
@@ -972,7 +972,7 @@ function StepDone({
           </div>
         </div>
         <div>
-          <h2 className="text-xl font-bold">Tu almacén está configurado</h2>
+          <h2 className="text-xl font-semibold">Tu almacén está configurado</h2>
           <p className="text-muted-foreground mt-1">
             Todo listo para empezar a controlar tu inventario
           </p>

@@ -1,26 +1,23 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useSyncExternalStore } from 'react';
+
+function subscribeOnline(callback: () => void) {
+  window.addEventListener('offline', callback);
+  window.addEventListener('online', callback);
+  return () => {
+    window.removeEventListener('offline', callback);
+    window.removeEventListener('online', callback);
+  };
+}
+
+const getSnapshot = () => navigator.onLine;
+const getServerSnapshot = () => true;
 
 export function OfflineIndicator() {
-  const [isOffline, setIsOffline] = useState(false);
+  const isOnline = useSyncExternalStore(subscribeOnline, getSnapshot, getServerSnapshot);
 
-  useEffect(() => {
-    setIsOffline(!navigator.onLine);
-
-    const goOffline = () => setIsOffline(true);
-    const goOnline = () => setIsOffline(false);
-
-    window.addEventListener('offline', goOffline);
-    window.addEventListener('online', goOnline);
-
-    return () => {
-      window.removeEventListener('offline', goOffline);
-      window.removeEventListener('online', goOnline);
-    };
-  }, []);
-
-  if (!isOffline) return null;
+  if (isOnline) return null;
 
   return (
     <div className="bg-amber-500 text-white text-center py-1 text-sm font-medium">

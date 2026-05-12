@@ -18,6 +18,7 @@ import {
   AlertCircle,
 } from 'lucide-react';
 import type { LoginResponse } from '@/types';
+import Image from 'next/image';
 
 /**
  * Drives `POST /api/auth/login` and dispatches per response shape (A17 of
@@ -29,7 +30,7 @@ import type { LoginResponse } from '@/types';
  *   - 4xx other                  → inline error message
  */
 function LoginForm() {
-  const router = useRouter();
+  const { replace } = useRouter();
   const searchParams = useSearchParams();
 
   const dispatchLogin = useAuthStore((s) => s.login);
@@ -52,17 +53,17 @@ function LoginForm() {
   useEffect(() => {
     if (!isHydrated) return;
     if (isSuperadmin) {
-      router.replace('/admin/tenants');
+      replace('/admin/tenants');
       return;
     }
     if (user) {
-      router.replace(redirectTo);
+      replace(redirectTo);
       return;
     }
     if (intermediateToken) {
-      router.replace('/select-tenant');
+      replace('/select-tenant');
     }
-  }, [isHydrated, user, isSuperadmin, intermediateToken, router, redirectTo]);
+  }, [isHydrated, user, isSuperadmin, intermediateToken, replace, redirectTo]);
 
   async function handleSubmit(e: React.SubmitEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -97,16 +98,16 @@ function LoginForm() {
       if ('access_token' in data) {
         dispatchLogin(data);
         if (data.is_superadmin) {
-          router.replace('/admin/tenants');
+          replace('/admin/tenants');
         } else {
-          router.replace(redirectTo);
+          replace(redirectTo);
         }
         return;
       }
 
       // MultiTenant branch — pick a tenant.
       dispatchLogin(data);
-      router.replace('/select-tenant');
+      replace('/select-tenant');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error al iniciar sesion');
     } finally {
@@ -155,8 +156,7 @@ function LoginForm() {
 
         <div className="relative z-10 max-w-lg px-12 text-white">
           <div className="flex items-center gap-3 mb-12">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
+            <Image
               src="/vanflux-icon.svg"
               alt="VanFlux"
               width={48}
@@ -166,7 +166,7 @@ function LoginForm() {
             <span className="text-3xl font-bold tracking-tight">VanFlux</span>
           </div>
 
-          <h1 className="text-4xl font-bold leading-tight mb-4">
+          <h1 className="text-4xl font-semibold leading-tight mb-4">
             Gestiona tu inventario con inteligencia
           </h1>
 
@@ -196,15 +196,14 @@ function LoginForm() {
       <div className="flex flex-1 flex-col items-center justify-center bg-background px-6 py-12 lg:px-16">
         <div className="w-full max-w-sm">
           <div className="flex flex-col items-center mb-10">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
+            <Image
               src="/vanflux-icon.svg"
               alt="VanFlux"
               width={72}
               height={72}
               className="mb-3"
             />
-            <h2 className="text-2xl font-bold tracking-tight lg:hidden">VanFlux</h2>
+            <h2 className="text-2xl font-semibold tracking-tight lg:hidden">VanFlux</h2>
             <p className="mt-1.5 text-sm text-muted-foreground">
               Ingresa a tu cuenta
             </p>

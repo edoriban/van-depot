@@ -123,7 +123,7 @@ export default function RecetasPage() {
         <div className="flex items-center gap-3">
           <HugeiconsIcon icon={TaskDaily01Icon} size={28} className="text-primary" />
           <div>
-            <h1 className="text-2xl font-bold">Recetas de Proyecto</h1>
+            <h1 className="text-2xl font-semibold">Recetas de Proyecto</h1>
             <p className="text-muted-foreground mt-1">
               Gestiona las listas de materiales para tus proyectos
             </p>

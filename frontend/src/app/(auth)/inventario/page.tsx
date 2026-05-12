@@ -87,7 +87,7 @@ interface LotsData {
 }
 
 export default function InventoryPage() {
-  const router = useRouter();
+  const { push } = useRouter();
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -282,7 +282,7 @@ export default function InventoryPage() {
     <div className="space-y-6" data-testid="inventory-page">
       <div className="flex items-start justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Inventario</h1>
+          <h1 className="text-2xl font-semibold">Inventario</h1>
           <p className="text-muted-foreground mt-1">
             Vista de stock actual por producto y ubicacion
           </p>
@@ -546,23 +546,23 @@ export default function InventoryPage() {
                                 </DropdownMenuTrigger>
                                 <DropdownMenuContent align="end">
                                   <DropdownMenuItem
-                                    onClick={() => router.push(`/movimientos?tab=entry&product=${item.product_id}`)}
+                                    onClick={() => push(`/movimientos?tab=entry&product=${item.product_id}`)}
                                   >
                                     Registrar entrada
                                   </DropdownMenuItem>
                                   <DropdownMenuItem
-                                    onClick={() => router.push(`/movimientos?tab=adjustment&product=${item.product_id}`)}
+                                    onClick={() => push(`/movimientos?tab=adjustment&product=${item.product_id}`)}
                                   >
                                     Ajustar inventario
                                   </DropdownMenuItem>
                                   <DropdownMenuSeparator />
                                   <DropdownMenuItem
-                                    onClick={() => router.push(`/productos/${item.product_id}`)}
+                                    onClick={() => push(`/productos/${item.product_id}`)}
                                   >
                                     Ver producto
                                   </DropdownMenuItem>
                                   <DropdownMenuItem
-                                    onClick={() => router.push(`/productos/${item.product_id}?tab=movimientos`)}
+                                    onClick={() => push(`/productos/${item.product_id}?tab=movimientos`)}
                                   >
                                     Ver movimientos
                                   </DropdownMenuItem>

@@ -5,7 +5,6 @@ import { api } from '@/lib/api-mutations';
 import { HugeiconsIcon } from '@hugeicons/react';
 import { Notification03Icon, Tick02Icon } from '@hugeicons/core-free-icons';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import {
   Card,
   CardHeader,
@@ -149,7 +148,7 @@ export default function NotificacionesPage() {
       <div className="flex items-center gap-3">
         <HugeiconsIcon icon={Notification03Icon} size={28} className="text-primary" />
         <div>
-          <h1 className="text-2xl font-bold">Notificaciones</h1>
+          <h1 className="text-2xl font-semibold">Notificaciones</h1>
           <p className="text-muted-foreground text-sm mt-0.5">
             Resumen y listado de alertas del sistema
           </p>

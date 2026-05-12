@@ -2,7 +2,6 @@
 
 import useSWR, { useSWRConfig } from 'swr';
 import { api } from '@/lib/api-mutations';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { HugeiconsIcon } from '@hugeicons/react';

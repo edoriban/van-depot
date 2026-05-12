@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
+import Image from 'next/image';
 import {
   Mail,
   ArrowLeft,
@@ -84,15 +85,14 @@ export default function RecuperarPage() {
       <div className="w-full max-w-sm">
         {/* Logo */}
         <div className="flex flex-col items-center mb-10">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
+          <Image
             src="/vanflux-icon.svg"
             alt="VanFlux"
             width={44}
             height={44}
             className="mb-3"
           />
-          <h2 className="text-2xl font-bold tracking-tight">
+          <h2 className="text-2xl font-semibold tracking-tight">
             Recuperar contrasena
           </h2>
           <p className="mt-1.5 text-sm text-muted-foreground text-center">

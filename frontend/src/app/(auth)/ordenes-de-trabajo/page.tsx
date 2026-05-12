@@ -87,7 +87,7 @@ const CREATE_ERROR_LABELS: Record<string, string> = {
 };
 
 function OrdenesDeTrabajoPageInner() {
-  const router = useRouter();
+  const { replace } = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
@@ -238,7 +238,7 @@ function OrdenesDeTrabajoPageInner() {
       sp.set(name, value);
     }
     const qs = sp.toString();
-    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+    replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
   };
 
   const handleStatusChipClick = (next: WorkOrderStatus | null) => {
@@ -473,7 +473,7 @@ function OrdenesDeTrabajoPageInner() {
     <div className="space-y-6" data-testid="ordenes-de-trabajo-page">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Ordenes de trabajo</h1>
+          <h1 className="text-2xl font-semibold">Ordenes de trabajo</h1>
           <p className="text-muted-foreground mt-1">
             Planifica, entrega y completa ordenes para fabricar producto
             terminado desde tus recetas.
@@ -499,7 +499,6 @@ function OrdenesDeTrabajoPageInner() {
               type="button"
               role="tab"
               aria-selected={isActive}
-              aria-pressed={isActive}
               onClick={() => handleStatusChipClick(chip.value)}
               data-testid={chip.testId}
               data-active={isActive ? 'true' : 'false'}

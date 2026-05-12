@@ -132,17 +132,22 @@ function useWarehouses() {
 }
 
 function useLocations(warehouseId: string) {
-  const [locations, setLocations] = useState<Location[]>([]);
+  // Key the state by warehouseId so stale data for a previous warehouse never
+  // bleeds through during a refetch (no setState-in-effect, no derived-useState).
+  const [cache, setCache] = useState<{ id: string; locations: Location[] }>({
+    id: '',
+    locations: [],
+  });
   useEffect(() => {
-    if (!warehouseId) {
-      setLocations([]);
-      return;
-    }
+    if (!warehouseId) return;
+    let cancelled = false;
     api.get<Location[] | PaginatedResponse<Location>>(`/warehouses/${warehouseId}/locations`).then((res) => {
-      setLocations(Array.isArray(res) ? res : res.data);
-    }).catch(() => setLocations([]));
+      if (cancelled) return;
+      setCache({ id: warehouseId, locations: Array.isArray(res) ? res : res.data });
+    }).catch(() => {});
+    return () => { cancelled = true; };
   }, [warehouseId]);
-  return locations;
+  return cache.id === warehouseId ? cache.locations : [];
 }
 
 function useSuppliers() {
@@ -1345,7 +1350,7 @@ interface MovementWithDetails extends Movement {
 
 function MovementsPageInner() {
   const searchParams = useSearchParams();
-  const router = useRouter();
+  const { replace } = useRouter();
   const pathname = usePathname();
   const activeTab = searchParams.get('tab') || 'entry';
   // URL-scoped filter for movements tied to a specific work order. Source of
@@ -1356,14 +1361,14 @@ function MovementsPageInner() {
   const handleTabChange = (value: string) => {
     const sp = new URLSearchParams(searchParams.toString());
     sp.set('tab', value);
-    router.replace(`${pathname}?${sp.toString()}`, { scroll: false });
+    replace(`${pathname}?${sp.toString()}`, { scroll: false });
   };
 
   const clearWorkOrderFilter = () => {
     const sp = new URLSearchParams(searchParams.toString());
     sp.delete('work_order_id');
     const qs = sp.toString();
-    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+    replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
   };
 
   const products = useProducts();
@@ -1509,7 +1514,7 @@ function MovementsPageInner() {
     <div className="space-y-8" data-testid="movements-page">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold">Movimientos</h1>
+        <h1 className="text-2xl font-semibold">Movimientos</h1>
         <p className="text-muted-foreground mt-1">
           Registra entradas, salidas, transferencias y ajustes de inventario
         </p>
