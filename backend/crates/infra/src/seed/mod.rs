@@ -1156,8 +1156,8 @@ async fn seed_demo_users_and_memberships(
         .map_err(|e| DomainError::Internal(format!("hash demo password: {e}")))?;
 
     let demo_users: &[(&str, &str, &str)] = &[
-        ("edgar@vandev.mx", "Edgar Hernández", "owner"),
-        ("luis@vandev.mx",  "Luis Torres",    "manager"),
+        ("edgar@vandev.mx", "Edgar Martínez", "owner"),
+        ("luis@vandev.mx",  "Luis Mendoza",   "manager"),
         ("laura@vandev.mx", "Laura Díaz",     "operator"),
     ];
 
