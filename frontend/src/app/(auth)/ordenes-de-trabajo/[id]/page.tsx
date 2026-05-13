@@ -12,11 +12,11 @@ import {
   isApiError,
   issueWorkOrder,
 } from '@/lib/api-mutations';
+import { useResourceList } from '@/lib/hooks/use-resource-list';
 import { formatDateEs, formatDateMediumEs } from '@/lib/format';
 import type {
   Location,
   MissingMaterial,
-  PaginatedResponse,
   Product,
   ProductLot,
   QualityStatus,
@@ -87,14 +87,12 @@ export default function OrdenDeTrabajoDetailPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [warehouse, setWarehouse] = useState<Warehouse | null>(null);
-  const [workCenter, setWorkCenter] = useState<Location | null>(null);
   const [fgProduct, setFgProduct] = useState<Product | null>(null);
   // Product lookup for the materials table — resolved on-demand via a bulk
   // fetch since the detail endpoint already embeds `product_name` and
   // `product_sku` via JOIN. We keep the map only for the insufficient-stock
   // surface in case the backend changes the shape.
   const [productMap, setProductMap] = useState<Map<string, Product>>(new Map());
-  const [fgLot, setFgLot] = useState<ProductLot | null>(null);
 
   // Dialog/action state
   const [issueDialogOpen, setIssueDialogOpen] = useState(false);
@@ -125,9 +123,36 @@ export default function OrdenDeTrabajoDetailPage() {
     void reload();
   }, [reload]);
 
-  // Resolve secondary references (warehouse, work-center, FG product) once
-  // the WO loads. These are "nice to have" labels — any failure falls back
-  // to the UUID prefix.
+  // Per-warehouse locations — SWR-keyed so the work-center resolver and any
+  // sibling consumers share the same cache entry. Inert when no WO loaded.
+  const { data: warehouseLocations } = useResourceList<Location>(
+    workOrder ? `/warehouses/${workOrder.warehouse_id}/locations` : null,
+  );
+  const workCenter = useMemo<Location | null>(() => {
+    if (!workOrder) return null;
+    return (
+      warehouseLocations.find(
+        (l) => l.id === workOrder.work_center_location_id,
+      ) ?? null
+    );
+  }, [warehouseLocations, workOrder]);
+
+  // FG product lot list — only fetched when the WO is completed. The backend
+  // doesn't embed the lot in the WO response, so we derive it via the
+  // deterministic naming convention `WO-<code>-<YYYYMMDD>` from design §6b.
+  const { data: fgProductLots } = useResourceList<ProductLot>(
+    workOrder && workOrder.status === 'completed'
+      ? `/products/${workOrder.fg_product_id}/lots`
+      : null,
+  );
+  const fgLot = useMemo<ProductLot | null>(() => {
+    if (!workOrder || workOrder.status !== 'completed') return null;
+    const prefix = `WO-${workOrder.code}-`;
+    return fgProductLots.find((l) => l.lot_number.startsWith(prefix)) ?? null;
+  }, [fgProductLots, workOrder]);
+
+  // Single-record reference fetches — kept as direct `api.get` since
+  // `useResourceList` is list-shaped only (design §3.2).
   useEffect(() => {
     if (!workOrder) return;
     let cancelled = false;
@@ -138,52 +163,9 @@ export default function OrdenDeTrabajoDetailPage() {
       })
       .catch(() => {});
     void api
-      .get<Location[] | PaginatedResponse<Location>>(
-        `/warehouses/${workOrder.warehouse_id}/locations`,
-      )
-      .then((res) => {
-        const list = Array.isArray(res) ? res : res.data;
-        if (!cancelled) {
-          const wc = list.find((l) => l.id === workOrder.work_center_location_id);
-          setWorkCenter(wc ?? null);
-        }
-      })
-      .catch(() => {});
-    void api
       .get<Product>(`/products/${workOrder.fg_product_id}`)
       .then((p) => {
         if (!cancelled) setFgProduct(p);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [workOrder]);
-
-  // Resolve the FG lot once the WO lands in `completed`. The backend doesn't
-  // embed the lot in the WO response, so we derive it via the deterministic
-  // naming convention `WO-<code>-<YYYYMMDD>` from design §6b.
-  useEffect(() => {
-    if (!workOrder || workOrder.status !== 'completed') {
-      setFgLot(null);
-      return;
-    }
-    let cancelled = false;
-    // `/products/{id}/lots` returns an array of ProductLot (no pagination
-    // envelope per the existing repo shape).
-    void api
-      .get<ProductLot[] | PaginatedResponse<ProductLot>>(
-        `/products/${workOrder.fg_product_id}/lots`,
-      )
-      .then((res) => {
-        if (cancelled) return;
-        const lots = Array.isArray(res) ? res : res.data;
-        // The completion uses today's date at the server — scan for the
-        // prefix `WO-<code>-` to be robust to timezone skew between client
-        // and server.
-        const prefix = `WO-${workOrder.code}-`;
-        const match = lots.find((l) => l.lot_number.startsWith(prefix)) ?? null;
-        setFgLot(match);
       })
       .catch(() => {});
     return () => {

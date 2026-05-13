@@ -10,9 +10,9 @@ import {
   isApiError,
   listWorkOrders,
 } from '@/lib/api-mutations';
+import { useResourceList } from '@/lib/hooks/use-resource-list';
 import type {
   Location,
-  PaginatedResponse,
   Product,
   Recipe,
   RecipeDetail,
@@ -105,11 +105,16 @@ function OrdenesDeTrabajoPageInner() {
   const [page, setPage] = useState(1);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Reference data — loaded once.
-  const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
-  const [products, setProducts] = useState<Product[]>([]);
-  const [recipes, setRecipes] = useState<Recipe[]>([]);
-  const [allLocations, setAllLocations] = useState<Location[]>([]);
+  // Reference data — fetched via SWR (request dedup + focus revalidation).
+  const { data: warehouses } = useResourceList<Warehouse>('/warehouses');
+  const { data: products } = useResourceList<Product>('/products', {
+    is_manufactured: true,
+    per_page: 200,
+  });
+  const { data: recipes } = useResourceList<Recipe>('/recipes', {
+    page: 1,
+    per_page: 200,
+  });
 
   // Creation dialog state — all controlled, consistent with the existing
   // productos / recetas forms (no react-hook-form in the project).
@@ -173,62 +178,15 @@ function OrdenesDeTrabajoPageInner() {
     fetchWorkOrders,
   ]);
 
-  // Load reference data once on mount for selectors + display.
-  useEffect(() => {
-    void api
-      .get<Warehouse[] | PaginatedResponse<Warehouse>>('/warehouses')
-      .then((res) => {
-        setWarehouses(Array.isArray(res) ? res : res.data);
-      })
-      .catch(() => {});
-    void api
-      .get<Product[] | PaginatedResponse<Product>>(
-        '/products?is_manufactured=true&per_page=200',
-      )
-      .then((res) => {
-        setProducts(Array.isArray(res) ? res : res.data);
-      })
-      .catch(() => {});
-    void api
-      .get<PaginatedResponse<Recipe>>('/recipes?page=1&per_page=200')
-      .then((res) => {
-        setRecipes(res.data);
-      })
-      .catch(() => {});
-    // Fetch all locations once — we filter client-side by warehouse + type
-    // for the work-center selector. The backend exposes per-warehouse
-    // locations via `/warehouses/{id}/locations` which is what we'll use.
-    setAllLocations([]);
-  }, []);
-
-  // When the user selects a warehouse in the filter or in the form, fetch
-  // that warehouse's locations to populate the work-center dropdowns.
-  const [warehouseLocations, setWarehouseLocations] = useState<
-    Record<string, Location[]>
-  >({});
-  const loadLocationsForWarehouse = useCallback(
-    async (warehouseId: string) => {
-      if (!warehouseId || warehouseLocations[warehouseId]) return;
-      try {
-        const res = await api.get<Location[] | PaginatedResponse<Location>>(
-          `/warehouses/${warehouseId}/locations`,
-        );
-        const items = Array.isArray(res) ? res : res.data;
-        setWarehouseLocations((prev) => ({ ...prev, [warehouseId]: items }));
-      } catch {
-        // silent — the dropdown will just show empty
-      }
-    },
-    [warehouseLocations],
+  // Per-warehouse locations — SWR dedups per cache key `/warehouses/{id}/locations`
+  // so the filter + form selectors can both consume them independently without
+  // a hand-rolled `Record<warehouseId, Location[]>` cache.
+  const { data: filterWarehouseLocations } = useResourceList<Location>(
+    filterWarehouseId ? `/warehouses/${filterWarehouseId}/locations` : null,
   );
-
-  useEffect(() => {
-    void loadLocationsForWarehouse(filterWarehouseId);
-  }, [filterWarehouseId, loadLocationsForWarehouse]);
-
-  useEffect(() => {
-    void loadLocationsForWarehouse(formWarehouseId);
-  }, [formWarehouseId, loadLocationsForWarehouse]);
+  const { data: formWarehouseLocations } = useResourceList<Location>(
+    formWarehouseId ? `/warehouses/${formWarehouseId}/locations` : null,
+  );
 
   const updateQueryParam = (name: string, value: string | null) => {
     const sp = new URLSearchParams(searchParams.toString());
@@ -338,12 +296,10 @@ function OrdenesDeTrabajoPageInner() {
   );
   const locationMap = useMemo(() => {
     const m = new Map<string, Location>();
-    for (const list of Object.values(warehouseLocations)) {
-      for (const l of list) m.set(l.id, l);
-    }
-    for (const l of allLocations) m.set(l.id, l);
+    for (const l of filterWarehouseLocations) m.set(l.id, l);
+    for (const l of formWarehouseLocations) m.set(l.id, l);
     return m;
-  }, [warehouseLocations, allLocations]);
+  }, [filterWarehouseLocations, formWarehouseLocations]);
   // Products lookup for FG display — backed by the `is_manufactured=true`
   // page-1 fetch, sufficient while the MFG catalog is small.
   const productMap = useMemo(
@@ -353,17 +309,17 @@ function OrdenesDeTrabajoPageInner() {
 
   const workCenterLocations = useMemo(() => {
     if (!filterWarehouseId) return [] as Location[];
-    return (warehouseLocations[filterWarehouseId] ?? []).filter(
+    return filterWarehouseLocations.filter(
       (l) => l.location_type === 'work_center',
     );
-  }, [warehouseLocations, filterWarehouseId]);
+  }, [filterWarehouseLocations, filterWarehouseId]);
 
   const formWorkCenterLocations = useMemo(() => {
     if (!formWarehouseId) return [] as Location[];
-    return (warehouseLocations[formWarehouseId] ?? []).filter(
+    return formWarehouseLocations.filter(
       (l) => l.location_type === 'work_center',
     );
-  }, [warehouseLocations, formWarehouseId]);
+  }, [formWarehouseLocations, formWarehouseId]);
 
   const columns: ColumnDef<WorkOrder>[] = [
     {

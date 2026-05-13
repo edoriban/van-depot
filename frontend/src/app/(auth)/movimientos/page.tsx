@@ -4,6 +4,7 @@ import { Suspense, useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 import { api, getWorkOrder } from '@/lib/api-mutations';
+import { useResourceList } from '@/lib/hooks/use-resource-list';
 import { formatDateEs, formatDateTimeEs } from '@/lib/format';
 import type {
   Movement,
@@ -108,57 +109,6 @@ function relativeDate(dateStr: string): string {
   if (diffDays === 1) return 'ayer';
   if (diffDays < 7) return `hace ${diffDays} dias`;
   return date.toLocaleDateString('es-MX', { day: 'numeric', month: 'short', year: 'numeric' });
-}
-
-// --- Shared hooks ---
-
-function useProducts() {
-  const [products, setProducts] = useState<Product[]>([]);
-  useEffect(() => {
-    api.get<Product[] | PaginatedResponse<Product>>('/products').then((res) => {
-      setProducts(Array.isArray(res) ? res : res.data);
-    }).catch(() => {});
-  }, []);
-  return products;
-}
-
-function useWarehouses() {
-  const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
-  useEffect(() => {
-    api.get<Warehouse[] | PaginatedResponse<Warehouse>>('/warehouses').then((res) => {
-      setWarehouses(Array.isArray(res) ? res : res.data);
-    }).catch(() => {});
-  }, []);
-  return warehouses;
-}
-
-function useLocations(warehouseId: string) {
-  // Key the state by warehouseId so stale data for a previous warehouse never
-  // bleeds through during a refetch (no setState-in-effect, no derived-useState).
-  const [cache, setCache] = useState<{ id: string; locations: Location[] }>({
-    id: '',
-    locations: [],
-  });
-  useEffect(() => {
-    if (!warehouseId) return;
-    let cancelled = false;
-    api.get<Location[] | PaginatedResponse<Location>>(`/warehouses/${warehouseId}/locations`).then((res) => {
-      if (cancelled) return;
-      setCache({ id: warehouseId, locations: Array.isArray(res) ? res : res.data });
-    }).catch(() => {});
-    return () => { cancelled = true; };
-  }, [warehouseId]);
-  return cache.id === warehouseId ? cache.locations : [];
-}
-
-function useSuppliers() {
-  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
-  useEffect(() => {
-    api.get<Supplier[] | PaginatedResponse<Supplier>>('/suppliers').then((res) => {
-      setSuppliers(Array.isArray(res) ? res : res.data);
-    }).catch(() => {});
-  }, []);
-  return suppliers;
 }
 
 // --- Warehouse + Location Selector ---
@@ -287,7 +237,9 @@ function EntryForm({ products, warehouses, suppliers, onSuccess }: {
   const [reference, setReference] = useState('');
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
-  const locations = useLocations(warehouseId);
+  const { data: locations } = useResourceList<Location>(
+    warehouseId ? `/warehouses/${warehouseId}/locations` : null,
+  );
 
   const handleSubmit = async (e: React.SubmitEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -392,9 +344,9 @@ function EntryForm({ products, warehouses, suppliers, onSuccess }: {
 // --- Entry With Lot Form ---
 
 function EntryWithLotForm({ onSuccess }: { onSuccess: () => void }) {
-  const products = useProducts();
-  const warehouses = useWarehouses();
-  const suppliers = useSuppliers();
+  const { data: products } = useResourceList<Product>('/products');
+  const { data: warehouses } = useResourceList<Warehouse>('/warehouses');
+  const { data: suppliers } = useResourceList<Supplier>('/suppliers');
 
   const [productId, setProductId] = useState('');
   const [warehouseId, setWarehouseId] = useState('');
@@ -407,7 +359,9 @@ function EntryWithLotForm({ onSuccess }: { onSuccess: () => void }) {
   const [expirationDate, setExpirationDate] = useState('');
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
-  const locations = useLocations(warehouseId);
+  const { data: locations } = useResourceList<Location>(
+    warehouseId ? `/warehouses/${warehouseId}/locations` : null,
+  );
 
   const resetForm = () => {
     setProductId('');
@@ -587,7 +541,7 @@ function EntryWithLotForm({ onSuccess }: { onSuccess: () => void }) {
 // --- Entry With PO Form ---
 
 function EntryWithPOForm({ onSuccess }: { onSuccess: () => void }) {
-  const warehouses = useWarehouses();
+  const { data: warehouses } = useResourceList<Warehouse>('/warehouses');
 
   // Step 1: PO search
   const [poSearch, setPoSearch] = useState('');
@@ -609,7 +563,9 @@ function EntryWithPOForm({ onSuccess }: { onSuccess: () => void }) {
   const [expirationDate, setExpirationDate] = useState('');
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
-  const locations = useLocations(warehouseId);
+  const { data: locations } = useResourceList<Location>(
+    warehouseId ? `/warehouses/${warehouseId}/locations` : null,
+  );
 
   // Debounced PO search
   useEffect(() => {
@@ -990,7 +946,9 @@ function ExitForm({ products, warehouses, onSuccess }: {
   const [reference, setReference] = useState('');
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
-  const locations = useLocations(warehouseId);
+  const { data: locations } = useResourceList<Location>(
+    warehouseId ? `/warehouses/${warehouseId}/locations` : null,
+  );
 
   const handleSubmit = async (e: React.SubmitEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -1090,8 +1048,12 @@ function TransferForm({ products, warehouses, onSuccess }: {
   const [reference, setReference] = useState('');
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
-  const fromLocations = useLocations(fromWarehouseId);
-  const toLocations = useLocations(toWarehouseId);
+  const { data: fromLocations } = useResourceList<Location>(
+    fromWarehouseId ? `/warehouses/${fromWarehouseId}/locations` : null,
+  );
+  const { data: toLocations } = useResourceList<Location>(
+    toWarehouseId ? `/warehouses/${toWarehouseId}/locations` : null,
+  );
 
   const handleSubmit = async (e: React.SubmitEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -1218,7 +1180,9 @@ function AdjustmentForm({ products, warehouses, onSuccess }: {
   const [reference, setReference] = useState('');
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
-  const locations = useLocations(warehouseId);
+  const { data: locations } = useResourceList<Location>(
+    warehouseId ? `/warehouses/${warehouseId}/locations` : null,
+  );
 
   const handleSubmit = async (e: React.SubmitEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -1372,9 +1336,9 @@ function MovementsPageInner() {
     replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
   };
 
-  const products = useProducts();
-  const warehouses = useWarehouses();
-  const suppliers = useSuppliers();
+  const { data: products } = useResourceList<Product>('/products');
+  const { data: warehouses } = useResourceList<Warehouse>('/warehouses');
+  const { data: suppliers } = useResourceList<Supplier>('/suppliers');
 
   // Lightweight secondary fetch to resolve the WO code for the breadcrumb
   // chip. Fires only when a `work_order_id` is present in the URL.
