@@ -14,7 +14,10 @@
     "src/features/movements/**/*.{ts,tsx}",
     "src/components/work-orders/**/*.{ts,tsx}",
     "src/features/work-orders/**/*.{ts,tsx}",
-    "src/lib/hooks/use-work-orders.ts"
+    "src/lib/hooks/use-work-orders.ts",
+    "src/lib/hooks/use-work-order.ts",
+    "src/lib/hooks/use-work-order-actions.ts",
+    "src/lib/hooks/use-work-order-detail-handlers.ts"
   ],
   "project": [
     "src/**/*.{ts,tsx}",

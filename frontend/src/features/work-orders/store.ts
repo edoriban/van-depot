@@ -8,16 +8,21 @@
  * Design §2.4 LOCKED DECISION: ONE store, TWO slices (`list:` + `detail:`)
  * with sibling `resetList()` / `resetDetail()` actions plus a whole-store
  * `reset()`. The list route mounts `resetList` on unmount; the detail route
- * will mount `resetDetail` on unmount (added in PR-4).
+ * mounts `resetDetail` on unmount.
  *
- * PR-3 (this commit) ships the LIST slice; the DETAIL slice is reserved as a
- * documented TODO below for PR-4 (`sdd/frontend-migration` tasks E2-E10) to
- * fill in (issueDialogOpen, cancelDialogOpen, cancelReason, missingMaterials,
- * isMutating). Do NOT add detail-slice fields here yet — PR-4 owns that.
+ * PR-3 shipped the LIST slice; PR-4 (this commit) adds the DETAIL slice per
+ * design §2.4 and spec WO-INV-3 (issue/cancel dialogs, insufficient-stock
+ * surface, in-flight spinner). `resetList()` and `resetDetail()` touch ONLY
+ * their own slice — quick back↔forward navigations between list and detail
+ * MUST preserve the other slice's draft / dialog state.
  *
- * Per FS-2.2 the consuming list route MUST mount:
+ * Per FS-2.2 the consuming routes MUST mount their slice's cleanup effect:
  *
+ *   // list route
  *   useEffect(() => () => useWorkOrdersScreenStore.getState().resetList(), []);
+ *
+ *   // detail route
+ *   useEffect(() => () => useWorkOrdersScreenStore.getState().resetDetail(), []);
  *
  * No `persist(...)` middleware is applied (FS-2.4). The devtools wrapper is
  * gated by `process.env.NODE_ENV !== 'production'` (FS-2.3).
@@ -26,7 +31,7 @@
 
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
-import type { RecipeDetail } from '@/types';
+import type { MissingMaterial, RecipeDetail } from '@/types';
 
 // --- LIST slice -----------------------------------------------------------
 
@@ -60,24 +65,18 @@ const initialListSlice = {
   selectedRecipe: null as RecipeDetail | null,
 };
 
-// --- DETAIL slice (reserved for PR-4) -------------------------------------
-//
-// TODO(PR-4 / sdd-apply E2): extend `WorkOrdersScreenState` with the detail
-// slice. The locked shape is:
-//
-//   issueDialogOpen: boolean;
-//   cancelDialogOpen: boolean;
-//   cancelReason: string;
-//   missingMaterials: MissingMaterial[];    // INSUFFICIENT_WORK_ORDER_STOCK rows
-//   isMutating: boolean;
-//
-// plus actions: openIssueDialog, closeIssueDialog, openCancelDialog,
-// closeCancelDialog, setCancelReason, setMissingMaterials, setMutating,
-// resetDetail.
-//
-// `resetDetail()` MUST return only the detail slice to its initial values
-// WITHOUT touching the list slice (so list filters / create dialog state
-// survive a quick back-button → forward-button roundtrip through detail).
+// --- DETAIL slice ---------------------------------------------------------
+
+const initialDetailSlice = {
+  issueDialogOpen: false as boolean,
+  cancelDialogOpen: false as boolean,
+  cancelReason: '',
+  // INSUFFICIENT_WORK_ORDER_STOCK rows surfaced inline on the detail page
+  // (NEVER via toast — load-bearing per WO-INV-3). `null` = unsurfaced;
+  // `[]` would mean surfaced-but-empty which is not a state we render.
+  missingMaterials: null as MissingMaterial[] | null,
+  isMutating: false as boolean,
+};
 
 // --- Store ----------------------------------------------------------------
 
@@ -86,6 +85,13 @@ interface WorkOrdersScreenState {
   formOpen: boolean;
   draft: WorkOrderCreateDraft;
   selectedRecipe: RecipeDetail | null;
+
+  // DETAIL slice fields.
+  issueDialogOpen: boolean;
+  cancelDialogOpen: boolean;
+  cancelReason: string;
+  missingMaterials: MissingMaterial[] | null;
+  isMutating: boolean;
 
   // LIST slice actions.
   setFormField: <K extends keyof WorkOrderCreateDraft>(
@@ -96,19 +102,31 @@ interface WorkOrdersScreenState {
   closeCreateDialog: () => void;
   setSelectedRecipe: (recipe: RecipeDetail | null) => void;
 
+  // DETAIL slice actions.
+  openIssueDialog: () => void;
+  closeIssueDialog: () => void;
+  openCancelDialog: () => void;
+  closeCancelDialog: () => void;
+  setCancelReason: (reason: string) => void;
+  setMissingMaterials: (rows: MissingMaterial[] | null) => void;
+  setMutating: (mutating: boolean) => void;
+
   // Per-slice + whole-store resets per design §2.4.
   resetList: () => void;
+  resetDetail: () => void;
   reset: () => void;
 }
 
 const initialState = {
   ...initialListSlice,
+  ...initialDetailSlice,
 };
 
 export const useWorkOrdersScreenStore = create<WorkOrdersScreenState>()(
   devtools(
     (set) => ({
       ...initialState,
+      // --- LIST actions ----------------------------------------------------
       setFormField: (key, value) =>
         set((s) => ({ draft: { ...s.draft, [key]: value } })),
       openCreateDialog: () =>
@@ -121,7 +139,19 @@ export const useWorkOrdersScreenStore = create<WorkOrdersScreenState>()(
         }),
       closeCreateDialog: () => set({ formOpen: false }),
       setSelectedRecipe: (selectedRecipe) => set({ selectedRecipe }),
+
+      // --- DETAIL actions --------------------------------------------------
+      openIssueDialog: () => set({ issueDialogOpen: true }),
+      closeIssueDialog: () => set({ issueDialogOpen: false }),
+      openCancelDialog: () => set({ cancelDialogOpen: true }),
+      closeCancelDialog: () => set({ cancelDialogOpen: false }),
+      setCancelReason: (cancelReason) => set({ cancelReason }),
+      setMissingMaterials: (missingMaterials) => set({ missingMaterials }),
+      setMutating: (isMutating) => set({ isMutating }),
+
+      // --- Resets (slice-scoped) ------------------------------------------
       resetList: () => set({ ...initialListSlice }),
+      resetDetail: () => set({ ...initialDetailSlice }),
       reset: () => set(initialState),
     }),
     {
