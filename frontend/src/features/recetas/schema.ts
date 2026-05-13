@@ -4,9 +4,9 @@
  * See `frontend/src/CONVENTIONS.md` §1 (Validation with Zod) and §7
  * (Migration pattern).
  *
- * **PR-9 (this commit)** ships `recipeFormSchema` (LIST page create dialog
- * + DETAIL page edit dialog in PR-10). **PR-10** will add
- * `recipeItemFormSchema` for the DETAIL page add-item dialog.
+ * **PR-9** shipped `recipeFormSchema` (LIST create + DETAIL edit dialogs).
+ * **PR-10 (this commit)** adds `recipeItemFormSchema` for the add-item
+ * dialog inside the DETAIL page.
  *
  * Schemas validate at submit-time only (`safeParse`) — no on-keystroke
  * validation. Matches productos + almacenes precedent.
@@ -21,7 +21,7 @@ const optionalTrimmedString = (max: number) =>
     .optional()
     .transform((v) => (v ? v : undefined));
 
-// --- Recipe form (LIST create + DETAIL edit dialog in PR-10) ------------
+// --- Recipe form (LIST create + DETAIL edit dialog) ---------------------
 
 export const recipeFormSchema = z.object({
   name: z.string().trim().min(1, 'Nombre requerido').max(200),
@@ -30,3 +30,18 @@ export const recipeFormSchema = z.object({
   description: optionalTrimmedString(2000),
 });
 export type RecipeFormInput = z.infer<typeof recipeFormSchema>;
+
+// --- Recipe item form (DETAIL add-item dialog) --------------------------
+
+/**
+ * Validates the add-item dialog payload before appending to `localItems`.
+ * `productId` MUST be set and non-empty. `quantity` is coerced from the
+ * controlled `<Input type="number">` string value and MUST be positive.
+ * `notes` is optional and trimmed.
+ */
+export const recipeItemFormSchema = z.object({
+  productId: z.string().trim().min(1, 'Producto requerido'),
+  quantity: z.coerce.number().positive('Cantidad debe ser mayor a cero'),
+  notes: optionalTrimmedString(500),
+});
+export type RecipeItemFormInput = z.infer<typeof recipeItemFormSchema>;

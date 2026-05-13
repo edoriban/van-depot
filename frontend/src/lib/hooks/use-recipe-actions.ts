@@ -10,10 +10,11 @@
  * the relevant SWR cache via `mutate(...)` so consumers re-fetch on next
  * mount (and any active matching key revalidates immediately).
  *
- * **PR-9 (this commit)** ships `createRecipe` + `deleteRecipe` (LIST). The
- * `updateRecipeMeta` + `updateRecipeItems` methods are STUBBED here so the
- * call-site type contract is stable; PR-10 will replace the stubs with real
- * implementations per design §4.3.
+ * **PR-9** shipped `createRecipe` + `deleteRecipe` (LIST). **PR-10 (this
+ * commit)** replaces the `updateRecipeMeta` + `updateRecipeItems` stubs with
+ * real implementations per design §4.3. R8 mitigation: `updateRecipeItems`
+ * MUST receive `name + description + items` together so the server PUT does
+ * not clobber the meta fields with `undefined`.
  */
 'use client';
 
@@ -27,18 +28,18 @@ export interface UseRecipeActionsResult {
     input: RecipeFormInput & { items?: RecipeItemInput[] },
   ) => Promise<Recipe>;
   /**
-   * STUBBED in PR-9. Replaced with the real PUT `/recipes/{id}` (meta-only)
-   * implementation in PR-10. Calling this stub THROWS so accidental PR-9 use
-   * fails loudly in development.
+   * Real PUT `/recipes/{id}` for the edit-meta dialog (DETAIL page).
+   * Sends `{ name, description }` only; the backend preserves `items`
+   * because they are not part of the payload.
    */
   updateRecipeMeta: (
     id: string,
     input: RecipeFormInput,
   ) => Promise<Recipe>;
   /**
-   * STUBBED in PR-9. Replaced with the real PUT `/recipes/{id}` (bulk items)
-   * implementation in PR-10. Calling this stub THROWS so accidental PR-9 use
-   * fails loudly in development.
+   * Real PUT `/recipes/{id}` for the bulk save-items flow. R8 mitigation:
+   * the caller MUST pass the current `name` + `description` alongside the
+   * `items` array so the backend does not nullify them.
    */
   updateRecipeItems: (
     id: string,
@@ -76,16 +77,27 @@ export function useRecipeActions(): UseRecipeActionsResult {
       return created;
     },
 
-    updateRecipeMeta: async () => {
-      throw new Error(
-        'updateRecipeMeta is not yet implemented (PR-10 / frontend-migration-recetas Phase E)',
-      );
+    updateRecipeMeta: async (id, input) => {
+      const updated = await api.put<Recipe>(`/recipes/${id}`, {
+        name: input.name,
+        description: input.description,
+      });
+      // Invalidate both the paginated list keys AND the detail key.
+      await invalidatePrefix('/recipes');
+      return updated;
     },
 
-    updateRecipeItems: async () => {
-      throw new Error(
-        'updateRecipeItems is not yet implemented (PR-10 / frontend-migration-recetas Phase E)',
-      );
+    updateRecipeItems: async (id, input) => {
+      const updated = await api.put<RecipeDetail>(`/recipes/${id}`, {
+        name: input.name,
+        // Preserve the current description verbatim — null and undefined
+        // both serialize as omitted via JSON.stringify, matching the legacy
+        // `description: detail?.recipe.description` shape.
+        description: input.description ?? undefined,
+        items: input.items,
+      });
+      await invalidatePrefix('/recipes');
+      return updated;
     },
 
     deleteRecipe: async (id) => {
