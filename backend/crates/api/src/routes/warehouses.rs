@@ -147,6 +147,15 @@ async fn create_warehouse(
     )
     .await?;
 
+    // The list handler filters non-superadmin callers by `user_warehouses`,
+    // so without this grant the creator would create a warehouse they
+    // immediately cannot see. Superadmins skip because they have no
+    // `user_tenants` row to satisfy the composite FK on
+    // `user_warehouses(tenant_id, user_id)`.
+    if !claims.is_superadmin {
+        user_warehouse_repo::assign(&mut *tt.tx, tenant_id, claims.sub, warehouse.id).await?;
+    }
+
     tt.commit().await.map_err(|e| ApiError(DomainError::Internal(e.to_string())))?;
     Ok((StatusCode::CREATED, Json(WarehouseResponse::from(warehouse))))
 }
