@@ -14,7 +14,7 @@
 'use client';
 
 import { useMemo } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { Input } from '@/components/ui/input';
 import { SearchableSelect } from '@/components/ui/searchable-select';
 import { useResourceList } from '@/lib/hooks/use-resource-list';
@@ -43,16 +43,17 @@ const STATUS_CHIPS: ReadonlyArray<{
   })),
 ] as const;
 
-function isWorkOrderStatus(value: unknown): value is WorkOrderStatus {
-  return (
-    value === 'draft' ||
-    value === 'in_progress' ||
-    value === 'completed' ||
-    value === 'cancelled'
-  );
-}
-
 interface WorkOrderFilterBarProps {
+  /**
+   * Current URL filter values. The parent owns the `useSearchParams()` read
+   * (so this subcomponent stays Suspense-boundary friendly per
+   * `nextjs-no-use-search-params-without-suspense`) and forwards the decoded
+   * values here.
+   */
+  filterStatus: WorkOrderStatus | null;
+  filterWarehouseId: string;
+  filterWorkCenterId: string;
+  filterSearch: string;
   /**
    * Invoked AFTER the URL update so the page can reset its pagination
    * `page` state to 1 (the URL-driven filter does not include `?page=`).
@@ -60,23 +61,14 @@ interface WorkOrderFilterBarProps {
   onFilterChange?: () => void;
 }
 
-export function WorkOrderFilterBar({ onFilterChange }: WorkOrderFilterBarProps) {
+export function WorkOrderFilterBar({
+  filterStatus,
+  filterWarehouseId,
+  filterWorkCenterId,
+  filterSearch,
+  onFilterChange,
+}: WorkOrderFilterBarProps) {
   const { replace } = useRouter();
-  // NOTE: `react-doctor/react-compiler-destructure-method` flags
-  // `searchParams.get(...)` / `searchParams.toString()` here and suggests
-  // destructuring. We DO NOT destructure because `ReadonlyURLSearchParams`
-  // extends `URLSearchParams` and its `get` / `toString` are inherited
-  // prototype methods — destructured calls lose `this` and throw "Illegal
-  // invocation" at runtime. Same rationale as `movimientos/page.tsx`.
-  const searchParams = useSearchParams();
-
-  const rawStatus = searchParams.get('status');
-  const filterStatus: WorkOrderStatus | null = isWorkOrderStatus(rawStatus)
-    ? rawStatus
-    : null;
-  const filterWarehouseId = searchParams.get('warehouse_id') ?? '';
-  const filterWorkCenterId = searchParams.get('work_center_location_id') ?? '';
-  const filterSearch = searchParams.get('search') ?? '';
 
   const { data: warehouses } = useResourceList<Warehouse>('/warehouses');
   // Locations for the selected warehouse — null path = inert when no
@@ -94,10 +86,13 @@ export function WorkOrderFilterBar({ onFilterChange }: WorkOrderFilterBarProps) 
   }, [filterWarehouseLocations, filterWarehouseId]);
 
   const updateQueryParam = (name: string, value: string | null) => {
-    // Read the current pathname inside the handler so this component does
-    // NOT re-render on every navigation event (rerender-defer-reads-hook).
+    // Read pathname + current search inside the handler so this component
+    // does NOT re-render on every navigation event
+    // (rerender-defer-reads-hook). Reading `window.location.search` directly
+    // also keeps this off `useSearchParams`, which is what removed the
+    // Suspense-boundary warning when the parent lifted the filter reads.
     const currentPath = window.location.pathname;
-    const sp = new URLSearchParams(searchParams.toString());
+    const sp = new URLSearchParams(window.location.search);
     if (value === null || value === '') {
       sp.delete(name);
     } else {

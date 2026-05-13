@@ -16,7 +16,6 @@
 
 import { useMemo } from 'react';
 import Link from 'next/link';
-import { useSearchParams } from 'next/navigation';
 import { DataTable, type ColumnDef } from '@/components/shared/data-table';
 import { EmptyState } from '@/components/shared/empty-state';
 import { Badge } from '@/components/ui/badge';
@@ -38,6 +37,12 @@ interface WorkOrderTableProps {
   page: number;
   perPage: number;
   isLoading: boolean;
+  /**
+   * Current warehouse filter from the URL. Lifted to the parent so this
+   * subcomponent stays Suspense-boundary friendly per
+   * `nextjs-no-use-search-params-without-suspense`.
+   */
+  filterWarehouseId: string;
   onPageChange: (page: number) => void;
   onCreateClick: () => void;
 }
@@ -48,12 +53,10 @@ export function WorkOrderTable({
   page,
   perPage,
   isLoading,
+  filterWarehouseId,
   onPageChange,
   onCreateClick,
 }: WorkOrderTableProps) {
-  const searchParams = useSearchParams();
-  const filterWarehouseId = searchParams.get('warehouse_id') ?? '';
-
   // Lookup data — SWR dedups by cache key so this fetches piggy-back on
   // the filter-bar's identical calls.
   const { data: warehouses } = useResourceList<Warehouse>('/warehouses');

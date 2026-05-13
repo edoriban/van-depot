@@ -106,7 +106,13 @@ function OrdenesDeTrabajoPageInner() {
         </Button>
       </div>
 
-      <WorkOrderFilterBar onFilterChange={handleFilterChange} />
+      <WorkOrderFilterBar
+        filterStatus={filterStatus ?? null}
+        filterWarehouseId={filterWarehouseId}
+        filterWorkCenterId={filterWorkCenterId}
+        filterSearch={filterSearch}
+        onFilterChange={handleFilterChange}
+      />
 
       <WorkOrderTable
         data={workOrders}
@@ -114,6 +120,7 @@ function OrdenesDeTrabajoPageInner() {
         page={page}
         perPage={PER_PAGE}
         isLoading={isLoading}
+        filterWarehouseId={filterWarehouseId}
         onPageChange={setPage}
         onCreateClick={openCreateDialog}
       />
