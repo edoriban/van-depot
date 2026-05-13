@@ -1252,6 +1252,23 @@ async fn seed_demo_users_and_memberships(
         if membership_inserted.is_some() {
             summary.memberships += 1;
         }
+
+        // Warehouse grants. `/warehouses` list handler filters non-superadmin
+        // callers by `user_warehouses` (api/src/routes/warehouses.rs:165-179),
+        // so an owner/manager/operator with zero rows here sees zero
+        // warehouses even though their `user_tenants` membership is valid.
+        // Grant every demo user access to every warehouse in this tenant so
+        // the demo isn't broken by the access-control filter.
+        sqlx::query(
+            "INSERT INTO user_warehouses (tenant_id, user_id, warehouse_id) \
+             SELECT $1, $2, id FROM warehouses WHERE tenant_id = $1 \
+             ON CONFLICT DO NOTHING",
+        )
+        .bind(tenant_id)
+        .bind(user_id)
+        .execute(&mut *conn)
+        .await
+        .map_err(map_seed_err)?;
     }
 
     Ok(())
