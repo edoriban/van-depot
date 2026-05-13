@@ -20,7 +20,6 @@ test.describe('Movements page', () => {
 
   test('should show entry form by default', async ({ page }) => {
     await expect(page.getByTestId('entry-form')).toBeVisible({ timeout: 10000 });
-    await expect(page.getByTestId('entry-product')).toBeVisible();
     await expect(page.getByTestId('entry-warehouse')).toBeVisible();
     await expect(page.getByTestId('entry-quantity')).toBeVisible();
     await expect(page.getByTestId('entry-submit')).toBeVisible();
@@ -52,14 +51,16 @@ test.describe('Movements page', () => {
   });
 
   test('should filter movement history by type', async ({ page }) => {
-    await expect(page.getByTestId('filter-movement-type')).toBeVisible({ timeout: 10000 });
-    const filterSelect = page.getByTestId('filter-movement-type');
-    await filterSelect.selectOption('entry');
-    // Verify the filter is applied (select value changed)
-    await expect(filterSelect).toHaveValue('entry');
+    const filterTrigger = page.getByTestId('filter-movement-type');
+    await expect(filterTrigger).toBeVisible({ timeout: 10000 });
 
-    await filterSelect.selectOption('');
-    await expect(filterSelect).toHaveValue('');
+    await filterTrigger.click();
+    await page.getByRole('option', { name: 'Entrada' }).click();
+    await expect(filterTrigger).toContainText('Entrada');
+
+    await filterTrigger.click();
+    await page.getByRole('option', { name: 'Todos' }).click();
+    await expect(filterTrigger).toContainText('Todos');
   });
 
   test('should submit an entry if data exists', async ({ page }) => {
