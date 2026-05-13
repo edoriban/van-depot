@@ -11,15 +11,16 @@
  * `resetDetail()` actions plus a whole-store `reset()`. Back-button
  * navigation between list ↔ detail MUST preserve the other slice.
  *
- * PR-5 (this commit) ships the LIST slice. The DETAIL slice is reserved as
- * a documented TODO for PR-6 — see the explicit comment block below.
+ * PR-5 shipped the LIST slice. PR-6 (this commit) fills in the DETAIL
+ * slice per design §2.2 (9-field `detailDraft`, `detailIsSaving`,
+ * `reclassifyOpen`, `reclassifyChoice`, `reclassifyIsSaving`).
  *
  * Per FS-2.2 the consuming routes mount their slice's cleanup effect:
  *
  *   // list route (productos/page.tsx)
  *   useEffect(() => () => useProductosScreenStore.getState().resetList(), []);
  *
- *   // detail route (productos/[id]/page.tsx — PR-6)
+ *   // detail route (productos/[id]/page.tsx)
  *   useEffect(() => () => useProductosScreenStore.getState().resetDetail(), []);
  *
  * No `persist(...)` middleware is applied (FS-2.4). The devtools wrapper is
@@ -102,17 +103,47 @@ const initialListSlice = {
   categoriesIsDeleting: false as boolean,
 };
 
-// --- DETAIL slice — RESERVED FOR PR-6 -------------------------------------
-//
-// TODO(PR-6 `frontend-migration-productos` detail): mirror PR-3 → PR-4
-// progression in work-orders. The DETAIL slice will own `detailDraft`
-// (9 fields), `detailIsSaving`, `reclassifyOpen`, `reclassifyChoice`,
-// `reclassifyIsSaving`. See design §2.2 for the exact shape.
-// `resetDetail()` below is a no-op placeholder for now so the page shell
-// can already wire the FS-2.2 cleanup effect.
+// --- DETAIL slice — product edit form + reclassify dialog ----------------
+
+/**
+ * Product edit draft used by `/productos/[id]`. Mirrors `ProductCreateDraft`
+ * minus `productClass` + `isManufactured` (reclassify-only on edit), plus
+ * `isActive` per design §2.2 / §3 spec PROD-DETAIL-INV-2.
+ *
+ * Numeric fields are kept as strings — same rationale as the LIST draft
+ * (controlled `<Input type="number">` owns a string value; coercion happens
+ * at `productEditSchema.safeParse` time).
+ */
+export interface ProductEditDraft {
+  name: string;
+  sku: string;
+  description: string;
+  categoryId: string;
+  unit: UnitType;
+  hasExpiry: boolean;
+  minStock: string;
+  maxStock: string;
+  isActive: boolean;
+}
+
+const initialDetailDraft: ProductEditDraft = {
+  name: '',
+  sku: '',
+  description: '',
+  categoryId: '',
+  unit: 'piece',
+  hasExpiry: false,
+  minStock: '0',
+  maxStock: '',
+  isActive: true,
+};
 
 const initialDetailSlice = {
-  // (intentionally empty — PR-6 fills this in)
+  detailDraft: initialDetailDraft,
+  detailIsSaving: false as boolean,
+  reclassifyOpen: false as boolean,
+  reclassifyChoice: 'raw_material' as ProductClass,
+  reclassifyIsSaving: false as boolean,
 };
 
 // --- Store ----------------------------------------------------------------
@@ -133,6 +164,13 @@ interface ProductosScreenState {
   categoriesIsSaving: boolean;
   deleteTargetCategory: Category | null;
   categoriesIsDeleting: boolean;
+
+  // DETAIL slice fields.
+  detailDraft: ProductEditDraft;
+  detailIsSaving: boolean;
+  reclassifyOpen: boolean;
+  reclassifyChoice: ProductClass;
+  reclassifyIsSaving: boolean;
 
   // LIST slice actions — product dialog.
   setListFormField: <K extends keyof ProductCreateDraft>(
@@ -157,6 +195,18 @@ interface ProductosScreenState {
   setCategorySaving: (saving: boolean) => void;
   setDeleteTargetCategory: (category: Category | null) => void;
   setCategoryDeleting: (deleting: boolean) => void;
+
+  // DETAIL slice actions.
+  setDetailFormField: <K extends keyof ProductEditDraft>(
+    key: K,
+    value: ProductEditDraft[K],
+  ) => void;
+  populateDetailDraft: (product: Product) => void;
+  setDetailSaving: (saving: boolean) => void;
+  openReclassifyDialog: (defaultChoice: ProductClass) => void;
+  closeReclassifyDialog: () => void;
+  setReclassifyChoice: (choice: ProductClass) => void;
+  setReclassifySaving: (saving: boolean) => void;
 
   // Per-slice + whole-store resets per design §2.3.
   resetList: () => void;
@@ -194,6 +244,27 @@ function draftFromCategory(category: Category): CategoryFormDraft {
   return {
     name: category.name,
     parentId: category.parent_id ?? '',
+  };
+}
+
+/**
+ * Build a `ProductEditDraft` from a fetched `Product`. Used by
+ * `populateDetailDraft()` which the detail page calls inside a `useEffect`
+ * watching the SWR result (replaces the legacy imperative `populateForm()`
+ * loop). Bulk-sets all 9 fields in ONE Zustand `set()` to avoid
+ * `no-cascading-set-state`.
+ */
+function detailDraftFromProduct(product: Product): ProductEditDraft {
+  return {
+    name: product.name,
+    sku: product.sku,
+    description: product.description ?? '',
+    categoryId: product.category_id ?? '',
+    unit: product.unit_of_measure,
+    hasExpiry: product.has_expiry,
+    minStock: String(product.min_stock),
+    maxStock: product.max_stock != null ? String(product.max_stock) : '',
+    isActive: product.is_active,
   };
 }
 
@@ -266,11 +337,20 @@ export const useProductosScreenStore = create<ProductosScreenState>()(
       setCategoryDeleting: (categoriesIsDeleting) =>
         set({ categoriesIsDeleting }),
 
+      // --- DETAIL slice actions ------------------------------------------
+      setDetailFormField: (key, value) =>
+        set((s) => ({ detailDraft: { ...s.detailDraft, [key]: value } })),
+      populateDetailDraft: (product) =>
+        set({ detailDraft: detailDraftFromProduct(product) }),
+      setDetailSaving: (detailIsSaving) => set({ detailIsSaving }),
+      openReclassifyDialog: (defaultChoice) =>
+        set({ reclassifyOpen: true, reclassifyChoice: defaultChoice }),
+      closeReclassifyDialog: () => set({ reclassifyOpen: false }),
+      setReclassifyChoice: (reclassifyChoice) => set({ reclassifyChoice }),
+      setReclassifySaving: (reclassifyIsSaving) => set({ reclassifyIsSaving }),
+
       // --- Resets (slice-scoped) -----------------------------------------
       resetList: () => set({ ...initialListSlice }),
-      // PR-6 fills this in with real detail-slice reset semantics. For now
-      // it is a no-op placeholder so the page shell can already mount its
-      // FS-2.2 cleanup effect (idempotent).
       resetDetail: () => set({ ...initialDetailSlice }),
       reset: () => set(initialState),
     }),
