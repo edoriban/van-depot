@@ -136,13 +136,25 @@ interface DispatchWizardProps {
 
 // --- Wizard ---
 
-export function DispatchWizard({
+/**
+ * Public wrapper. Internal wizard state lives in a body sub-component that
+ * mounts on open and unmounts on close — this guarantees a clean reset every
+ * session without the "useEffect simulating an event handler" anti-pattern.
+ */
+export function DispatchWizard(props: DispatchWizardProps) {
+  return (
+    <Dialog open={props.open} onOpenChange={props.onOpenChange}>
+      {props.open && <DispatchWizardBody {...props} />}
+    </Dialog>
+  );
+}
+
+function DispatchWizardBody({
   recipeId,
   recipeName,
-  open,
   onOpenChange,
   onDispatchComplete,
-}: DispatchWizardProps) {
+}: Omit<DispatchWizardProps, 'open'>) {
   const [step, setStep] = useState<1 | 2 | 3>(1);
 
   // Step 1: warehouses
@@ -160,17 +172,10 @@ export function DispatchWizard({
   const [selectedLocationId, setSelectedLocationId] = useState('');
   const [isDispatching, setIsDispatching] = useState(false);
 
-  // Reset state when dialog opens/closes
+  // Fetch warehouses on mount (which only happens when the dialog opens).
   useEffect(() => {
-    if (open) {
-      setStep(1);
-      setSelectedWarehouse(null);
-      setAvailability(null);
-      setLocations([]);
-      setSelectedLocationId('');
-      fetchWarehouses();
-    }
-  }, [open]);
+    fetchWarehouses();
+  }, []);
 
   const fetchWarehouses = async () => {
     setWarehousesLoading(true);
@@ -257,7 +262,6 @@ export function DispatchWizard({
   const totalCount = availability?.items.length ?? 0;
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         className="max-w-2xl max-h-[85vh] overflow-y-auto"
         data-testid="dispatch-wizard"
@@ -514,6 +518,5 @@ export function DispatchWizard({
           </div>
         )}
       </DialogContent>
-    </Dialog>
   );
 }

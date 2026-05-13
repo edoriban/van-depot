@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, type ReactNode } from 'react';
 import { api } from '@/lib/api-mutations';
 import { useAuthStore } from '@/stores/auth-store';
 import type { User, UserRole, Warehouse, PaginatedResponse, CreateUserResponse } from '@/types';
@@ -623,16 +623,15 @@ export default function UsersPage() {
                     <SelectValue placeholder="Seleccionar almacen" />
                   </SelectTrigger>
                   <SelectContent>
-                    {warehouses
-                      .filter(
-                        (w) =>
-                          !assignedWarehouses.some((aw) => aw.id === w.id)
-                      )
-                      .map((w) => (
+                    {warehouses.reduce<ReactNode[]>((acc, w) => {
+                      if (assignedWarehouses.some((aw) => aw.id === w.id)) return acc;
+                      acc.push(
                         <SelectItem key={w.id} value={w.id}>
                           {w.name}
-                        </SelectItem>
-                      ))}
+                        </SelectItem>,
+                      );
+                      return acc;
+                    }, [])}
                   </SelectContent>
                 </Select>
                 <Button

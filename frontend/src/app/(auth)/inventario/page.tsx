@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, Fragment } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api-mutations';
+import { formatDateEs } from '@/lib/format';
 import type {
   InventoryItem,
   Warehouse,
@@ -624,10 +625,8 @@ export default function InventoryPage() {
                                                   <TableCell className="text-sm font-medium">
                                                     {lot.total_quantity}
                                                   </TableCell>
-                                                  <TableCell className="text-sm">
-                                                    {lot.expiration_date
-                                                      ? new Date(lot.expiration_date).toLocaleDateString('es-MX')
-                                                      : '-'}
+                                                  <TableCell className="text-sm" suppressHydrationWarning>
+                                                    {formatDateEs(lot.expiration_date)}
                                                   </TableCell>
                                                   <TableCell>
                                                     <QualityBadge status={lot.quality_status} />

@@ -48,17 +48,17 @@ export function SearchableSelect({
     return options.filter((o) => o.label.toLowerCase().includes(lower))
   }, [options, search])
 
-  // Reset highlight and search when opening/closing
-  React.useEffect(() => {
-    if (open) {
-      setSearch('')
-      setHighlightedIndex(0)
-      // Focus the search input after the dropdown renders
-      requestAnimationFrame(() => {
-        inputRef.current?.focus()
-      })
-    }
-  }, [open])
+  // Centralized opener — resets search + highlight + focuses the input. Inline
+  // here (not a useEffect on `open`) per react-doctor/no-effect-event-handler.
+  const openMenu = React.useCallback(() => {
+    setSearch('')
+    setHighlightedIndex(0)
+    setOpen(true)
+    // Focus the search input after the dropdown renders
+    requestAnimationFrame(() => {
+      inputRef.current?.focus()
+    })
+  }, [])
 
   // Reset highlight when filtered results change
   React.useEffect(() => {
@@ -96,7 +96,7 @@ export function SearchableSelect({
     if (!open) {
       if (e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowDown') {
         e.preventDefault()
-        setOpen(true)
+        openMenu()
       }
       return
     }
@@ -133,7 +133,11 @@ export function SearchableSelect({
         aria-haspopup="listbox"
         aria-controls={listboxId}
         disabled={disabled}
-        onClick={() => !disabled && setOpen((prev) => !prev)}
+        onClick={() => {
+          if (disabled) return
+          if (open) setOpen(false)
+          else openMenu()
+        }}
         className={cn(
           'flex w-full items-center justify-between gap-1.5 rounded-3xl border border-transparent bg-input/50 px-3 py-2 text-sm whitespace-nowrap transition-[color,box-shadow,background-color] outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 disabled:cursor-not-allowed disabled:opacity-50 h-9',
           !selectedOption && 'text-muted-foreground'

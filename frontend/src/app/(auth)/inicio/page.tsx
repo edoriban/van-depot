@@ -215,11 +215,6 @@ export default function DashboardPage() {
     if (prev) setPrevStats(prev);
   }, []);
 
-  // Save current stats to localStorage when they arrive
-  useEffect(() => {
-    if (stats) savePreviousStats(stats);
-  }, [stats]);
-
   // Detect mobile and redirect to floor mode
   useEffect(() => {
     const isMobile =
@@ -251,6 +246,8 @@ export default function DashboardPage() {
         setMovements(movementsRes);
         setLowStock(lowStockRes.data ?? lowStockRes as unknown as LowStockItem[]);
         setAlertSummary(alertSummaryRes);
+        // Persist for delta comparison on next visit (was previously a follow-up effect).
+        savePreviousStats(statsRes);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Error al cargar el dashboard');
       } finally {

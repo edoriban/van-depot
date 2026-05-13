@@ -85,29 +85,35 @@ export function CommandPalette() {
   const listRef = useRef<HTMLDivElement>(null);
   const debouncedQuery = useDebounce(query, 300);
 
-  // -- Keyboard shortcut (Cmd+K / Ctrl+K) --
-  useEffect(() => {
-    function handleKeyDown(e: KeyboardEvent) {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
-        e.preventDefault();
-        setOpen((prev) => !prev);
-      }
-    }
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, []);
+  // openRef tracks the latest "open" state for the keydown handler so we can
+  // do the reset-on-open inline (avoids the "useEffect simulating an event
+  // handler" anti-pattern from react-doctor/no-effect-event-handler).
+  const openRef = useRef(false);
+  openRef.current = open;
 
-  // -- Reset state when dialog opens/closes --
-  useEffect(() => {
-    if (open) {
+  // Single entry point used by every opener (keyboard, button, Dialog onOpenChange).
+  const handleOpenChange = useCallback((next: boolean) => {
+    if (next) {
       setQuery('');
       setActiveIndex(0);
       setProducts([]);
       setWarehouses([]);
       setRecipes([]);
-      // autofocus handled by autoFocus on input
     }
-  }, [open]);
+    setOpen(next);
+  }, []);
+
+  // -- Keyboard shortcut (Cmd+K / Ctrl+K) --
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        handleOpenChange(!openRef.current);
+      }
+    }
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [handleOpenChange]);
 
   // -- API search --
   useEffect(() => {
@@ -247,7 +253,7 @@ export function CommandPalette() {
       {/* Trigger button */}
       <button
         type="button"
-        onClick={() => setOpen(true)}
+        onClick={() => handleOpenChange(true)}
         className="flex items-center gap-2 rounded-lg border bg-muted/50 px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
         aria-label="Buscar"
       >
@@ -259,7 +265,7 @@ export function CommandPalette() {
       </button>
 
       {/* Dialog */}
-      <Dialog open={open} onOpenChange={setOpen}>
+      <Dialog open={open} onOpenChange={handleOpenChange}>
         <DialogContent
           showCloseButton={false}
           className="top-[20%] translate-y-0 gap-0 overflow-hidden p-0 sm:max-w-lg"

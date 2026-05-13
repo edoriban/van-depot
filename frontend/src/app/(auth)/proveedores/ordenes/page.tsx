@@ -38,6 +38,31 @@ import {
 import { DeliveryTruck01Icon } from '@hugeicons/core-free-icons';
 import { toast } from 'sonner';
 
+// --- Module-level helpers ---
+
+interface PurchaseOrderLineDraft {
+  _key: string;
+  product_id: string;
+  quantity_ordered: string;
+  unit_price: string;
+  notes: string;
+}
+
+/**
+ * Module-scope factory so `crypto.randomUUID()` is not syntactically reachable
+ * from any JSX subtree. The call only fires from event handlers (addLine,
+ * supplier-change, dialog reset) — safe across SSR/hydration.
+ */
+function makeEmptyLine(): PurchaseOrderLineDraft {
+  return {
+    _key: crypto.randomUUID(),
+    product_id: '',
+    quantity_ordered: '',
+    unit_price: '',
+    notes: '',
+  };
+}
+
 // --- Status config ---
 
 const STATUS_CONFIG: Record<
@@ -67,9 +92,12 @@ function CreatePurchaseOrderDialog({
   const [supplierId, setSupplierId] = useState('');
   const [expectedDate, setExpectedDate] = useState('');
   const [notes, setNotes] = useState('');
-  const [lines, setLines] = useState<
-    Array<{ _key: string; product_id: string; quantity_ordered: string; unit_price: string; notes: string }>
-  >([{ _key: crypto.randomUUID(), product_id: '', quantity_ordered: '', unit_price: '', notes: '' }]);
+  // Use a deterministic key for the initial row so SSR and hydration agree. New
+  // rows added on the client (addLine / supplier change) use makeEmptyLine() at
+  // event time so the random UUID stays out of the render path.
+  const [lines, setLines] = useState<PurchaseOrderLineDraft[]>([
+    { _key: 'row-0', product_id: '', quantity_ordered: '', unit_price: '', notes: '' },
+  ]);
   const [supplierProducts, setSupplierProducts] = useState<SupplierProduct[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -96,7 +124,7 @@ function CreatePurchaseOrderDialog({
   const addLine = () => {
     setLines((prev) => [
       ...prev,
-      { _key: crypto.randomUUID(), product_id: '', quantity_ordered: '', unit_price: '', notes: '' },
+      makeEmptyLine(),
     ]);
   };
 
@@ -118,7 +146,7 @@ function CreatePurchaseOrderDialog({
     setSupplierId('');
     setExpectedDate('');
     setNotes('');
-    setLines([{ _key: crypto.randomUUID(), product_id: '', quantity_ordered: '', unit_price: '', notes: '' }]);
+    setLines([makeEmptyLine()]);
     setSupplierProducts([]);
   };
 
@@ -194,7 +222,7 @@ function CreatePurchaseOrderDialog({
                 onValueChange={(val) => {
                   setSupplierId(val);
                   // Clear lines when supplier changes (products are supplier-specific)
-                  setLines([{ _key: crypto.randomUUID(), product_id: '', quantity_ordered: '', unit_price: '', notes: '' }]);
+                  setLines([makeEmptyLine()]);
                 }}
                 options={suppliers.map((s) => ({ value: s.id, label: s.name }))}
                 placeholder="Seleccionar proveedor"
@@ -260,14 +288,18 @@ function CreatePurchaseOrderDialog({
                               updateLine(idx, 'unit_price', String(sp.unit_cost));
                             }
                           }}
-                          options={supplierProducts
-                            .filter((p) => p.is_active)
-                            .map((p) => ({
+                          options={supplierProducts.reduce<
+                            Array<{ value: string; label: string }>
+                          >((acc, p) => {
+                            if (!p.is_active) return acc;
+                            acc.push({
                               value: p.product_id,
                               label: p.supplier_sku
                                 ? `${p.product_name} (SKU: ${p.product_sku} / Proveedor: ${p.supplier_sku})`
                                 : `${p.product_name} (${p.product_sku})`,
-                            }))}
+                            });
+                            return acc;
+                          }, [])}
                           placeholder={supplierId ? 'Seleccionar' : 'Selecciona un proveedor primero'}
                           searchPlaceholder="Buscar producto..."
                         />

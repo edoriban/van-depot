@@ -12,6 +12,7 @@ import {
   isApiError,
   issueWorkOrder,
 } from '@/lib/api-mutations';
+import { formatDateEs, formatDateMediumEs } from '@/lib/format';
 import type {
   Location,
   MissingMaterial,
@@ -235,9 +236,10 @@ export default function OrdenDeTrabajoDetailPage() {
         // so the surface can render human-readable rows. Missing entries
         // might not overlap with the BOM materials (e.g. if the BOM snapshot
         // changed) so we resolve explicitly.
-        const unknown = missing
-          .map((m) => m.product_id)
-          .filter((pid) => !productMap.has(pid));
+        const unknown: string[] = [];
+        for (const m of missing) {
+          if (!productMap.has(m.product_id)) unknown.push(m.product_id);
+        }
         if (unknown.length > 0) {
           void Promise.all(
             unknown.map((pid) =>
@@ -357,13 +359,8 @@ export default function OrdenDeTrabajoDetailPage() {
           {workCenter?.name ? ` / ${workCenter.name}` : ''}
         </p>
         <div className="flex flex-wrap gap-4 text-xs text-muted-foreground">
-          <span>
-            Creada el{' '}
-            {new Date(workOrder.created_at).toLocaleString('es-MX', {
-              day: 'numeric',
-              month: 'short',
-              year: 'numeric',
-            })}
+          <span suppressHydrationWarning>
+            Creada el {formatDateMediumEs(workOrder.created_at)}
           </span>
           {workOrder.issued_at && (
             <span data-testid="wo-issued-at">
@@ -610,13 +607,11 @@ export default function OrdenDeTrabajoDetailPage() {
                     {QUALITY_LABELS[fgLot.quality_status]}
                   </Badge>
                 </div>
-                <div className="text-sm text-muted-foreground">
+                <div className="text-sm text-muted-foreground" suppressHydrationWarning>
                   {fgProduct?.name ?? workOrder.fg_product_id.slice(0, 8)} ×{' '}
                   {workOrder.fg_quantity}
                   {fgLot.expiration_date
-                    ? ` — Caduca ${new Date(
-                        fgLot.expiration_date,
-                      ).toLocaleDateString('es-MX')}`
+                    ? ` — Caduca ${formatDateEs(fgLot.expiration_date)}`
                     : ''}
                 </div>
                 <Link

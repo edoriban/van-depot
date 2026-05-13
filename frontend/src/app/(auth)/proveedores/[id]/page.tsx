@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, type ReactNode } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { api } from '@/lib/api-mutations';
 import type {
@@ -717,13 +717,15 @@ export default function SupplierDetailPage() {
                   <SelectValue placeholder="Seleccionar producto" />
                 </SelectTrigger>
                 <SelectContent>
-                  {allProducts
-                    .filter((p) => !products.some((sp) => sp.product_id === p.id))
-                    .map((p) => (
+                  {allProducts.reduce<ReactNode[]>((acc, p) => {
+                    if (products.some((sp) => sp.product_id === p.id)) return acc;
+                    acc.push(
                       <SelectItem key={p.id} value={p.id}>
                         {p.name} ({p.sku})
-                      </SelectItem>
-                    ))}
+                      </SelectItem>,
+                    );
+                    return acc;
+                  }, [])}
                 </SelectContent>
               </Select>
             </div>

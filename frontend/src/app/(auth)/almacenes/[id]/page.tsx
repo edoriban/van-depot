@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useState, useEffect, useCallback } from 'react';
+import { Suspense, useState, useEffect, useCallback, type ReactNode } from 'react';
 import { useParams, useSearchParams, useRouter, usePathname } from 'next/navigation';
 import useSWR from 'swr';
 import dynamic from 'next/dynamic';
@@ -543,9 +543,9 @@ function LocationsTab({ warehouseId }: { warehouseId: string }) {
                 Ubicaciones sin zona asignada:
               </p>
               <div className="border rounded-lg divide-y">
-                {allLocations
-                  .filter((l) => !l.parent_id && l.location_type !== 'zone')
-                  .map((location) => (
+                {allLocations.reduce<ReactNode[]>((acc, location) => {
+                  if (location.parent_id || location.location_type === 'zone') return acc;
+                  acc.push(
                     <LocationTreeNode
                       key={location.id}
                       location={location}
@@ -556,8 +556,10 @@ function LocationsTab({ warehouseId }: { warehouseId: string }) {
                       onAddChild={(parentId, parentType) => openCreateDialog(parentId, parentType)}
                       onEdit={openEditDialog}
                       onDelete={setDeleteTarget}
-                    />
-                  ))}
+                    />,
+                  );
+                  return acc;
+                }, [])}
               </div>
             </div>
           )}

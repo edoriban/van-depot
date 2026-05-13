@@ -225,14 +225,16 @@ export default function OnboardingPage() {
 
     setIsLoading(true);
     try {
-      let created = 0;
-      for (const loc of tpl.locations) {
-        await api.post(`/warehouses/${warehouse.id}/locations`, {
-          name: loc.name,
-          location_type: loc.type,
-        });
-        created++;
-      }
+      // Creates are independent — race them in parallel for faster onboarding.
+      await Promise.all(
+        tpl.locations.map((loc) =>
+          api.post(`/warehouses/${warehouse.id}/locations`, {
+            name: loc.name,
+            location_type: loc.type,
+          }),
+        ),
+      );
+      const created = tpl.locations.length;
       setLocationsCreated(created);
       toast.success(`${created} ubicaciones creadas`);
       setStep(3);
@@ -290,16 +292,18 @@ export default function OnboardingPage() {
 
     setIsLoading(true);
     try {
-      let created = 0;
-      for (const p of valid) {
-        await api.post('/products', {
-          name: p.name.trim(),
-          sku: p.sku.trim(),
-          unit_of_measure: p.unit_of_measure,
-          min_stock: 0,
-        });
-        created++;
-      }
+      // Each product POST is independent of the others — race them.
+      await Promise.all(
+        valid.map((p) =>
+          api.post('/products', {
+            name: p.name.trim(),
+            sku: p.sku.trim(),
+            unit_of_measure: p.unit_of_measure,
+            min_stock: 0,
+          }),
+        ),
+      );
+      const created = valid.length;
       setProductsCreated(created);
       toast.success(`${created} producto${created > 1 ? 's' : ''} creado${created > 1 ? 's' : ''}`);
       setStep(4);

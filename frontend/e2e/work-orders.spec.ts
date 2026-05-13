@@ -148,14 +148,11 @@ async function ensureSeedForChain(
     };
   }
 
-  // Create FG + ingredient. Unique SKU per run guarantees no collisions.
+  // Create FG + ingredient in parallel — independent endpoints, unique SKUs.
   const fgSku = `E2E-FG-${stamp}`;
   const ingSku = `E2E-ING-${stamp}`;
-  const fg = await apiPost<{ id: string; sku: string }>(
-    request,
-    token,
-    '/products',
-    {
+  const [fg, ing] = await Promise.all([
+    apiPost<{ id: string; sku: string }>(request, token, '/products', {
       name: `E2E FG ${stamp}`,
       sku: fgSku,
       unit_of_measure: 'piece',
@@ -163,16 +160,16 @@ async function ensureSeedForChain(
       has_expiry: false,
       is_manufactured: true,
       min_stock: 0,
-    },
-  );
-  const ing = await apiPost<{ id: string }>(request, token, '/products', {
-    name: `E2E Ingredient ${stamp}`,
-    sku: ingSku,
-    unit_of_measure: 'piece',
-    product_class: 'raw_material',
-    has_expiry: false,
-    min_stock: 0,
-  });
+    }),
+    apiPost<{ id: string }>(request, token, '/products', {
+      name: `E2E Ingredient ${stamp}`,
+      sku: ingSku,
+      unit_of_measure: 'piece',
+      product_class: 'raw_material',
+      has_expiry: false,
+      min_stock: 0,
+    }),
+  ]);
 
   // Seed the ingredient inventory at the storage location so issue + complete
   // have source material to move. 100 units is more than enough for the 2 the
@@ -243,23 +240,26 @@ async function ensureShortStockScenario(
 
   const fgSku = `E2E-SHORT-FG-${stamp}`;
   const ingSku = `E2E-SHORT-ING-${stamp}`;
-  const fg = await apiPost<{ id: string }>(request, token, '/products', {
-    name: `E2E Short FG ${stamp}`,
-    sku: fgSku,
-    unit_of_measure: 'piece',
-    product_class: 'raw_material',
-    has_expiry: false,
-    is_manufactured: true,
-    min_stock: 0,
-  });
-  const ing = await apiPost<{ id: string }>(request, token, '/products', {
-    name: `E2E Short Ing ${stamp}`,
-    sku: ingSku,
-    unit_of_measure: 'piece',
-    product_class: 'raw_material',
-    has_expiry: false,
-    min_stock: 0,
-  });
+  // Independent product creates — race them.
+  const [fg, ing] = await Promise.all([
+    apiPost<{ id: string }>(request, token, '/products', {
+      name: `E2E Short FG ${stamp}`,
+      sku: fgSku,
+      unit_of_measure: 'piece',
+      product_class: 'raw_material',
+      has_expiry: false,
+      is_manufactured: true,
+      min_stock: 0,
+    }),
+    apiPost<{ id: string }>(request, token, '/products', {
+      name: `E2E Short Ing ${stamp}`,
+      sku: ingSku,
+      unit_of_measure: 'piece',
+      product_class: 'raw_material',
+      has_expiry: false,
+      min_stock: 0,
+    }),
+  ]);
   // Seed 10 units at storage so the WO can be ISSUED successfully (issue
   // moves all required material storage → work_center). After issue, we
   // manually exit 2 units from the work_center to simulate loss/theft, so

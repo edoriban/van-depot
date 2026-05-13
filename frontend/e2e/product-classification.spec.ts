@@ -187,6 +187,8 @@ test.describe('Product classification — create per class', () => {
         },
       ];
 
+      // Sequential creation is intentional — each iteration shares the same Page
+      // and the UI under test cannot service parallel CRUD against a single tab.
       for (const f of fixtures) {
         await createProductViaUi({
           page,

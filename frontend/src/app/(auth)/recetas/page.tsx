@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { api } from '@/lib/api-mutations';
+import { formatDateMediumEs } from '@/lib/format';
 import type { Recipe, PaginatedResponse } from '@/types';
 import { EmptyState } from '@/components/shared/empty-state';
 import { ConfirmDialog } from '@/components/shared/confirm-dialog';
@@ -203,12 +204,8 @@ export default function RecetasPage() {
                 </CardHeader>
                 <CardContent>
                   <div className="flex items-center justify-between">
-                    <span className="text-xs text-muted-foreground">
-                      {new Date(recipe.created_at).toLocaleDateString('es-MX', {
-                        day: 'numeric',
-                        month: 'short',
-                        year: 'numeric',
-                      })}
+                    <span className="text-xs text-muted-foreground" suppressHydrationWarning>
+                      {formatDateMediumEs(recipe.created_at)}
                     </span>
                     <Link
                       href={`/recetas/${recipe.id}`}

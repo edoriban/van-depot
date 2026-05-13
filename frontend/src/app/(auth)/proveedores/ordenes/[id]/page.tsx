@@ -772,16 +772,19 @@ export default function PurchaseOrderDetailPage() {
                         setAddLinePrice(String(sp.unit_cost));
                       }
                     }}
-                    options={supplierProducts
-                      .filter(
-                        (p) => p.is_active && !lines.some((l) => l.product_id === p.product_id),
-                      )
-                      .map((p) => ({
+                    options={supplierProducts.reduce<
+                      Array<{ value: string; label: string }>
+                    >((acc, p) => {
+                      if (!p.is_active) return acc;
+                      if (lines.some((l) => l.product_id === p.product_id)) return acc;
+                      acc.push({
                         value: p.product_id,
                         label: p.supplier_sku
                           ? `${p.product_name} (SKU: ${p.product_sku} / Proveedor: ${p.supplier_sku})`
                           : `${p.product_name} (${p.product_sku})`,
-                      }))}
+                      });
+                      return acc;
+                    }, [])}
                     placeholder="Seleccionar producto"
                     searchPlaceholder="Buscar producto..."
                   />

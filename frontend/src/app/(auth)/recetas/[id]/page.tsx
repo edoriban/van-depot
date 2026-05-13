@@ -79,6 +79,7 @@ export default function RecipeDetailPage() {
   const [dispatchWizardOpen, setDispatchWizardOpen] = useState(false);
 
   const fetchDetail = useCallback(async () => {
+    if (!recipeId) return;
     setIsLoading(true);
     setError(null);
     try {
@@ -94,8 +95,8 @@ export default function RecipeDetailPage() {
   }, [recipeId]);
 
   useEffect(() => {
-    if (recipeId) fetchDetail();
-  }, [recipeId, fetchDetail]);
+    fetchDetail();
+  }, [fetchDetail]);
 
   // Fetch products for add-item dialog
   const fetchProducts = async () => {

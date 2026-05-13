@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { api } from '@/lib/api-mutations';
 import type { PurchaseReturnReason } from '@/types';
 import {
@@ -52,31 +52,33 @@ export interface PurchaseReturnDialogProps {
   onSuccess: () => void;
 }
 
-export function PurchaseReturnDialog({
-  open,
+/**
+ * Outer dialog only forwards open/close. Internal form state lives in the body
+ * sub-component so it mounts/unmounts with `open`, which gives us a clean
+ * reset without a setState-in-useEffect simulation of an event handler.
+ */
+export function PurchaseReturnDialog(props: PurchaseReturnDialogProps) {
+  return (
+    <Dialog open={props.open} onOpenChange={props.onOpenChange}>
+      {props.open && <PurchaseReturnDialogBody {...props} />}
+    </Dialog>
+  );
+}
+
+function PurchaseReturnDialogBody({
   onOpenChange,
   purchaseOrder,
   onSuccess,
 }: PurchaseReturnDialogProps) {
-  const [quantities, setQuantities] = useState<Record<string, number>>({});
+  const [quantities, setQuantities] = useState<Record<string, number>>(() => {
+    const initial: Record<string, number> = {};
+    for (const l of purchaseOrder.lines) initial[l.id] = 0;
+    return initial;
+  });
   const [reason, setReason] = useState<PurchaseReturnReason | ''>('');
   const [reasonNotes, setReasonNotes] = useState('');
   const [decreaseInventory, setDecreaseInventory] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
-
-  // Reset form when dialog opens
-  useEffect(() => {
-    if (open) {
-      const initial: Record<string, number> = {};
-      purchaseOrder.lines.forEach((l) => {
-        initial[l.id] = 0;
-      });
-      setQuantities(initial);
-      setReason('');
-      setReasonNotes('');
-      setDecreaseInventory(true);
-    }
-  }, [open, purchaseOrder.lines]);
 
   const updateQty = (lineId: string, value: string) => {
     const num = parseInt(value, 10);
@@ -91,13 +93,21 @@ export function PurchaseReturnDialog({
       return;
     }
 
-    const items = purchaseOrder.lines
-      .filter((l) => (quantities[l.id] ?? 0) > 0)
-      .map((l) => ({
-        purchase_order_line_id: l.id,
-        product_id: l.product_id,
-        quantity_returned: quantities[l.id],
-      }));
+    const items: Array<{
+      purchase_order_line_id: string;
+      product_id: string;
+      quantity_returned: number;
+    }> = [];
+    for (const l of purchaseOrder.lines) {
+      const qty = quantities[l.id] ?? 0;
+      if (qty > 0) {
+        items.push({
+          purchase_order_line_id: l.id,
+          product_id: l.product_id,
+          quantity_returned: qty,
+        });
+      }
+    }
 
     if (items.length === 0) {
       toast.error('Agrega al menos un producto con cantidad a devolver');
@@ -129,8 +139,7 @@ export function PurchaseReturnDialog({
   }, 0);
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+    <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Nueva devolución: Orden {purchaseOrder.order_number}</DialogTitle>
         </DialogHeader>
@@ -245,6 +254,5 @@ export function PurchaseReturnDialog({
           </DialogFooter>
         </form>
       </DialogContent>
-    </Dialog>
   );
 }

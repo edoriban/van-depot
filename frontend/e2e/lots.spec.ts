@@ -100,9 +100,12 @@ test.describe('Lots (Lotes)', () => {
         'Recibido',
       ];
 
-      for (const header of expectedHeaders) {
-        await expect(page.getByText(header, { exact: true }).first()).toBeVisible({ timeout: 3000 });
-      }
+      // Independent visibility assertions — run in parallel.
+      await Promise.all(
+        expectedHeaders.map((header) =>
+          expect(page.getByText(header, { exact: true }).first()).toBeVisible({ timeout: 3000 }),
+        ),
+      );
     }
   );
 
@@ -125,6 +128,9 @@ test.describe('Lots (Lotes)', () => {
       const statusLabels = ['Pendiente', 'Aprobado', 'Rechazado', 'Cuarentena'];
       let foundAny = false;
 
+      // Sequential await is intentional: each iteration mutates `foundAny` based
+      // on the visibility probe before the next assertion, and Playwright Locator
+      // visibility checks against a shared Page should not race.
       for (const label of statusLabels) {
         const badge = page.locator('.bg-amber-100, .bg-green-100, .bg-red-100, .bg-purple-100').filter({ hasText: label }).first();
         if (await badge.isVisible({ timeout: 1000 }).catch(() => false)) {

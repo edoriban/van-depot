@@ -4,6 +4,7 @@ import { Suspense, useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 import { api, getWorkOrder } from '@/lib/api-mutations';
+import { formatDateEs, formatDateTimeEs } from '@/lib/format';
 import type {
   Movement,
   MovementType,
@@ -1503,7 +1504,7 @@ function MovementsPageInner() {
       key: 'date',
       header: 'Fecha',
       render: (m) => (
-        <span title={new Date(m.created_at).toLocaleString('es-MX')}>
+        <span title={formatDateTimeEs(m.created_at)} suppressHydrationWarning>
           {relativeDate(m.created_at)}
         </span>
       ),
@@ -1608,8 +1609,7 @@ function MovementsPageInner() {
                     {
                       key: 'created_at',
                       label: 'Fecha',
-                      format: (v) =>
-                        v ? new Date(v as string).toLocaleDateString('es-MX') : '',
+                      format: (v) => formatDateEs(v as string | undefined, ''),
                     },
                     {
                       key: 'movement_type',

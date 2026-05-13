@@ -40,8 +40,11 @@ test.describe('Alertas de Stock', () => {
     const table = page.locator('[data-testid="alertas-table"]');
     const emptyState = page.locator('text=No hay alertas de stock');
 
-    const hasTable = await table.isVisible().catch(() => false);
-    const hasEmpty = await emptyState.isVisible().catch(() => false);
+    // Independent visibility probes — race them.
+    const [hasTable, hasEmpty] = await Promise.all([
+      table.isVisible().catch(() => false),
+      emptyState.isVisible().catch(() => false),
+    ]);
     expect(hasTable || hasEmpty).toBeTruthy();
   });
 });

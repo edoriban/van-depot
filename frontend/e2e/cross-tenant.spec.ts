@@ -287,40 +287,25 @@ test.describe('Cross-tenant isolation (E7)', () => {
   test.beforeAll(async ({ request }) => {
     const { token: superToken } = await loginSuperadmin(request);
 
-    // Create both tenants and seed demo data into each (gives us stable
-    // SKU sets and the auto-created demo users edgar/luis/laura — though
-    // we use our own bob/alice for cleanest membership wiring).
-    const acme = await createTenant(
-      request,
-      superToken,
-      acmeSlug,
-      `Acme E7 ${RUN_ID}`,
-    );
-    const globex = await createTenant(
-      request,
-      superToken,
-      globexSlug,
-      `Globex E7 ${RUN_ID}`,
-    );
+    // Create both tenants in parallel — independent endpoints.
+    const [acme, globex] = await Promise.all([
+      createTenant(request, superToken, acmeSlug, `Acme E7 ${RUN_ID}`),
+      createTenant(request, superToken, globexSlug, `Globex E7 ${RUN_ID}`),
+    ]);
     acmeTenantId = acme.id;
     globexTenantId = globex.id;
 
-    await seedDemo(request, superToken, acmeTenantId);
-    await seedDemo(request, superToken, globexTenantId);
+    // Seed demo data into both tenants concurrently.
+    await Promise.all([
+      seedDemo(request, superToken, acmeTenantId),
+      seedDemo(request, superToken, globexTenantId),
+    ]);
 
-    // Create the two test users with known passwords.
-    const bob = await createUserWithPassword(
-      request,
-      superToken,
-      bobEmail,
-      'Bob E7',
-    );
-    const alice = await createUserWithPassword(
-      request,
-      superToken,
-      aliceEmail,
-      'Alice E7',
-    );
+    // Create the two test users with known passwords in parallel.
+    const [bob, alice] = await Promise.all([
+      createUserWithPassword(request, superToken, bobEmail, 'Bob E7'),
+      createUserWithPassword(request, superToken, aliceEmail, 'Alice E7'),
+    ]);
     bobUserId = bob.id;
     aliceUserId = alice.id;
 
