@@ -48,6 +48,7 @@ pub enum LocationType {
     Reception,
     WorkCenter,
     FinishedGood,
+    Outbound,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
@@ -99,6 +100,43 @@ pub enum WorkOrderStatus {
     InProgress,
     Completed,
     Cancelled,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
+#[serde(rename_all = "snake_case")]
+#[sqlx(type_name = "picking_list_status", rename_all = "snake_case")]
+pub enum PickingListStatus {
+    Draft,
+    Released,
+    Assigned,
+    InProgress,
+    Completed,
+    Cancelled,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
+#[serde(rename_all = "snake_case")]
+#[sqlx(type_name = "picking_line_status", rename_all = "snake_case")]
+pub enum PickingLineStatus {
+    Pending,
+    Picked,
+    Skipped,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
+#[serde(rename_all = "snake_case")]
+#[sqlx(type_name = "reservation_status", rename_all = "snake_case")]
+pub enum ReservationStatus {
+    Active,
+    Released,
+    Consumed,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
+#[serde(rename_all = "snake_case")]
+#[sqlx(type_name = "picking_allocation_strategy", rename_all = "snake_case")]
+pub enum PickingAllocationStrategy {
+    Fefo,
 }
 
 impl WorkOrderStatus {

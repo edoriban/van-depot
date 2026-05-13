@@ -20,9 +20,9 @@ export type LocationType =
   | 'position'
   | 'bin'
   | 'reception'
-  | 'storage'
   | 'work_center'
-  | 'finished_good';
+  | 'finished_good'
+  | 'outbound';
 export type CycleCountStatus = 'draft' | 'in_progress' | 'completed' | 'cancelled';
 export type ProductClass = 'raw_material' | 'consumable' | 'tool_spare';
 

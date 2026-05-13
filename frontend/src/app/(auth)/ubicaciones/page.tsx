@@ -33,9 +33,9 @@ const LOCATION_TYPE_LABELS: Record<LocationType, string> = {
   position: 'Posicion',
   bin: 'Contenedor',
   reception: 'Recepcion',
-  storage: 'Almacenamiento',
   work_center: 'Centro de trabajo',
   finished_good: 'Producto terminado',
+  outbound: 'Salida',
 };
 
 const LOCATION_TYPES: LocationType[] = ['zone', 'rack', 'shelf', 'position', 'bin'];
