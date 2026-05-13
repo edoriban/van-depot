@@ -230,6 +230,17 @@ pub struct SeedSummary {
     pub notifications: usize,
     pub demo_users: usize,
     pub memberships: usize,
+    /// Demo lots inserted by `seed_demo_product_lots` (target: 8 with mixed
+    /// `quality_status` / expiration dates). Zero on idempotent re-run.
+    pub product_lots: usize,
+    /// Demo movement-log rows inserted by `seed_demo_movements` (target: 20
+    /// distributed across `entry`/`exit`/`transfer`/`adjustment`). Zero on
+    /// idempotent re-run.
+    pub movements: usize,
+    /// Demo picking lists inserted by `seed_demo_picking_lists` (target: 3
+    /// across statuses: draft, released, in_progress). Zero on idempotent
+    /// re-run.
+    pub picking_lists: usize,
 }
 
 /// Per-tenant demo seed.
@@ -258,11 +269,20 @@ pub async fn seed_demo_for_tenant(
 
     let ctx = seed_core(conn, tenant_id, admin_id, &mut summary).await?;
     seed_purchase_orders(conn, tenant_id, admin_id, &ctx, &mut summary).await?;
+    seed_purchase_orders_extra(conn, tenant_id, admin_id, &ctx, &mut summary).await?;
     seed_recipes(conn, tenant_id, admin_id, &ctx, &mut summary).await?;
     seed_work_orders(conn, tenant_id, admin_id, &ctx, &mut summary).await?;
+    seed_work_orders_extra(conn, tenant_id, admin_id, &ctx, &mut summary).await?;
     seed_cycle_counts(conn, tenant_id, admin_id, &ctx, &mut summary).await?;
     seed_notifications(conn, tenant_id, admin_id, &ctx, &mut summary).await?;
     seed_demo_users_and_memberships(conn, tenant_id, &mut summary).await?;
+    // Diversity sub-seeds — depend on products/suppliers/warehouses/locations
+    // already populated by `seed_core`. Order matters: lots feed FEFO lookups
+    // and any future picking-list release flow; movements are pure log
+    // entries and don't depend on lots.
+    seed_demo_product_lots(conn, tenant_id, &ctx, &mut summary).await?;
+    seed_demo_movements(conn, tenant_id, admin_id, &ctx, &mut summary).await?;
+    seed_demo_picking_lists(conn, tenant_id, admin_id, &ctx, &mut summary).await?;
 
     Ok(summary)
 }
@@ -1213,6 +1233,655 @@ async fn seed_demo_users_and_memberships(
     Ok(())
 }
 
+// ── seed_demo_product_lots ──────────────────────────────────────────────────
+//
+// Inserts 8 demo lots across raw_material + expirable consumable products
+// already created by `seed_core`. The mix exercises every `QualityStatus`
+// variant (pending, approved, rejected, quarantine) plus expiration
+// scenarios (one expired, two near-expiry, two long-shelf, three undated)
+// so the `/lotes` UI and quality dashboards have meaningful rows out of
+// the box.
+//
+// Idempotency: natural key is `(product_id, lot_number)` UNIQUE on
+// `product_lots`. `ON CONFLICT (product_id, lot_number) DO NOTHING
+// RETURNING id` short-circuits on a re-run and the `if let Some(_)` arm
+// also seeds the matching `inventory_lots` row — guarded by its own
+// `(product_lot_id, location_id)` UNIQUE.
+//
+// Lots are placed at the warehouse's reception location (RCP-*) for
+// `pending`/`quarantine`/`rejected` (mirrors the receiving flow) and at
+// the standard storage location (RACK-A/B, ZONA-SOLDADURA, BOD-GENERAL)
+// for `approved` lots — matches what an operator would see after a Q&A
+// pass-through.
+//
+// Quantities are intentionally small (5..25) so they don't visually
+// dominate the inventory totals seeded in `seed_core`. We do NOT touch
+// the aggregated `inventory` table here — the `inventory_lots` join is
+// the source of truth for lot-level views (`/lotes/[id]`), and the
+// existing `seed_core` inventory rows already drive the catalog/dashboard.
+
+async fn seed_demo_product_lots(
+    conn: &mut PgConnection,
+    tenant_id: Uuid,
+    ctx: &SeedContext,
+    summary: &mut SeedSummary,
+) -> Result<(), DomainError> {
+    // (sku, lot_number, quality_status, batch_offset_days, expiration_offset_days, qty, location_key, notes)
+    //   * batch_offset_days:      NEGATIVE = days before today; None = NULL batch_date.
+    //   * expiration_offset_days: NEGATIVE = expired; POSITIVE = future; None = NULL (non-perishable).
+    //
+    // Curated set (8 lots):
+    //   1. TUB-RED-2  approved, 90 days old, no expiry      → healthy raw stock at RACK-A
+    //   2. TUB-CUA-1  approved, 60 days old, no expiry      → healthy raw stock at RACK-A
+    //   3. PIN-ANT-R  approved, fresh, 180 days to expire   → healthy consumable at BOD-GENERAL
+    //   4. PIN-ANT-R  pending,  10 days old, 7 days to exp  → NEAR-EXPIRY pending at RCP-ALM
+    //   5. THI-STD    quarantine, 30 days old, 30 days to exp → quality hold at RCP-BOD
+    //   6. THI-STD    rejected,  90 days old, 5 days expired → EXPIRED reject at RCP-BOD
+    //   7. ELE-6013   approved, 5 days old, no expiry       → fresh stock at ZONA-SOLDADURA
+    //   8. ELE-7018   pending,  2 days old, no expiry       → newly received pending at RCP-ALM
+    let lot_rows: &[(&str, &str, &str, Option<i32>, Option<i32>, f64, &str, &str)] = &[
+        ("TUB-RED-2", "LOT-TUB-2026-001", "approved",   Some(-90), None,       25.0, "RACK-A",         "Lote demo aprobado — stock vigente"),
+        ("TUB-CUA-1", "LOT-TUB-2026-002", "approved",   Some(-60), None,       18.0, "RACK-A",         "Lote demo aprobado — stock vigente"),
+        ("PIN-ANT-R", "LOT-PIN-2026-001", "approved",   Some(-5),  Some(180),  12.0, "BOD-GENERAL",    "Lote demo aprobado — pintura vigente"),
+        ("PIN-ANT-R", "LOT-PIN-2026-002", "pending",    Some(-10), Some(7),    8.0,  "RCP-ALM",        "Lote demo en QA — próximo a vencer"),
+        ("THI-STD",   "LOT-THI-2026-001", "quarantine", Some(-30), Some(30),   10.0, "RCP-BOD",        "Lote demo en cuarentena — pendiente decisión"),
+        ("THI-STD",   "LOT-THI-2026-002", "rejected",   Some(-90), Some(-5),   6.0,  "RCP-BOD",        "Lote demo rechazado — vencido"),
+        ("ELE-6013",  "LOT-ELE-2026-001", "approved",   Some(-5),  None,       15.0, "ZONA-SOLDADURA", "Lote demo aprobado — electrodos frescos"),
+        ("ELE-7018",  "LOT-ELE-2026-002", "pending",    Some(-2),  None,       5.0,  "RCP-ALM",        "Lote demo en QA — recién recibido"),
+    ];
+
+    for (sku, lot_number, quality, batch_off, exp_off, qty, loc_key, notes) in lot_rows {
+        let product_id = match ctx.products.get(*sku) {
+            Some(id) => *id,
+            // Missing product means `seed_core` was customized and this SKU
+            // was dropped. Skip gracefully rather than panic — keeps the seed
+            // robust under future catalog tweaks.
+            None => continue,
+        };
+        let location_id = match ctx.locations.get(*loc_key) {
+            Some(id) => *id,
+            None => continue,
+        };
+        let supplier_id = ctx.suppliers.get("ACEROS-MTY").copied();
+
+        // INSERT lot with ON CONFLICT on `(product_id, lot_number)` UNIQUE.
+        // Note: `product_lots` has only a 2-column UNIQUE — there is no
+        // `tenant_id` in the key. Cross-tenant lot numbers can collide; we
+        // rely on the lot_number prefix (LOT-*-YYYY-NNN) being demo-only.
+        let inserted: Option<Uuid> = sqlx::query_scalar(
+            "INSERT INTO product_lots \
+                 (tenant_id, product_id, lot_number, batch_date, expiration_date, \
+                  supplier_id, received_quantity, quality_status, notes) \
+             VALUES ($1, $2, $3, \
+                     CASE WHEN $4::int IS NULL THEN NULL \
+                          ELSE (CURRENT_DATE + ($4::int || ' days')::interval)::date END, \
+                     CASE WHEN $5::int IS NULL THEN NULL \
+                          ELSE (CURRENT_DATE + ($5::int || ' days')::interval)::date END, \
+                     $6, $7, $8::quality_status, $9) \
+             ON CONFLICT (product_id, lot_number) DO NOTHING \
+             RETURNING id",
+        )
+        .bind(tenant_id)
+        .bind(product_id)
+        .bind(lot_number)
+        .bind(batch_off)
+        .bind(exp_off)
+        .bind(supplier_id)
+        .bind(qty)
+        .bind(quality)
+        .bind(notes)
+        .fetch_optional(&mut *conn)
+        .await
+        .map_err(map_seed_err)?;
+
+        let Some(lot_id) = inserted else {
+            // Lot already exists for this product+lot_number — skip the
+            // inventory_lots write too (idempotent re-run).
+            continue;
+        };
+        summary.product_lots += 1;
+
+        // Companion `inventory_lots` row so the lot has visible stock at
+        // its location (the /lotes/[id] page computes total via this join).
+        // For rejected lots we still seed the inventory row — the UI shows
+        // "rejected stock awaiting return" which matches the operational
+        // reality of a real reject.
+        sqlx::query(
+            "INSERT INTO inventory_lots (tenant_id, product_lot_id, location_id, quantity) \
+             VALUES ($1, $2, $3, $4) \
+             ON CONFLICT (product_lot_id, location_id) DO NOTHING",
+        )
+        .bind(tenant_id)
+        .bind(lot_id)
+        .bind(location_id)
+        .bind(qty)
+        .execute(&mut *conn)
+        .await
+        .map_err(map_seed_err)?;
+    }
+
+    Ok(())
+}
+
+// ── seed_demo_movements ─────────────────────────────────────────────────────
+//
+// Inserts 20 demo movement log rows distributed across `entry` (8),
+// `exit` (6), `transfer` (4), `adjustment` (2). Movements are an
+// IMMUTABLE log table (no triggers, no `updated_at`) so we can stamp
+// historical rows without touching `inventory` levels — they exist
+// purely to populate `/movimientos` with a believable timeline.
+//
+// Idempotency: `movements` has no natural unique key. We probe for
+// existing demo rows via `reference` LIKE 'MOV-DEMO-%' before inserting.
+// Re-runs short-circuit with a counter of 0.
+//
+// Timestamps span the last 14 days so the chart-friendly date filters
+// in `/movimientos` have data to chart over.
+
+async fn seed_demo_movements(
+    conn: &mut PgConnection,
+    tenant_id: Uuid,
+    admin_id: Uuid,
+    ctx: &SeedContext,
+    summary: &mut SeedSummary,
+) -> Result<(), DomainError> {
+    // Idempotency probe — if ANY MOV-DEMO-* row exists for this tenant,
+    // assume the full set is already seeded.
+    let already_seeded: Option<i32> = sqlx::query_scalar(
+        "SELECT 1 FROM movements \
+         WHERE tenant_id = $1 AND reference LIKE 'MOV-DEMO-%' \
+         LIMIT 1",
+    )
+    .bind(tenant_id)
+    .fetch_optional(&mut *conn)
+    .await
+    .map_err(map_seed_err)?;
+
+    if already_seeded.is_some() {
+        return Ok(());
+    }
+
+    // Tuple shape:
+    //   (movement_type, product_sku, from_loc_key, to_loc_key, qty, days_ago, reference_suffix, notes, with_supplier)
+    //   from_loc_key/to_loc_key: Option<&str> — None = NULL (e.g. entry has
+    //   no from, exit has no to).
+    #[allow(clippy::type_complexity)]
+    let movement_rows: &[(&str, &str, Option<&str>, Option<&str>, f64, i32, &str, &str, bool)] = &[
+        // ── entries (8): supplier receptions arriving at warehouse zones ─────
+        ("entry",      "TUB-RED-2",   None,                Some("RCP-ALM"),         50.0, 14, "001-RCP", "Recepción demo de proveedor",          true),
+        ("entry",      "ELE-6013",    None,                Some("RCP-ALM"),         15.0, 12, "002-RCP", "Recepción demo de proveedor",          true),
+        ("entry",      "PIN-ANT-R",   None,                Some("RCP-BOD"),         12.0, 10, "003-RCP", "Recepción demo de proveedor",          true),
+        ("entry",      "BIS-IND-4",   None,                Some("RCP-ALM"),         50.0, 9,  "004-RCP", "Recepción demo de proveedor",          true),
+        ("entry",      "TOR-14-1",    None,                Some("RCP-ALM"),        100.0, 8,  "005-RCP", "Recepción demo de proveedor",          true),
+        ("entry",      "ELE-7018",    None,                Some("RCP-ALM"),          5.0, 7,  "006-RCP", "Recepción demo de proveedor",          true),
+        ("entry",      "THI-STD",     None,                Some("RCP-BOD"),         10.0, 6,  "007-RCP", "Recepción demo de proveedor",          true),
+        ("entry",      "PTR-2X2",     None,                Some("RCP-ALM"),         20.0, 5,  "008-RCP", "Recepción demo de proveedor",          true),
+        // ── exits (6): consumption to work center / fulfillment ─────────────
+        ("exit",       "TUB-RED-2",   Some("RACK-A"),      None,                     6.0, 11, "009-OUT", "Salida demo a producción",             false),
+        ("exit",       "TUB-CUA-1",   Some("RACK-A"),      None,                     4.0, 10, "010-OUT", "Salida demo a producción",             false),
+        ("exit",       "ELE-6013",    Some("ZONA-SOLDADURA"), None,                  2.0, 8,  "011-OUT", "Consumo demo en soldadura",            false),
+        ("exit",       "BIS-IND-4",   Some("BOD-GENERAL"), None,                     4.0, 6,  "012-OUT", "Salida demo de bisagras",              false),
+        ("exit",       "DIS-COR-7",   Some("HERRAMIENTAS"), None,                    3.0, 4,  "013-OUT", "Salida demo de discos de corte",       false),
+        ("exit",       "PIN-ANT-R",   Some("BOD-GENERAL"), None,                     1.5, 2,  "014-OUT", "Salida demo de pintura",               false),
+        // ── transfers (4): inter-zone moves ─────────────────────────────────
+        ("transfer",   "TUB-RED-2",   Some("RCP-ALM"),     Some("RACK-A"),          20.0, 13, "015-TRN", "Traslado demo RCP→RACK-A",             false),
+        ("transfer",   "ELE-6013",    Some("RCP-ALM"),     Some("ZONA-SOLDADURA"),  10.0, 11, "016-TRN", "Traslado demo RCP→Soldadura",          false),
+        ("transfer",   "PIN-ANT-R",   Some("RCP-BOD"),     Some("BOD-GENERAL"),      8.0, 9,  "017-TRN", "Traslado demo RCP→Almacenamiento",     false),
+        ("transfer",   "PTR-2X2",     Some("RCP-ALM"),     Some("RACK-A"),          15.0, 5,  "018-TRN", "Traslado demo RCP→RACK-A",             false),
+        // ── adjustments (2): cycle-count corrections ────────────────────────
+        ("adjustment", "TUB-CUA-1",   Some("RACK-A"),      Some("RACK-A"),           1.0, 3,  "019-ADJ", "Ajuste demo por conteo cíclico",       false),
+        ("adjustment", "SOL-1-14",    Some("RACK-B"),      Some("RACK-B"),           2.0, 1,  "020-ADJ", "Ajuste demo por conteo cíclico",       false),
+    ];
+
+    for (mtype, sku, from_key, to_key, qty, days_ago, ref_suffix, notes, with_supplier) in movement_rows {
+        let product_id = match ctx.products.get(*sku) {
+            Some(id) => *id,
+            None => continue,
+        };
+        let from_id: Option<Uuid> = from_key.and_then(|k| ctx.locations.get(k).copied());
+        let to_id: Option<Uuid> = to_key.and_then(|k| ctx.locations.get(k).copied());
+        let supplier_id: Option<Uuid> = if *with_supplier {
+            ctx.suppliers.get("ACEROS-MTY").copied()
+        } else {
+            None
+        };
+
+        let inserted: Option<Uuid> = sqlx::query_scalar(
+            "INSERT INTO movements \
+                 (tenant_id, product_id, from_location_id, to_location_id, quantity, \
+                  movement_type, user_id, reference, notes, supplier_id, created_at) \
+             VALUES ($1, $2, $3, $4, $5, $6::movement_type, $7, $8, $9, $10, \
+                     NOW() - ($11::int || ' days')::interval) \
+             RETURNING id",
+        )
+        .bind(tenant_id)
+        .bind(product_id)
+        .bind(from_id)
+        .bind(to_id)
+        .bind(qty)
+        .bind(mtype)
+        .bind(admin_id)
+        .bind(format!("MOV-DEMO-{ref_suffix}"))
+        .bind(notes)
+        .bind(supplier_id)
+        .bind(days_ago)
+        .fetch_optional(&mut *conn)
+        .await
+        .map_err(map_seed_err)?;
+
+        if inserted.is_some() {
+            summary.movements += 1;
+        }
+    }
+
+    Ok(())
+}
+
+// ── seed_demo_picking_lists ─────────────────────────────────────────────────
+//
+// Inserts 3 demo picking lists — one per status (`draft`, `released`,
+// `in_progress`). Each list lives in `ALM` warehouse and references the
+// most common products from `seed_core` so the `/picking-lists` index
+// has variety out of the gate.
+//
+// Status notes:
+//   * draft        → pure header + lines, no `released_at` / lot
+//                    assignments. Safe to release through the API.
+//   * released     → header + lines, `released_at` stamped, NO lot
+//                    assignments and NO reservations. The Sem 3 release
+//                    flow is too coupled to FEFO + reservations to
+//                    replay in a seed cleanly; we settle for a
+//                    "released-without-reservations" sentinel so the UI
+//                    can show a non-draft status. Limitations:
+//                       - `start` transition from this seed row will
+//                         work (no reservation lookup),
+//                       - re-running the API's release on this row
+//                         would fail the transition guard (already
+//                         released).
+//   * in_progress  → released + assigned + started timestamps stamped;
+//                    `assigned_to_user_id` set to the demo operator
+//                    (`laura@vandev.mx`). Same caveats as released
+//                    regarding reservations.
+//
+// We intentionally skip `completed` because it requires fully-picked
+// lines + matching consumption movements + inventory decrement which
+// would diverge inventory totals from what `seed_core` set up.
+//
+// Idempotency: natural key is `(tenant_id, picking_number)` UNIQUE.
+// `ON CONFLICT DO NOTHING RETURNING id` short-circuits on a re-run; the
+// `if let Some(_)` arm also seeds the children. Lines have no natural
+// unique key but the parent header insert is the only path that creates
+// them — when the parent INSERT short-circuits, the lines also skip.
+
+async fn seed_demo_picking_lists(
+    conn: &mut PgConnection,
+    tenant_id: Uuid,
+    admin_id: Uuid,
+    ctx: &SeedContext,
+    summary: &mut SeedSummary,
+) -> Result<(), DomainError> {
+    let warehouse_id = match ctx.warehouses.get("ALM") {
+        Some(id) => *id,
+        None => return Ok(()),
+    };
+
+    // Resolve the demo operator (`laura@vandev.mx`) for assignment.
+    // Created earlier in `seed_demo_users_and_memberships`.
+    let operator_id: Option<Uuid> = sqlx::query_scalar(
+        "SELECT id FROM users WHERE email = 'laura@vandev.mx'",
+    )
+    .fetch_optional(&mut *conn)
+    .await
+    .map_err(map_seed_err)?;
+
+    // (picking_number, customer_reference, status, lines [(sku, qty)])
+    #[allow(clippy::type_complexity)]
+    let lists: &[(&str, &str, &str, &[(&str, f64)])] = &[
+        ("PL-DEMO-001", "Cliente demo Norte (orden #100)",   "draft",       &[
+            ("TUB-RED-2", 5.0),
+            ("ELE-6013",  2.0),
+            ("BIS-IND-4", 4.0),
+        ]),
+        ("PL-DEMO-002", "Cliente demo Centro (orden #101)",  "released",    &[
+            ("TUB-CUA-1", 3.0),
+            ("PIN-ANT-R", 1.0),
+        ]),
+        ("PL-DEMO-003", "Cliente demo Sur (orden #102)",     "in_progress", &[
+            ("DIS-COR-7", 5.0),
+            ("TOR-14-1",  20.0),
+            ("PTR-2X2",   4.0),
+        ]),
+    ];
+
+    for (picking_number, customer_ref, status, lines) in lists {
+        // Build status-specific timestamp columns. Driven entirely by the
+        // demo timeline (1..3 days ago) so the index page sorts naturally.
+        let (released_off, assigned_off, started_off, assigned_user): (
+            Option<i32>,
+            Option<i32>,
+            Option<i32>,
+            Option<Uuid>,
+        ) = match *status {
+            "draft" => (None, None, None, None),
+            "released" => (Some(-2), None, None, None),
+            "in_progress" => (Some(-3), Some(-2), Some(-1), operator_id),
+            _ => (None, None, None, None),
+        };
+
+        let inserted: Option<Uuid> = sqlx::query_scalar(
+            "INSERT INTO picking_lists \
+                 (tenant_id, picking_number, customer_reference, warehouse_id, \
+                  status, allocation_strategy, notes, created_by, \
+                  assigned_to_user_id, \
+                  released_at, assigned_at, started_at) \
+             VALUES ($1, $2, $3, $4, $5::picking_list_status, 'fefo'::picking_allocation_strategy, \
+                     'Lista demo', $6, $7, \
+                     CASE WHEN $8::int IS NULL THEN NULL \
+                          ELSE NOW() + ($8::int || ' days')::interval END, \
+                     CASE WHEN $9::int IS NULL THEN NULL \
+                          ELSE NOW() + ($9::int || ' days')::interval END, \
+                     CASE WHEN $10::int IS NULL THEN NULL \
+                          ELSE NOW() + ($10::int || ' days')::interval END) \
+             ON CONFLICT (tenant_id, picking_number) DO NOTHING \
+             RETURNING id",
+        )
+        .bind(tenant_id)
+        .bind(picking_number)
+        .bind(customer_ref)
+        .bind(warehouse_id)
+        .bind(status)
+        .bind(admin_id)
+        .bind(assigned_user)
+        .bind(released_off)
+        .bind(assigned_off)
+        .bind(started_off)
+        .fetch_optional(&mut *conn)
+        .await
+        .map_err(map_seed_err)?;
+
+        let Some(list_id) = inserted else {
+            continue;
+        };
+        summary.picking_lists += 1;
+
+        // Lines — auto-numbered 1..=N. The constraint trigger
+        // `enforce_picking_line_warehouse_matches_list` validates
+        // `warehouse_id` matches the header (we copy it explicitly).
+        for (idx, (sku, qty)) in lines.iter().enumerate() {
+            let product_id = match ctx.products.get(*sku) {
+                Some(id) => *id,
+                None => continue,
+            };
+            let line_number = (idx as i32) + 1;
+            sqlx::query(
+                "INSERT INTO picking_lines \
+                     (tenant_id, picking_list_id, line_number, product_id, \
+                      warehouse_id, requested_quantity, status) \
+                 VALUES ($1, $2, $3, $4, $5, $6, 'pending'::picking_line_status)",
+            )
+            .bind(tenant_id)
+            .bind(list_id)
+            .bind(line_number)
+            .bind(product_id)
+            .bind(warehouse_id)
+            .bind(qty)
+            .execute(&mut *conn)
+            .await
+            .map_err(map_seed_err)?;
+        }
+    }
+
+    Ok(())
+}
+
+// ── seed_work_orders_extra ──────────────────────────────────────────────────
+//
+// Adds +2 work orders on top of the 2 draft rows from `seed_work_orders`,
+// covering the remaining lifecycle states (`in_progress`, `completed`).
+//
+// Status notes:
+//   * in_progress → `issued_at` stamped. Materials are snapshotted from
+//                   the demo recipe but `quantity_consumed = 0` (the
+//                   completion path would have advanced these). Safe
+//                   intermediate state for UI demos.
+//   * completed   → `issued_at` + `completed_at` stamped. Materials show
+//                   `quantity_consumed == quantity_expected`. We do NOT
+//                   stamp the FG lot / consumption movements that a real
+//                   `complete` would produce — those would diverge
+//                   inventory totals from `seed_core` and require a full
+//                   FEFO selection. Caveat noted: the WO detail page will
+//                   show "completed" with consumed quantities but no
+//                   resulting FG lot. Acceptable for demo (avoids the
+//                   complexity of replaying `work_orders_repo::complete`).
+//
+// Idempotency: same natural key as the parent helper —
+// `(tenant_id, code)` UNIQUE. `ON CONFLICT DO NOTHING RETURNING id`
+// short-circuits on re-run.
+
+async fn seed_work_orders_extra(
+    conn: &mut PgConnection,
+    tenant_id: Uuid,
+    admin_id: Uuid,
+    ctx: &SeedContext,
+    summary: &mut SeedSummary,
+) -> Result<(), DomainError> {
+    // Look up the demo recipe id (created in seed_recipes).
+    let recipe_id: Option<Uuid> = sqlx::query_scalar(
+        "SELECT id FROM recipes \
+         WHERE tenant_id = $1 AND name = 'Puerta herrería básica' AND deleted_at IS NULL \
+         LIMIT 1",
+    )
+    .bind(tenant_id)
+    .fetch_optional(&mut *conn)
+    .await
+    .map_err(map_seed_err)?;
+
+    let Some(recipe_id) = recipe_id else {
+        return Ok(());
+    };
+    let warehouse_id = ctx.warehouses["ALM"];
+    let work_center_id = ctx.locations["WC-ALM"];
+    let fg_product_id = ctx.products["PUE-HER-BAS"];
+
+    // (code, status, issued_off_days, completed_off_days, mark_consumed)
+    let extras: &[(&str, &str, Option<i32>, Option<i32>, bool)] = &[
+        ("WO-DEMO-03", "in_progress", Some(-3), None,     false),
+        ("WO-DEMO-04", "completed",   Some(-7), Some(-1), true),
+    ];
+
+    for (code, status, issued_off, completed_off, mark_consumed) in extras {
+        let inserted: Option<Uuid> = sqlx::query_scalar(
+            "INSERT INTO work_orders \
+                 (tenant_id, code, recipe_id, fg_product_id, fg_quantity, status, \
+                  warehouse_id, work_center_location_id, notes, created_by, \
+                  issued_at, completed_at) \
+             VALUES ($1, $2, $3, $4, 1, $5::work_order_status, $6, $7, 'Demo work order', $8, \
+                     CASE WHEN $9::int IS NULL THEN NULL \
+                          ELSE NOW() + ($9::int || ' days')::interval END, \
+                     CASE WHEN $10::int IS NULL THEN NULL \
+                          ELSE NOW() + ($10::int || ' days')::interval END) \
+             ON CONFLICT (tenant_id, code) DO NOTHING \
+             RETURNING id",
+        )
+        .bind(tenant_id)
+        .bind(code)
+        .bind(recipe_id)
+        .bind(fg_product_id)
+        .bind(status)
+        .bind(warehouse_id)
+        .bind(work_center_id)
+        .bind(admin_id)
+        .bind(issued_off)
+        .bind(completed_off)
+        .fetch_optional(&mut *conn)
+        .await
+        .map_err(map_seed_err)?;
+
+        let Some(wo_id) = inserted else {
+            continue;
+        };
+        summary.work_orders += 1;
+
+        // Snapshot recipe materials onto the WO. For completed orders we
+        // set quantity_consumed = quantity_expected to reflect the
+        // terminal state.
+        let consumed_expr = if *mark_consumed {
+            "ri.quantity"
+        } else {
+            "0"
+        };
+        let sql = format!(
+            "INSERT INTO work_order_materials \
+                 (tenant_id, work_order_id, product_id, quantity_expected, quantity_consumed) \
+             SELECT $1, $2, ri.product_id, ri.quantity, {consumed_expr} \
+             FROM recipe_items ri \
+             WHERE ri.recipe_id = $3 \
+             ON CONFLICT (work_order_id, product_id) DO NOTHING"
+        );
+        sqlx::query(&sql)
+            .bind(tenant_id)
+            .bind(wo_id)
+            .bind(recipe_id)
+            .execute(&mut *conn)
+            .await
+            .map_err(map_seed_err)?;
+    }
+
+    Ok(())
+}
+
+// ── seed_purchase_orders_extra ──────────────────────────────────────────────
+//
+// Adds +3 purchase orders on top of `OC-DEMO-001` (status `sent`) from
+// `seed_purchase_orders`. Covers `draft`, `partially_received`, and
+// `completed`. Lines mirror the original helper — 2 product lines per
+// PO, total recalculated from line aggregation.
+//
+// For `partially_received` and `completed` PO lines we stamp
+// `quantity_received` so the `/compras` UI shows progress bars. We do
+// NOT spawn matching `product_lots` or `inventory` rows because those
+// would either collide with the lot helper above or distort inventory
+// totals — the receive flow is what would normally do that in prod.
+//
+// Idempotency: `(tenant_id, order_number)` UNIQUE; ON CONFLICT skips.
+
+async fn seed_purchase_orders_extra(
+    conn: &mut PgConnection,
+    tenant_id: Uuid,
+    admin_id: Uuid,
+    ctx: &SeedContext,
+    summary: &mut SeedSummary,
+) -> Result<(), DomainError> {
+    // (order_number, status, supplier_key, line_a_sku, line_a_ordered, line_a_received, line_a_price,
+    //                                       line_b_sku, line_b_ordered, line_b_received, line_b_price, notes)
+    #[allow(clippy::type_complexity)]
+    let extras: &[(&str, &str, &str, &str, f64, f64, f64, &str, f64, f64, f64, &str)] = &[
+        (
+            "OC-DEMO-002", "draft", "FERR-IND-MX",
+            "TOR-14-1",  500.0,  0.0, 1.50,
+            "BIS-IND-4", 100.0,  0.0, 32.00,
+            "Borrador demo — pendiente de envío",
+        ),
+        (
+            "OC-DEMO-003", "partially_received", "SOLD-NORTE",
+            "ELE-7018",  20.0,   8.0, 350.00,
+            "GAS-ARG",    3.0,   1.0, 1200.00,
+            "Recepción parcial demo",
+        ),
+        (
+            "OC-DEMO-004", "completed", "PINT-REC",
+            "PIN-ANT-R", 20.0,  20.0, 220.00,
+            "THI-STD",   25.0,  25.0, 95.00,
+            "Pedido demo recibido completo",
+        ),
+    ];
+
+    for (
+        order_number, status, supplier_key,
+        a_sku, a_ord, a_rcv, a_price,
+        b_sku, b_ord, b_rcv, b_price,
+        notes,
+    ) in extras {
+        let supplier_id = match ctx.suppliers.get(*supplier_key) {
+            Some(id) => *id,
+            None => continue,
+        };
+        let product_a = match ctx.products.get(*a_sku) {
+            Some(id) => *id,
+            None => continue,
+        };
+        let product_b = match ctx.products.get(*b_sku) {
+            Some(id) => *id,
+            None => continue,
+        };
+
+        let inserted: Option<Uuid> = sqlx::query_scalar(
+            "INSERT INTO purchase_orders \
+                 (tenant_id, supplier_id, order_number, status, total_amount, \
+                  expected_delivery_date, notes, created_by) \
+             VALUES ($1, $2, $3, $4::purchase_order_status, 0, \
+                     (CURRENT_DATE + INTERVAL '7 days')::date, \
+                     $5, $6) \
+             ON CONFLICT (tenant_id, order_number) DO NOTHING \
+             RETURNING id",
+        )
+        .bind(tenant_id)
+        .bind(supplier_id)
+        .bind(order_number)
+        .bind(status)
+        .bind(notes)
+        .bind(admin_id)
+        .fetch_optional(&mut *conn)
+        .await
+        .map_err(map_seed_err)?;
+
+        let Some(po_id) = inserted else {
+            continue;
+        };
+        summary.purchase_orders += 1;
+
+        sqlx::query(
+            "INSERT INTO purchase_order_lines \
+                 (tenant_id, purchase_order_id, product_id, quantity_ordered, \
+                  quantity_received, unit_price, notes) \
+             VALUES \
+                 ($1, $2, $3, $4, $5, $6, NULL), \
+                 ($1, $2, $7, $8, $9, $10, NULL)",
+        )
+        .bind(tenant_id)
+        .bind(po_id)
+        .bind(product_a)
+        .bind(a_ord)
+        .bind(a_rcv)
+        .bind(a_price)
+        .bind(product_b)
+        .bind(b_ord)
+        .bind(b_rcv)
+        .bind(b_price)
+        .execute(&mut *conn)
+        .await
+        .map_err(map_seed_err)?;
+
+        // Update header total from line aggregation (same shape as the
+        // parent helper).
+        sqlx::query(
+            "UPDATE purchase_orders \
+             SET total_amount = ( \
+                 SELECT COALESCE(SUM(quantity_ordered * unit_price), 0) \
+                 FROM purchase_order_lines WHERE purchase_order_id = $1 \
+             ) \
+             WHERE id = $1 AND tenant_id = $2",
+        )
+        .bind(po_id)
+        .bind(tenant_id)
+        .execute(&mut *conn)
+        .await
+        .map_err(map_seed_err)?;
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1264,16 +1933,22 @@ mod tests {
             suppliers: 4,
             products: 16,
             recipes: 1,
-            work_orders: 2,
-            purchase_orders: 1,
+            work_orders: 4,
+            purchase_orders: 4,
             cycle_counts: 1,
             notifications: 1,
             demo_users: 3,
             memberships: 3,
+            product_lots: 8,
+            movements: 20,
+            picking_lists: 3,
         };
         let json = serde_json::to_string(&s).expect("serialize");
         assert!(json.contains("\"warehouses\":2"));
         assert!(json.contains("\"demo_users\":3"));
         assert!(json.contains("\"memberships\":3"));
+        assert!(json.contains("\"product_lots\":8"));
+        assert!(json.contains("\"movements\":20"));
+        assert!(json.contains("\"picking_lists\":3"));
     }
 }
