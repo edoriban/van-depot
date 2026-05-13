@@ -9,7 +9,9 @@
     "src/components/picking/**/*.{ts,tsx}",
     "src/features/picking/**/*.{ts,tsx}",
     "src/lib/hooks/use-picking-*.{ts,tsx}",
-    "src/lib/picking-error-codes.ts"
+    "src/lib/picking-error-codes.ts",
+    "src/components/movements/**/*.{ts,tsx}",
+    "src/features/movements/**/*.{ts,tsx}"
   ],
   "project": [
     "src/**/*.{ts,tsx}",
