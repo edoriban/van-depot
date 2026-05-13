@@ -417,28 +417,41 @@ const WAREHOUSES: &[(&str, &str, &str)] = &[
 ];
 
 /// Locations to insert per warehouse. Tuple shape:
-///   (warehouse_key, location_key, name, location_type, parent_key_or_None)
+///   (warehouse_key, location_key, name, location_type, parent_key_or_None,
+///    pos_x, pos_y, width, height)
 /// `parent_key_or_None` references another row in this same list (must come
 /// later than the parent in the array). System-managed reception/finished_good
 /// locations are added separately because of label/is_system specifics.
+///
+/// Positions target a 1200×800 canvas (see `frontend/src/components/warehouse/
+/// map-canvas.tsx`). Layout decisions:
+///   - Avoid the system locations' rectangles: reception/finished_good/
+///     outbound sit at (0,0,100,100) and the Almacén work_center sits at
+///     (600,400,180,160).
+///   - Children (rack/shelf) are positioned INSIDE their parent zone with
+///     ~10–20px of inner padding so map-canvas renders them nested.
+///   - Almacén Principal lays out a left-to-right flow: materia prima →
+///     corte/soldadura → producto terminado, with herramientas on the left
+///     bottom row.
+///   - Bodega Sur is a 4-zone storage layout.
 #[allow(clippy::type_complexity)]
-const LOCATIONS: &[(&str, &str, &str, &str, Option<&str>)] = &[
+const LOCATIONS: &[(&str, &str, &str, &str, Option<&str>, f32, f32, f32, f32)] = &[
     // Almacén Principal — top-level zones
-    ("ALM", "ZONA-MATERIA-PRIMA", "Zona de materia prima", "zone",       None),
-    ("ALM", "ZONA-CORTE",         "Zona de corte",         "zone",       None),
-    ("ALM", "ZONA-SOLDADURA",     "Zona de soldadura",     "zone",       None),
-    ("ALM", "PRODUCTO-TERMINADO", "Producto terminado",    "zone",       None),
-    ("ALM", "HERRAMIENTAS",       "Herramientas",          "zone",       None),
-    // Almacén Principal — children
-    ("ALM", "RACK-A",             "Rack A - Tubería",      "rack",       Some("ZONA-MATERIA-PRIMA")),
-    ("ALM", "RACK-B",             "Rack B - Perfiles",     "rack",       Some("ZONA-MATERIA-PRIMA")),
-    ("ALM", "ESTANTE-1",          "Estante 1 - Puertas",   "shelf",      Some("PRODUCTO-TERMINADO")),
-    ("ALM", "ESTANTE-2",          "Estante 2 - Ventanas",  "shelf",      Some("PRODUCTO-TERMINADO")),
+    ("ALM", "ZONA-MATERIA-PRIMA", "Zona de materia prima", "zone",       None,                       130.0,  60.0, 320.0, 230.0),
+    ("ALM", "ZONA-CORTE",         "Zona de corte",         "zone",       None,                       470.0,  60.0, 280.0, 170.0),
+    ("ALM", "ZONA-SOLDADURA",     "Zona de soldadura",     "zone",       None,                       470.0, 250.0, 270.0, 130.0),
+    ("ALM", "PRODUCTO-TERMINADO", "Producto terminado",    "zone",       None,                       790.0,  60.0, 360.0, 320.0),
+    ("ALM", "HERRAMIENTAS",       "Herramientas",          "zone",       None,                       130.0, 320.0, 320.0, 170.0),
+    // Almacén Principal — children (positioned inside their parent zone)
+    ("ALM", "RACK-A",             "Rack A - Tubería",      "rack",       Some("ZONA-MATERIA-PRIMA"), 150.0,  90.0, 140.0,  60.0),
+    ("ALM", "RACK-B",             "Rack B - Perfiles",     "rack",       Some("ZONA-MATERIA-PRIMA"), 150.0, 170.0, 140.0,  60.0),
+    ("ALM", "ESTANTE-1",          "Estante 1 - Puertas",   "shelf",      Some("PRODUCTO-TERMINADO"), 810.0, 100.0, 150.0,  60.0),
+    ("ALM", "ESTANTE-2",          "Estante 2 - Ventanas",  "shelf",      Some("PRODUCTO-TERMINADO"), 810.0, 180.0, 150.0,  60.0),
     // Bodega Sur — top-level zones
-    ("BOD", "BOD-GENERAL",        "Almacenamiento general","zone",       None),
-    ("BOD", "BOD-SOBRANTE",       "Material sobrante",     "zone",       None),
-    ("BOD", "BOD-EQUIPO",         "Equipo pesado",         "zone",       None),
-    ("BOD", "BOD-CONSUMIBLES",    "Consumibles",           "zone",       None),
+    ("BOD", "BOD-GENERAL",        "Almacenamiento general","zone",       None,                       130.0,  60.0, 380.0, 300.0),
+    ("BOD", "BOD-SOBRANTE",       "Material sobrante",     "zone",       None,                       550.0,  60.0, 320.0, 180.0),
+    ("BOD", "BOD-EQUIPO",         "Equipo pesado",         "zone",       None,                       550.0, 280.0, 320.0, 250.0),
+    ("BOD", "BOD-CONSUMIBLES",    "Consumibles",           "zone",       None,                       900.0,  60.0, 280.0, 250.0),
 ];
 
 const CATEGORIES: &[(&str, &str)] = &[
@@ -521,7 +534,12 @@ async fn seed_core(
     // we pre-check (lookup_location) before insert. INSERTs without
     // ON CONFLICT — if pre-check missed (concurrent insert) the NOT NULL
     // / FK constraints surface, which is fine.
-    for (wh_key, loc_key, name, ltype, parent_key) in LOCATIONS {
+    //
+    // pos_x/pos_y/width/height feed the warehouse map canvas. Pre-existing
+    // rows are NOT repositioned here — the lookup short-circuits before the
+    // INSERT, preserving any operator-edited layout. For repositioning an
+    // already-seeded tenant, run a targeted UPDATE separately.
+    for (wh_key, loc_key, name, ltype, parent_key, pos_x, pos_y, width, height) in LOCATIONS {
         let warehouse_id = ctx.warehouses[wh_key];
 
         if let Some(existing) = lookup_location(conn, tenant_id, warehouse_id, name).await? {
@@ -535,8 +553,10 @@ async fn seed_core(
         };
 
         let id: Uuid = sqlx::query_scalar(
-            "INSERT INTO locations (tenant_id, warehouse_id, parent_id, location_type, name) \
-             VALUES ($1, $2, $3, $4::location_type, $5) \
+            "INSERT INTO locations \
+                 (tenant_id, warehouse_id, parent_id, location_type, name, \
+                  pos_x, pos_y, width, height) \
+             VALUES ($1, $2, $3, $4::location_type, $5, $6, $7, $8, $9) \
              RETURNING id",
         )
         .bind(tenant_id)
@@ -544,6 +564,10 @@ async fn seed_core(
         .bind(parent_id)
         .bind(ltype)
         .bind(name)
+        .bind(*pos_x)
+        .bind(*pos_y)
+        .bind(*width)
+        .bind(*height)
         .fetch_one(&mut *conn)
         .await
         .map_err(map_seed_err)?;
