@@ -1,951 +1,86 @@
+/**
+ * app/(auth)/almacenes/[id]/page.tsx — thin orchestration shell for the
+ * `/almacenes/[id]` warehouse DETAIL screen.
+ *
+ * See `frontend/src/CONVENTIONS.md` §2 (Zustand), §3 (SWR), §7.1 (Migration
+ * pattern) and `sdd/frontend-migration-almacenes/design` §2.2 + §4.
+ *
+ * Owns:
+ *   - `id` route param resolution via `useParams`.
+ *   - The `?tab=` querystring read via `useSearchParams` (STRUCT-7 —
+ *     useSearchParams reads are PAGE-SHELL-ONLY; subcomponents take props).
+ *   - The detail-warehouse SWR fetch (`useWarehouse`) + map fetch
+ *     (`useWarehouseMap`).
+ *   - Composition of the 4 tab subcomponents under `components/almacenes/`.
+ *   - The `setDetailWarehouseId(warehouseId)` effect that resets the DETAIL
+ *     slice's tree-expand/select/pagination state on cross-warehouse
+ *     navigation (design R2 mitigation).
+ *
+ * Detail-slice cleanup mounted via FS-2.2 so the LIST slice survives the
+ * back navigation and preserves the list page's URL filters.
+ */
 'use client';
 
-import { Suspense, useState, useEffect, useCallback, type ReactNode } from 'react';
-import { useParams, useSearchParams, useRouter, usePathname } from 'next/navigation';
-import useSWR from 'swr';
-import dynamic from 'next/dynamic';
-import { api } from '@/lib/api-mutations';
-import type {
-  Warehouse,
-  Location,
-  LocationType,
-  InventoryItem,
-  Movement,
-  MovementType,
-  PaginatedResponse,
-  WarehouseMapResponse,
-  ZoneHealth,
-} from '@/types';
-import { ZoneDetail } from '@/components/warehouse/zone-detail';
-import { MapSummaryBar } from '@/components/warehouse/map-summary-bar';
-import { DataTable, type ColumnDef } from '@/components/shared/data-table';
-import { EmptyState } from '@/components/shared/empty-state';
-import { ConfirmDialog } from '@/components/shared/confirm-dialog';
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import { Suspense, useEffect } from 'react';
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from '@/components/ui/dialog';
-import { HugeiconsIcon } from '@hugeicons/react';
-import {
-  ArrowLeft01Icon,
-  Location01Icon,
-  ClipboardIcon,
-  ArrowDataTransferHorizontalIcon,
-  MapsLocation01Icon,
-} from '@hugeicons/core-free-icons';
+  useParams,
+  useSearchParams,
+  useRouter,
+  usePathname,
+} from 'next/navigation';
 import Link from 'next/link';
-import { cn } from '@/lib/utils';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { Info } from 'lucide-react';
-
-const MapCanvas = dynamic(
-  () => import('@/components/warehouse/map-canvas'),
-  {
-    ssr: false,
-    loading: () => (
-      <div className="h-[600px] animate-pulse bg-muted rounded-xl" />
-    ),
-  },
-);
-
-// --- Constants ---
-
-const LOCATION_TYPE_LABELS: Record<LocationType, string> = {
-  zone: 'Zona',
-  rack: 'Rack',
-  shelf: 'Estante',
-  position: 'Posicion',
-  bin: 'Contenedor',
-  reception: 'Recepcion',
-  work_center: 'Centro de trabajo',
-  finished_good: 'Producto terminado',
-  outbound: 'Salida',
-};
-
-const LOCATION_TYPE_DESCRIPTIONS: Record<LocationType, string> = {
-  zone: 'Area principal del almacen (ej: Zona de refrigerados, Zona de secos)',
-  rack: 'Estanteria o mueble dentro de una zona (ej: Rack A1, Rack B2)',
-  shelf: 'Nivel o repisa dentro de un rack (ej: Nivel superior, Nivel medio)',
-  position: 'Espacio especifico dentro de un estante (ej: Posicion izquierda, centro)',
-  bin: 'Contenedor o caja dentro de una posicion (ej: Caja 01, Contenedor azul)',
-  reception: 'Zona de recepcion del almacen (creada automaticamente)',
-  work_center: 'Centro de trabajo donde se consumen materiales de las ordenes de trabajo',
-  finished_good: 'Ubicacion reservada para producto terminado (creada automaticamente)',
-  outbound: 'Zona de salida o despacho del almacen',
-};
-
-const LOCATION_TYPE_STYLES: Record<LocationType, string> = {
-  zone: 'bg-teal-100 text-teal-800 border-teal-300 dark:bg-teal-900/30 dark:text-teal-300 dark:border-teal-700',
-  rack: 'bg-blue-100 text-blue-800 border-blue-300 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-700',
-  shelf: 'bg-indigo-100 text-indigo-800 border-indigo-300 dark:bg-indigo-900/30 dark:text-indigo-300 dark:border-indigo-700',
-  position: 'bg-purple-100 text-purple-800 border-purple-300 dark:bg-purple-900/30 dark:text-purple-300 dark:border-purple-700',
-  bin: 'bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-700',
-  reception: 'bg-slate-100 text-slate-800 border-slate-300 dark:bg-slate-900/30 dark:text-slate-300 dark:border-slate-700',
-  work_center: 'bg-orange-100 text-orange-800 border-orange-300 dark:bg-orange-900/30 dark:text-orange-300 dark:border-orange-700',
-  finished_good: 'bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-900/30 dark:text-emerald-300 dark:border-emerald-700',
-  outbound: 'bg-rose-100 text-rose-800 border-rose-300 dark:bg-rose-900/30 dark:text-rose-300 dark:border-rose-700',
-};
-
-const LOCATION_TYPES: LocationType[] = ['zone', 'rack', 'shelf', 'position', 'bin'];
-
-const MOVEMENT_LABELS: Record<MovementType, string> = {
-  entry: 'Entrada',
-  exit: 'Salida',
-  transfer: 'Transferencia',
-  adjustment: 'Ajuste',
-};
-
-const MOVEMENT_COLORS: Record<MovementType, string> = {
-  entry: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200',
-  exit: 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200',
-  transfer: 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200',
-  adjustment: 'bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200',
-};
-
-const PER_PAGE = 20;
-
-// --- Stock Badge ---
-
-function StockBadge({ quantity, minStock }: { quantity: number; minStock: number }) {
-  if (quantity === 0) {
-    return (
-      <Badge className="bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200" data-testid="stock-badge-critical">
-        Critico
-      </Badge>
-    );
-  }
-  if (quantity <= minStock) {
-    return (
-      <Badge className="bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200" data-testid="stock-badge-low">
-        Bajo
-      </Badge>
-    );
-  }
-  return (
-    <Badge className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200" data-testid="stock-badge-ok">
-      OK
-    </Badge>
-  );
-}
-
-// --- Helper ---
-
-function relativeDate(dateStr: string): string {
-  const now = new Date();
-  const date = new Date(dateStr);
-  const diffMs = now.getTime() - date.getTime();
-  const diffSecs = Math.floor(diffMs / 1000);
-  const diffMins = Math.floor(diffSecs / 60);
-  const diffHours = Math.floor(diffMins / 60);
-  const diffDays = Math.floor(diffHours / 24);
-
-  if (diffSecs < 60) return 'hace un momento';
-  if (diffMins < 60) return `hace ${diffMins} min`;
-  if (diffHours < 24) return `hace ${diffHours}h`;
-  if (diffDays === 1) return 'ayer';
-  if (diffDays < 7) return `hace ${diffDays} dias`;
-  return date.toLocaleDateString('es-MX', { day: 'numeric', month: 'short', year: 'numeric' });
-}
-
-// --- Child type constraints ---
-
-const CHILD_TYPES: Record<string, LocationType[]> = {
-  zone: ['rack', 'shelf'],
-  rack: ['shelf', 'position'],
-  shelf: ['position', 'bin'],
-  position: ['bin'],
-  bin: [],
-};
-
-// --- Location Tree Node ---
-
-function LocationTreeNode({
-  location,
-  allLocations,
-  depth,
-  expandedIds,
-  onToggleExpand,
-  onAddChild,
-  onEdit,
-  onDelete,
-}: {
-  location: Location;
-  allLocations: Location[];
-  depth: number;
-  expandedIds: Set<string>;
-  onToggleExpand: (id: string) => void;
-  onAddChild: (parentId: string, parentType: LocationType) => void;
-  onEdit: (location: Location) => void;
-  onDelete: (location: Location) => void;
-}) {
-  const children = allLocations.filter((l) => l.parent_id === location.id);
-  const allowedChildren = CHILD_TYPES[location.location_type] ?? [];
-  const canHaveChildren = allowedChildren.length > 0;
-  const hasChildren = children.length > 0;
-  const isExpanded = expandedIds.has(location.id);
-
-  return (
-    <div>
-      <div
-        className="flex items-center gap-2 py-2 px-3 hover:bg-muted/50 rounded-lg group"
-        style={{ paddingLeft: `${depth * 24 + 12}px` }}
-      >
-        {/* Expand/collapse */}
-        <button
-          type="button"
-          className={cn(
-            'flex items-center justify-center size-5 rounded transition-colors shrink-0',
-            (hasChildren || canHaveChildren) ? 'hover:bg-muted cursor-pointer' : '',
-          )}
-          onClick={() => (hasChildren || canHaveChildren) && onToggleExpand(location.id)}
-          tabIndex={hasChildren || canHaveChildren ? 0 : -1}
-          aria-label={isExpanded ? 'Colapsar' : 'Expandir'}
-        >
-          {hasChildren || canHaveChildren ? (
-            <svg
-              className={cn(
-                'size-4 text-muted-foreground transition-transform duration-200',
-                isExpanded && 'rotate-90',
-              )}
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={2}
-            >
-              <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-            </svg>
-          ) : (
-            <span className="w-4" />
-          )}
-        </button>
-
-        {/* Type badge with tooltip */}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Badge variant="outline" className={cn('text-xs shrink-0 cursor-help', LOCATION_TYPE_STYLES[location.location_type])}>
-              {LOCATION_TYPE_LABELS[location.location_type] ?? location.location_type}
-            </Badge>
-          </TooltipTrigger>
-          <TooltipContent side="top" className="max-w-xs text-xs">
-            {LOCATION_TYPE_DESCRIPTIONS[location.location_type]}
-          </TooltipContent>
-        </Tooltip>
-
-        {/* Name — clickable to expand/collapse */}
-        <button
-          type="button"
-          className="font-medium flex-1 truncate text-left hover:underline"
-          onClick={() => (hasChildren || canHaveChildren) && onToggleExpand(location.id)}
-        >
-          {location.name}
-        </button>
-
-        {/* Child count */}
-        {hasChildren && (
-          <span className="text-xs text-muted-foreground shrink-0">
-            {children.length} sub
-          </span>
-        )}
-
-        {/* Actions */}
-        <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-          {canHaveChildren && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 px-2 text-xs"
-              onClick={() => onAddChild(location.id, location.location_type)}
-            >
-              + Agregar
-            </Button>
-          )}
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 px-2 text-xs"
-            onClick={() => onEdit(location)}
-            data-testid="edit-location-btn"
-          >
-            Editar
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 px-2 text-xs text-destructive"
-            onClick={() => onDelete(location)}
-            data-testid="delete-location-btn"
-          >
-            Eliminar
-          </Button>
-        </div>
-      </div>
-
-      {/* Children */}
-      {isExpanded && hasChildren && (
-        <div>
-          {children.map((child) => (
-            <LocationTreeNode
-              key={child.id}
-              location={child}
-              allLocations={allLocations}
-              depth={depth + 1}
-              expandedIds={expandedIds}
-              onToggleExpand={onToggleExpand}
-              onAddChild={onAddChild}
-              onEdit={onEdit}
-              onDelete={onDelete}
-            />
-          ))}
-        </div>
-      )}
-
-      {/* Inline "add child" hint when expanded but empty */}
-      {isExpanded && !hasChildren && canHaveChildren && (
-        <div
-          className="flex items-center gap-2 py-1.5 px-3 text-sm text-muted-foreground"
-          style={{ paddingLeft: `${(depth + 1) * 24 + 12}px` }}
-        >
-          <span className="w-5" />
-          <button
-            type="button"
-            className="hover:text-foreground transition-colors cursor-pointer"
-            onClick={() => onAddChild(location.id, location.location_type)}
-          >
-            + Agregar {LOCATION_TYPE_LABELS[allowedChildren[0]] ?? 'sub-ubicacion'}
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// --- Locations Tab ---
-
-function LocationsTab({ warehouseId }: { warehouseId: string }) {
-  const [allLocations, setAllLocations] = useState<Location[]>([]);
-  const [total, setTotal] = useState(0);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  // Tree expand state
-  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
-
-  // Form dialog state
-  const [formOpen, setFormOpen] = useState(false);
-  const [editingLocation, setEditingLocation] = useState<Location | null>(null);
-  const [formName, setFormName] = useState('');
-  const [formLocationType, setFormLocationType] = useState<LocationType>('zone');
-  const [formParentId, setFormParentId] = useState('');
-  const [allowedTypes, setAllowedTypes] = useState<LocationType[]>(LOCATION_TYPES);
-  const [isSaving, setIsSaving] = useState(false);
-
-  // Delete dialog state
-  const [deleteTarget, setDeleteTarget] = useState<Location | null>(null);
-  const [isDeleting, setIsDeleting] = useState(false);
-
-  const fetchAllLocations = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      const res = await api.get<PaginatedResponse<Location>>(
-        `/warehouses/${warehouseId}/locations?all=true&page=1&per_page=500`
-      );
-      setAllLocations(res.data);
-      setTotal(res.total);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error al cargar ubicaciones');
-    } finally {
-      setIsLoading(false);
-    }
-  }, [warehouseId]);
-
-  useEffect(() => {
-    fetchAllLocations();
-  }, [fetchAllLocations]);
-
-  // Tree helpers
-  const rootLocations = allLocations.filter((l) => !l.parent_id);
-
-  const toggleExpand = (id: string) => {
-    setExpandedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-      }
-      return next;
-    });
-  };
-
-  const expandAll = () => {
-    setExpandedIds(new Set(allLocations.map((l) => l.id)));
-  };
-
-  const collapseAll = () => {
-    setExpandedIds(new Set());
-  };
-
-  const openCreateDialog = (parentId: string | null, parentType: LocationType | null) => {
-    setEditingLocation(null);
-    setFormName('');
-    setFormParentId(parentId ?? '');
-    if (parentType) {
-      const allowed = CHILD_TYPES[parentType] ?? [];
-      setAllowedTypes(allowed.length > 0 ? allowed : LOCATION_TYPES);
-      setFormLocationType(allowed[0] ?? 'zone');
-    } else {
-      setAllowedTypes(LOCATION_TYPES);
-      setFormLocationType('zone');
-    }
-    setFormOpen(true);
-  };
-
-  const openEditDialog = (location: Location) => {
-    setEditingLocation(location);
-    setFormName(location.name);
-    setFormLocationType(location.location_type);
-    setFormParentId(location.parent_id ?? '');
-    // Determine allowed types based on parent
-    if (location.parent_id) {
-      const parent = allLocations.find((l) => l.id === location.parent_id);
-      if (parent) {
-        const allowed = CHILD_TYPES[parent.location_type] ?? [];
-        setAllowedTypes(allowed.length > 0 ? allowed : LOCATION_TYPES);
-      } else {
-        setAllowedTypes(LOCATION_TYPES);
-      }
-    } else {
-      setAllowedTypes(LOCATION_TYPES);
-    }
-    setFormOpen(true);
-  };
-
-  const handleSubmit = async (e: React.SubmitEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    setIsSaving(true);
-    try {
-      if (editingLocation) {
-        await api.put(`/locations/${editingLocation.id}`, {
-          name: formName,
-          location_type: formLocationType,
-          parent_id: formParentId || undefined,
-        });
-      } else {
-        await api.post(`/warehouses/${warehouseId}/locations`, {
-          name: formName,
-          location_type: formLocationType,
-          parent_id: formParentId || undefined,
-        });
-      }
-      setFormOpen(false);
-      await fetchAllLocations();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error al guardar');
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  const handleDelete = async () => {
-    if (!deleteTarget) return;
-    setIsDeleting(true);
-    try {
-      await api.del(`/locations/${deleteTarget.id}`);
-      setDeleteTarget(null);
-      await fetchAllLocations();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error al eliminar');
-    } finally {
-      setIsDeleting(false);
-    }
-  };
-
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">
-          {total} ubicacion{total !== 1 ? 'es' : ''} en este almacen
-        </p>
-        <Button onClick={() => openCreateDialog(null, null)} data-testid="new-location-btn">
-          Nueva zona
-        </Button>
-      </div>
-
-      {error && (
-        <div className="rounded-4xl border border-destructive/50 bg-destructive/10 p-4 text-sm text-destructive">
-          {error}
-        </div>
-      )}
-
-      {isLoading ? (
-        <div className="space-y-2">
-          {Array.from({ length: 5 }).map((_, i) => (
-            <div key={i} className="h-10 rounded skeleton-shimmer" />
-          ))}
-        </div>
-      ) : allLocations.length === 0 ? (
-        <EmptyState
-          icon={Location01Icon}
-          title="Aun no tienes ubicaciones"
-          description="Crea zonas y estantes para saber donde esta cada cosa."
-          actionLabel="Nueva zona"
-          onAction={() => openCreateDialog(null, null)}
-        />
-      ) : (
-        <>
-          {/* Expand/collapse controls */}
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={expandAll}>
-              Expandir todo
-            </Button>
-            <Button variant="outline" size="sm" onClick={collapseAll}>
-              Colapsar todo
-            </Button>
-          </div>
-
-          {/* Tree */}
-          <div className="border rounded-lg divide-y">
-            {rootLocations.map((location) => (
-              <LocationTreeNode
-                key={location.id}
-                location={location}
-                allLocations={allLocations}
-                depth={0}
-                expandedIds={expandedIds}
-                onToggleExpand={toggleExpand}
-                onAddChild={(parentId, parentType) => openCreateDialog(parentId, parentType)}
-                onEdit={openEditDialog}
-                onDelete={setDeleteTarget}
-              />
-            ))}
-          </div>
-
-          {/* Locations without a parent that are NOT zones (orphans) */}
-          {allLocations.filter((l) => !l.parent_id && l.location_type !== 'zone').length > 0 && (
-            <div className="mt-4">
-              <p className="text-xs text-muted-foreground mb-2">
-                Ubicaciones sin zona asignada:
-              </p>
-              <div className="border rounded-lg divide-y">
-                {allLocations.reduce<ReactNode[]>((acc, location) => {
-                  if (location.parent_id || location.location_type === 'zone') return acc;
-                  acc.push(
-                    <LocationTreeNode
-                      key={location.id}
-                      location={location}
-                      allLocations={allLocations}
-                      depth={0}
-                      expandedIds={expandedIds}
-                      onToggleExpand={toggleExpand}
-                      onAddChild={(parentId, parentType) => openCreateDialog(parentId, parentType)}
-                      onEdit={openEditDialog}
-                      onDelete={setDeleteTarget}
-                    />,
-                  );
-                  return acc;
-                }, [])}
-              </div>
-            </div>
-          )}
-        </>
-      )}
-
-      {/* Create / Edit Dialog */}
-      <Dialog open={formOpen} onOpenChange={setFormOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>
-              {editingLocation ? 'Editar ubicacion' : 'Nueva ubicacion'}
-            </DialogTitle>
-          </DialogHeader>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="location-name">Nombre</Label>
-              <Input
-                id="location-name"
-                name="name"
-                value={formName}
-                onChange={(e) => setFormName(e.target.value)}
-                placeholder="Nombre de la ubicacion"
-                required
-              />
-            </div>
-            <div className="space-y-2">
-              <div className="flex items-center gap-1.5">
-                <Label htmlFor="location-type">Tipo</Label>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Info className="size-3.5 text-muted-foreground cursor-help" />
-                  </TooltipTrigger>
-                  <TooltipContent side="right" className="max-w-xs text-xs leading-relaxed">
-                    <p className="font-semibold mb-1.5">Jerarquia de ubicaciones:</p>
-                    <p>Zona &gt; Rack &gt; Estante &gt; Posicion &gt; Contenedor</p>
-                    <p className="mt-1.5 text-muted-foreground">Ejemplo: Zona Refrigerados &gt; Rack A1 &gt; Nivel 2 &gt; Posicion izquierda &gt; Caja 01</p>
-                  </TooltipContent>
-                </Tooltip>
-              </div>
-              <Select
-                value={formLocationType}
-                onValueChange={(val) => setFormLocationType(val as LocationType)}
-              >
-                <SelectTrigger data-testid="location-type-select" className="w-full">
-                  <SelectValue placeholder="Seleccionar tipo" />
-                </SelectTrigger>
-                <SelectContent>
-                  {allowedTypes.map((type) => (
-                    <SelectItem key={type} value={type}>
-                      {LOCATION_TYPE_LABELS[type]}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {formLocationType && (
-                <p className="text-xs text-muted-foreground">
-                  {LOCATION_TYPE_DESCRIPTIONS[formLocationType]}
-                </p>
-              )}
-            </div>
-            {!editingLocation && !formParentId && (
-              <div className="space-y-2">
-                <Label htmlFor="location-parent">Ubicacion padre (opcional)</Label>
-                <Select
-                  value={formParentId || 'none'}
-                  onValueChange={(val) => {
-                    const newParentId = val === 'none' ? '' : val;
-                    setFormParentId(newParentId);
-                    if (newParentId) {
-                      const parent = allLocations.find((l) => l.id === newParentId);
-                      if (parent) {
-                        const allowed = CHILD_TYPES[parent.location_type] ?? [];
-                        if (allowed.length > 0) {
-                          setAllowedTypes(allowed);
-                          if (!allowed.includes(formLocationType)) {
-                            setFormLocationType(allowed[0]);
-                          }
-                        }
-                      }
-                    } else {
-                      setAllowedTypes(LOCATION_TYPES);
-                    }
-                  }}
-                >
-                  <SelectTrigger data-testid="location-parent-select" className="w-full">
-                    <SelectValue placeholder="Ninguna" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">Ninguna</SelectItem>
-                    {allLocations.map((l) => (
-                      <SelectItem key={l.id} value={l.id}>
-                        {l.name} ({LOCATION_TYPE_LABELS[l.location_type]})
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-            {formParentId && (
-              <div className="space-y-2">
-                <Label>Ubicacion padre</Label>
-                <p className="text-sm text-muted-foreground">
-                  {allLocations.find((l) => l.id === formParentId)?.name ?? 'Seleccionada'}
-                </p>
-              </div>
-            )}
-            <DialogFooter>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setFormOpen(false)}
-                disabled={isSaving}
-              >
-                Cancelar
-              </Button>
-              <Button type="submit" disabled={isSaving} data-testid="submit-btn">
-                {isSaving ? 'Guardando...' : editingLocation ? 'Actualizar' : 'Crear'}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-
-      {/* Delete Confirmation */}
-      <ConfirmDialog
-        open={!!deleteTarget}
-        onOpenChange={(open) => !open && setDeleteTarget(null)}
-        title="Eliminar ubicacion"
-        description={`Se eliminara la ubicacion "${deleteTarget?.name}". Esta accion no se puede deshacer.`}
-        onConfirm={handleDelete}
-        isLoading={isDeleting}
-      />
-    </div>
-  );
-}
-
-// --- Inventory Tab ---
-
-function InventoryTab({ warehouseId }: { warehouseId: string }) {
-  const [items, setItems] = useState<InventoryItem[]>([]);
-  const [total, setTotal] = useState(0);
-  const [page, setPage] = useState(1);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const fetchInventory = useCallback(async (p: number) => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      const params = new URLSearchParams({
-        page: String(p),
-        per_page: String(PER_PAGE),
-        warehouse_id: warehouseId,
-      });
-      const res = await api.get<PaginatedResponse<InventoryItem>>(
-        `/inventory?${params}`
-      );
-      setItems(res.data);
-      setTotal(res.total);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error al cargar inventario');
-    } finally {
-      setIsLoading(false);
-    }
-  }, [warehouseId]);
-
-  useEffect(() => {
-    fetchInventory(page);
-  }, [page, fetchInventory]);
-
-  const columns: ColumnDef<InventoryItem>[] = [
-    {
-      key: 'product',
-      header: 'Producto',
-      render: (item) => (
-        <div>
-          <span className="font-medium">{item.product_name}</span>
-          <span className="ml-2 font-mono text-sm text-muted-foreground">
-            {item.product_sku}
-          </span>
-        </div>
-      ),
-    },
-    {
-      key: 'location',
-      header: 'Ubicacion',
-      render: (item) => item.location_name,
-    },
-    {
-      key: 'quantity',
-      header: 'Cantidad',
-      render: (item) => (
-        <span className="font-medium" data-testid="inventory-quantity">
-          {item.quantity}
-        </span>
-      ),
-    },
-    {
-      key: 'min_stock',
-      header: 'Stock min',
-      render: (item) => item.min_stock,
-    },
-    {
-      key: 'status',
-      header: 'Estado',
-      render: (item) => (
-        <StockBadge quantity={item.quantity} minStock={item.min_stock} />
-      ),
-    },
-  ];
-
-  return (
-    <div className="space-y-4">
-      <p className="text-sm text-muted-foreground">
-        {total} registro{total !== 1 ? 's' : ''} de inventario
-      </p>
-
-      {error && (
-        <div className="rounded-4xl border border-destructive/50 bg-destructive/10 p-4 text-sm text-destructive">
-          {error}
-        </div>
-      )}
-
-      <DataTable
-        columns={columns}
-        data={items}
-        total={total}
-        page={page}
-        perPage={PER_PAGE}
-        onPageChange={setPage}
-        isLoading={isLoading}
-        emptyMessage="No hay registros de inventario"
-        emptyState={
-          <EmptyState
-            icon={ClipboardIcon}
-            title="No hay inventario en este almacen"
-            description="Registra una entrada de material para ver el stock aqui."
-            actionLabel="Ir a movimientos"
-            actionHref="/movimientos"
-          />
-        }
-      />
-    </div>
-  );
-}
-
-// --- Movements Tab ---
-
-function MovementsTab({ warehouseId }: { warehouseId: string }) {
-  const [movements, setMovements] = useState<Movement[]>([]);
-  const [total, setTotal] = useState(0);
-  const [page, setPage] = useState(1);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const fetchMovements = useCallback(async (p: number) => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      const params = new URLSearchParams({
-        page: String(p),
-        per_page: String(PER_PAGE),
-        warehouse_id: warehouseId,
-      });
-      const res = await api.get<PaginatedResponse<Movement>>(
-        `/movements?${params}`
-      );
-      setMovements(res.data);
-      setTotal(res.total);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error al cargar movimientos');
-    } finally {
-      setIsLoading(false);
-    }
-  }, [warehouseId]);
-
-  useEffect(() => {
-    fetchMovements(page);
-  }, [page, fetchMovements]);
-
-  const columns: ColumnDef<Movement>[] = [
-    {
-      key: 'type',
-      header: 'Tipo',
-      render: (m) => (
-        <Badge className={MOVEMENT_COLORS[m.movement_type]}>
-          {MOVEMENT_LABELS[m.movement_type]}
-        </Badge>
-      ),
-    },
-    {
-      key: 'quantity',
-      header: 'Cantidad',
-      render: (m) => <span className="font-medium">{m.quantity}</span>,
-    },
-    {
-      key: 'reference',
-      header: 'Referencia',
-      render: (m) => m.reference || <span className="text-muted-foreground">-</span>,
-    },
-    {
-      key: 'notes',
-      header: 'Notas',
-      render: (m) => m.notes || <span className="text-muted-foreground">-</span>,
-    },
-    {
-      key: 'date',
-      header: 'Fecha',
-      render: (m) => relativeDate(m.created_at),
-    },
-  ];
-
-  return (
-    <div className="space-y-4">
-      <p className="text-sm text-muted-foreground">
-        {total} movimiento{total !== 1 ? 's' : ''} registrado{total !== 1 ? 's' : ''}
-      </p>
-
-      {error && (
-        <div className="rounded-4xl border border-destructive/50 bg-destructive/10 p-4 text-sm text-destructive">
-          {error}
-        </div>
-      )}
-
-      <DataTable
-        columns={columns}
-        data={movements}
-        total={total}
-        page={page}
-        perPage={PER_PAGE}
-        onPageChange={setPage}
-        isLoading={isLoading}
-        emptyMessage="No hay movimientos registrados"
-        emptyState={
-          <EmptyState
-            icon={ArrowDataTransferHorizontalIcon}
-            title="No hay movimientos en este almacen"
-            description="Los movimientos de entrada, salida y transferencia apareceran aqui."
-          />
-        }
-      />
-    </div>
-  );
-}
-
-// --- Main Page ---
+import { HugeiconsIcon } from '@hugeicons/react';
+import { ArrowLeft01Icon } from '@hugeicons/core-free-icons';
+import { InventoryTab } from '@/components/almacenes/inventory-tab';
+import { LocationsTab } from '@/components/almacenes/locations-tab';
+import { MapTab } from '@/components/almacenes/map-tab';
+import { MovementsTab } from '@/components/almacenes/movements-tab';
+import { Button } from '@/components/ui/button';
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from '@/components/ui/tabs';
+import { useAlmacenesScreenStore } from '@/features/almacenes/store';
+import { useWarehouse } from '@/lib/hooks/use-warehouse';
+import { useWarehouseMap } from '@/lib/hooks/use-warehouse-map';
 
 function WarehouseDetailPageInner() {
-  const params = useParams();
-  const warehouseId = params.id as string;
+  const params = useParams<{ id: string }>();
+  const warehouseId = params.id;
   const searchParams = useSearchParams();
   const { replace } = useRouter();
   const pathname = usePathname();
   const activeTab = searchParams.get('tab') || 'ubicaciones';
+
+  const setDetailWarehouseId = useAlmacenesScreenStore(
+    (s) => s.setDetailWarehouseId,
+  );
+
+  // FS-2.2 — reset the DETAIL slice when the page unmounts. The LIST slice
+  // is preserved so back navigation restores the list's search + page.
+  useEffect(
+    () => () => useAlmacenesScreenStore.getState().resetDetail(),
+    [],
+  );
+
+  // Track the active warehouse id in the store so cross-warehouse
+  // navigation (A → B) clears expand/select/pagination state for the new
+  // warehouse (design R2 mitigation).
+  useEffect(() => {
+    setDetailWarehouseId(warehouseId);
+  }, [warehouseId, setDetailWarehouseId]);
+
+  const { warehouse, isLoading, error } = useWarehouse(warehouseId);
+  const { data: mapData, isLoading: mapLoading } =
+    useWarehouseMap(warehouseId);
 
   const handleTabChange = (value: string) => {
     const sp = new URLSearchParams(searchParams.toString());
     sp.set('tab', value);
     replace(`${pathname}?${sp.toString()}`, { scroll: false });
   };
-
-  const [warehouse, setWarehouse] = useState<Warehouse | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [selectedZone, setSelectedZone] = useState<ZoneHealth | null>(null);
-
-  const { data: mapData, isLoading: mapLoading } = useSWR<WarehouseMapResponse>(
-    warehouseId ? `/warehouses/${warehouseId}/map` : null
-  );
-
-  useEffect(() => {
-    const fetchWarehouse = async () => {
-      setIsLoading(true);
-      setError(null);
-      try {
-        const res = await api.get<Warehouse>(`/warehouses/${warehouseId}`);
-        setWarehouse(res);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Error al cargar almacen');
-      } finally {
-        setIsLoading(false);
-      }
-    };
-    if (warehouseId) fetchWarehouse();
-  }, [warehouseId]);
 
   if (isLoading) {
     return (
@@ -962,6 +97,10 @@ function WarehouseDetailPageInner() {
   }
 
   if (error || !warehouse) {
+    const message =
+      error instanceof Error
+        ? error.message
+        : 'No se pudo cargar el almacen solicitado.';
     return (
       <div className="space-y-6" data-testid="warehouse-detail-error">
         <div className="flex items-center gap-3 mb-6">
@@ -973,7 +112,7 @@ function WarehouseDetailPageInner() {
           <h1 className="text-2xl font-semibold">Almacen no encontrado</h1>
         </div>
         <div className="rounded-4xl border border-destructive/50 bg-destructive/10 p-4 text-sm text-destructive">
-          {error || 'No se pudo cargar el almacen solicitado.'}
+          {message}
         </div>
       </div>
     );
@@ -981,7 +120,6 @@ function WarehouseDetailPageInner() {
 
   return (
     <div className="space-y-6" data-testid="warehouse-detail-page">
-      {/* Header */}
       <div className="flex items-center gap-3">
         <Button variant="ghost" size="icon" asChild>
           <Link href="/almacenes" data-testid="back-to-warehouses">
@@ -990,11 +128,12 @@ function WarehouseDetailPageInner() {
         </Button>
         <div>
           <h1 className="text-2xl font-semibold">{warehouse.name}</h1>
-          <p className="text-muted-foreground">{warehouse.address || 'Sin direccion'}</p>
+          <p className="text-muted-foreground">
+            {warehouse.address || 'Sin direccion'}
+          </p>
         </div>
       </div>
 
-      {/* Tabs */}
       <Tabs value={activeTab} onValueChange={handleTabChange}>
         <TabsList>
           <TabsTrigger value="ubicaciones" data-testid="tab-ubicaciones">
@@ -1011,106 +150,36 @@ function WarehouseDetailPageInner() {
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="ubicaciones" className="animate-in fade-in-0 duration-200">
+        <TabsContent
+          value="ubicaciones"
+          className="animate-in fade-in-0 duration-200"
+        >
           <LocationsTab warehouseId={warehouseId} />
         </TabsContent>
 
-        <TabsContent value="inventario" className="animate-in fade-in-0 duration-200">
+        <TabsContent
+          value="inventario"
+          className="animate-in fade-in-0 duration-200"
+        >
           <InventoryTab warehouseId={warehouseId} />
         </TabsContent>
 
-        <TabsContent value="movimientos" className="animate-in fade-in-0 duration-200">
+        <TabsContent
+          value="movimientos"
+          className="animate-in fade-in-0 duration-200"
+        >
           <MovementsTab warehouseId={warehouseId} />
         </TabsContent>
 
-        <TabsContent value="mapa" className="animate-in fade-in-0 duration-200 space-y-4">
-          {mapLoading ? (
-            <div className="h-[600px] animate-pulse bg-muted rounded-xl" />
-          ) : mapData && mapData.zones.length > 0 ? (
-            <>
-              <MapSummaryBar summary={mapData.summary} />
-
-              <div className="flex gap-4 relative">
-                {/* Canvas - shrinks when zone is selected on desktop */}
-                <div
-                  className={cn(
-                    'transition-all duration-300 ease-in-out min-w-0',
-                    selectedZone ? 'lg:w-[65%]' : 'w-full',
-                  )}
-                >
-                  <MapCanvas
-                    zones={mapData.zones}
-                    canvasWidth={mapData.canvas_width ?? 1200}
-                    canvasHeight={mapData.canvas_height ?? 700}
-                    warehouseId={warehouseId}
-                    onZoneSelect={(zoneId) => {
-                      if (zoneId) {
-                        const zone = mapData.zones.find((z) => z.zone_id === zoneId) ?? null;
-                        setSelectedZone(zone);
-                      } else {
-                        setSelectedZone(null);
-                      }
-                    }}
-                  />
-                </div>
-
-                {/* Desktop side panel */}
-                {selectedZone && (
-                  <div className="hidden lg:block w-[35%] min-w-[300px] max-h-[650px] overflow-y-auto animate-in slide-in-from-right-5 fade-in-0 duration-300">
-                    <ZoneDetail
-                      zone={selectedZone}
-                      warehouseId={warehouseId}
-                      onClose={() => setSelectedZone(null)}
-                    />
-                  </div>
-                )}
-
-                {/* Mobile bottom sheet overlay */}
-                {selectedZone && (
-                  <div className="lg:hidden fixed inset-x-0 bottom-0 z-50 max-h-[50vh] overflow-y-auto border-t rounded-t-xl bg-card shadow-2xl animate-in slide-in-from-bottom-5 fade-in-0 duration-300">
-                    <ZoneDetail
-                      zone={selectedZone}
-                      warehouseId={warehouseId}
-                      onClose={() => setSelectedZone(null)}
-                    />
-                  </div>
-                )}
-              </div>
-            </>
-          ) : (
-            /* Visual empty state with placeholder grid */
-            <div className="relative">
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 opacity-40 pointer-events-none select-none">
-                {Array.from({ length: 4 }).map((_, i) => (
-                  <div
-                    key={i}
-                    className="h-28 rounded-lg border-2 border-dashed border-muted-foreground/20 bg-muted/30"
-                  />
-                ))}
-              </div>
-              <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-4">
-                <HugeiconsIcon
-                  icon={MapsLocation01Icon}
-                  className="size-10 text-muted-foreground/50 mb-3"
-                />
-                <h3 className="text-base font-medium mb-1">
-                  Crea zonas en tu almacen para visualizar el mapa de stock
-                </h3>
-                <p className="text-sm text-muted-foreground mb-4 max-w-md">
-                  Las zonas agrupan tus ubicaciones y muestran el estado del inventario de forma visual.
-                </p>
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    const tab = document.querySelector<HTMLButtonElement>('[data-testid="tab-ubicaciones"]');
-                    tab?.click();
-                  }}
-                >
-                  Crear zona
-                </Button>
-              </div>
-            </div>
-          )}
+        <TabsContent
+          value="mapa"
+          className="animate-in fade-in-0 duration-200 space-y-4"
+        >
+          <MapTab
+            warehouseId={warehouseId}
+            mapData={mapData}
+            mapLoading={mapLoading}
+          />
         </TabsContent>
       </Tabs>
     </div>
