@@ -11,7 +11,10 @@
     "src/lib/hooks/use-picking-*.{ts,tsx}",
     "src/lib/picking-error-codes.ts",
     "src/components/movements/**/*.{ts,tsx}",
-    "src/features/movements/**/*.{ts,tsx}"
+    "src/features/movements/**/*.{ts,tsx}",
+    "src/components/work-orders/**/*.{ts,tsx}",
+    "src/features/work-orders/**/*.{ts,tsx}",
+    "src/lib/hooks/use-work-orders.ts"
   ],
   "project": [
     "src/**/*.{ts,tsx}",
